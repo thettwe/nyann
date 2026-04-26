@@ -63,7 +63,7 @@ fi
 # used to perform.
 profile_tmp=$(mktemp -t nyann-session-profile.XXXXXX 2>/dev/null) || exit 0
 trap 'rm -f "$profile_tmp"' EXIT
-"${_script_dir}/load-profile.sh" "$profile" >"$profile_tmp" 2>/dev/null || exit 0
+"${_script_dir}/load-profile.sh" --user-root "$user_root" "$profile" >"$profile_tmp" 2>/dev/null || exit 0
 report=$("${_script_dir}/compute-drift.sh" --target "." --profile "$profile_tmp" 2>/dev/null) || exit 0
 [[ -n "$report" ]] || exit 0
 

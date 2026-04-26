@@ -123,6 +123,6 @@ teardown() { rm -rf "$TMP"; }
 
 @test "preferences file has restrictive permissions" {
   bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" >/dev/null 2>&1
-  perms=$(stat -f '%Lp' "$USER_ROOT/preferences.json" 2>/dev/null || stat -c '%a' "$USER_ROOT/preferences.json" 2>/dev/null)
+  perms=$(stat -c '%a' "$USER_ROOT/preferences.json" 2>/dev/null || stat -f '%Lp' "$USER_ROOT/preferences.json" 2>/dev/null)
   [ "$perms" = "600" ]
 }

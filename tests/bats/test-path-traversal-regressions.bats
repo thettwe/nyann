@@ -83,11 +83,10 @@ JSON
 JSON
   run bash "${REPO_ROOT}/bin/scaffold-docs.sh" \
     --target "$TMP/repo" \
-    --profile "${REPO_ROOT}/profiles/default.json" \
-    --doc-plan "$TMP/docplan.json" \
+    --plan "$TMP/docplan.json" \
     --project-name pt-c2
   [ "$status" -ne 0 ]
-  [[ "$output" == *"documentation plan target"* ]]
+  echo "$output" | grep -qF "documentation plan target"
   # victim directory not mutated, nothing written above the repo
   [ ! -f "$TMP/victim/arch.md" ]
 }
