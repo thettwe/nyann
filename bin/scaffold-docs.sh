@@ -200,6 +200,9 @@ safe_target_path() {
   if [[ "$rel" == /* || "$rel" == *".."* ]]; then
     nyann::die "documentation plan target '$key' has unsafe path '$rel' (absolute or contains '..')"
   fi
+  if [[ -L "$target_root/$rel" ]]; then
+    nyann::die "refusing to write $key via symlink: $target_root/$rel"
+  fi
   nyann::assert_path_under_target "$target_root" "$target_root/$rel" \
     "documentation plan target '$key'"
 }

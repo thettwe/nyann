@@ -106,16 +106,20 @@ seed_merged_branches() {
 
 @test "merged-branch nudge: count >= threshold (no other drift) emits hygiene line" {
   REPO="$TMP/clean-repo"
-  mkdir -p "$REPO" "$USER_ROOT"
+  mkdir -p "$REPO" "$USER_ROOT/profiles"
   seed_merged_branches "$REPO" 4
-  echo '{"default_profile":"default"}' > "$USER_ROOT/preferences.json"
+  # Use a minimal profile that expects nothing so drift_total stays 0.
+  cat > "$USER_ROOT/profiles/bare-test.json" <<'PROF'
+{"name":"bare-test","schemaVersion":1,"stack":{"primary_language":"unknown"},"branching":{"strategy":"github-flow","base_branches":["main"]},"conventions":{"commit_format":"conventional-commits"},"hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},"extras":{"gitignore":false,"editorconfig":false,"claude_md":false,"github_actions_ci":false,"commit_message_template":false,"github_templates":false},"documentation":{"scaffold_types":[],"storage_strategy":"local","preferred_mcp":null,"adr_format":"madr","claude_md_mode":"router","claude_md_size_budget_kb":3,"staleness_days":null,"enable_drift_checks":{"broken_internal_links":false,"broken_mcp_links":false,"orphans":false,"staleness":false}}}
+PROF
+  echo '{"default_profile":"bare-test"}' > "$USER_ROOT/preferences.json"
 
   cd "$REPO"
   run env NYANN_MERGED_BRANCH_THRESHOLD=3 bash "$SESSION_CHECK" --user-root "$USER_ROOT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"hygiene"* ]]
-  [[ "$output" == *"4 merged branches"* ]]
-  [[ "$output" == *"/nyann:cleanup-branches"* ]]
+  echo "$output" | grep -qF "hygiene"
+  echo "$output" | grep -qF "4 merged branches"
+  echo "$output" | grep -qF "/nyann:cleanup-branches"
 }
 
 @test "merged-branch nudge: count below threshold does NOT trigger cleanup CTA" {

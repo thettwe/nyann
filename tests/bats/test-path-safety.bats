@@ -26,7 +26,7 @@ teardown() { rm -rf "$TMP"; }
     --dir "../victim" \
     --dry-run
   [ "$status" -ne 0 ]
-  [[ "$output" == *"--dir"* ]]
+  echo "$output" | grep -qF -- "--dir"
   # victim untouched
   [ "$(cat "$TMP/victim/keepme")" = "do-not-touch" ]
 }
@@ -38,7 +38,7 @@ teardown() { rm -rf "$TMP"; }
     --dir "/tmp/nyann-should-not-reach" \
     --dry-run
   [ "$status" -ne 0 ]
-  [[ "$output" == *"--dir"* ]]
+  echo "$output" | grep -qF -- "--dir"
   [ ! -e "/tmp/nyann-should-not-reach" ]
 }
 
@@ -74,33 +74,29 @@ JSON
 # ---- symlink refusal at editorconfig, gitignore-combiner, scaffold-docs -----
 
 @test "bootstrap refuses .editorconfig via symlink" {
-  sentinel="$TMP/victim/sentinel.txt"
-  echo "original-content" > "$sentinel"
-  ln -s "$sentinel" "$REPO/.editorconfig"
+  # Dangling symlink pointing INSIDE the repo so assert_path_under_target
+  # doesn't reject it as an escape — the -L guard in the editorconfig
+  # section is what must fire.
+  ln -s "$REPO/nonexistent.editorconfig" "$REPO/.editorconfig"
 
   cat > "$TMP/plan.json" <<'JSON'
 {"writes":[{"path":".editorconfig","action":"create","bytes":0}],"commands":[],"remote":[]}
 JSON
+  plan_sha=$(bash "${REPO_ROOT}/bin/preview.sh" --plan "$TMP/plan.json" --emit-sha256)
   bash "${REPO_ROOT}/bin/route-docs.sh" --profile "${REPO_ROOT}/profiles/default.json" > "$TMP/docplan.json"
   bash "${REPO_ROOT}/bin/detect-stack.sh" --path "$REPO" > "$TMP/stack.json"
-
-  # Use a profile that wants editorconfig=true (typescript-library is safe).
-  # The symlink-to-file satisfies `-e` (exists), so bootstrap's existing
-  # "skip if already exists" branch wins first. Delete the symlink-target
-  # after planting to leave a *dangling* symlink so `-e` is false and
-  # bootstrap proceeds to the write path — where -L must fire.
-  rm "$sentinel"
 
   run bash "${REPO_ROOT}/bin/bootstrap.sh" \
     --target "$REPO" \
     --plan "$TMP/plan.json" \
+    --plan-sha256 "$plan_sha" \
     --profile "${REPO_ROOT}/profiles/typescript-library.json" \
     --doc-plan "$TMP/docplan.json" \
     --stack "$TMP/stack.json"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"symlink"* ]]
-  # Sentinel path was not recreated by the write.
-  [ ! -f "$sentinel" ]
+  echo "$output" | grep -qF "symlink"
+  # Symlink target was not created by the write.
+  [ ! -f "$REPO/nonexistent.editorconfig" ]
 }
 
 @test "gitignore-combiner refuses symlinked --target" {
@@ -112,17 +108,17 @@ JSON
     --target "$REPO/.gitignore" \
     --templates "generic"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"symlink"* ]]
+  echo "$output" | grep -qF "symlink"
   [ "$(cat "$sentinel")" = "original" ]
 }
 
 @test "scaffold-docs refuses a dangling-symlink destination" {
   # Plant a dangling symlink where scaffold-docs would write
-  # `docs/prd.md`. `-e` is false for dangling symlinks, so the "skip
-  # if exists" branch does not fire; `-L` must catch it.
-  sentinel="$TMP/victim/sentinel-prd.md"
+  # `docs/prd.md`. The symlink must point INSIDE the repo (so
+  # safe_target_path doesn't reject it as an escape) but to a
+  # non-existent file (so -e is false and -L fires).
   mkdir -p "$REPO/docs"
-  ln -s "$sentinel" "$REPO/docs/prd.md"
+  ln -s "$REPO/docs/nonexistent-target.md" "$REPO/docs/prd.md"
 
   cat > "$TMP/docplan.json" <<'JSON'
 {
@@ -143,6 +139,6 @@ JSON
     --plan "$TMP/docplan.json" \
     --project-name test-rh6
   [ "$status" -ne 0 ]
-  [[ "$output" == *"symlink"* ]]
-  [ ! -f "$sentinel" ]
+  echo "$output" | grep -qF "symlink"
+  [ ! -f "$REPO/docs/nonexistent-target.md" ]
 }
