@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# find-orphans.sh — locate docs/ + memory/ files with zero inbound references.
+#
+# Usage: find-orphans.sh --target <repo>
+#
+# An orphan is a file under docs/ or memory/ whose basename (or repo-relative
+# path) appears in no other doc or CLAUDE.md. Excluded by default:
+#   - patterns from templates/orphan-exclusions.txt
+#   - patterns from the repo's own .nyann-ignore (basename glob)
+#
+# Output: JSON OrphanReport on stdout
+#         (schemas/orphan-report.schema.json).
+
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./_lib.sh
+source "${_script_dir}/_lib.sh"
+
+nyann::require_cmd jq
+
+target=""
+exclusions_path="${_script_dir}/../templates/orphan-exclusions.txt"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)          target="${2:-}"; shift 2 ;;
+    --target=*)        target="${1#--target=}"; shift ;;
+    --exclusions)      exclusions_path="${2:-}"; shift 2 ;;
+    --exclusions=*)    exclusions_path="${1#--exclusions=}"; shift ;;
+    -h|--help)         sed -n '3,14p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) nyann::die "unknown argument: $1" ;;
+  esac
+done
+
+[[ -n "$target" && -d "$target" ]] || nyann::die "--target <repo> is required and must be a directory"
+target="$(cd "$target" && pwd)"
+
+# --- load exclusion globs ----------------------------------------------------
+
+# shellcheck disable=SC2034  # populated by nyann::load_globs, read by nyann::is_excluded
+exclusions=()
+nyann::load_globs "$exclusions_path"
+nyann::load_globs "$target/.nyann-ignore"
+
+# --- enumerate scan roots + everybody who might reference them --------------
+
+scan_dirs=()
+[[ -d "$target/docs" ]]   && scan_dirs+=("$target/docs")
+[[ -d "$target/memory" ]] && scan_dirs+=("$target/memory")
+
+if [[ ${#scan_dirs[@]} -eq 0 ]]; then
+  jq -n '{scanned: 0, orphans: []}'
+  exit 0
+fi
+
+# Reference corpus = CLAUDE.md + every *.md / *.markdown under scan_dirs.
+corpus=()
+[[ -f "$target/CLAUDE.md" ]] && corpus+=("$target/CLAUDE.md")
+while IFS= read -r -d '' f; do
+  corpus+=("$f")
+done < <(find "${scan_dirs[@]}" -type f \( -name '*.md' -o -name '*.markdown' \) -print0)
+
+# --- for each file, check if any other file references it -------------------
+
+# Build the reference corpus as a single concatenated buffer with
+# per-file boundary markers. The single-buffer + one-awk-pass-per-
+# candidate shape keeps total open/close overhead at O(N) instead of
+# the O(N²·T) that per-file grep loops produce on large doc trees.
+#
+# Each corpus section starts with `<MARKER><abs-path>\n` so awk can
+# tell which file a match landed in (used to skip self-references).
+CORPUS_MARKER="__NYANN_CORPUS_FILE__:"
+corpus_buf=$(mktemp -t nyann-corpus.XXXXXX)
+trap 'rm -f "$corpus_buf"' EXIT
+for ref in "${corpus[@]}"; do
+  printf '\n%s%s\n' "$CORPUS_MARKER" "$ref" >> "$corpus_buf"
+  cat "$ref" >> "$corpus_buf" 2>/dev/null || true
+done
+
+orphans='[]'
+scanned=0
+
+while IFS= read -r -d '' f; do
+  rel="${f#"$target"/}"
+  base="$(basename "$f")"
+
+  # Skip excluded.
+  if nyann::is_excluded "$base" "$rel"; then
+    continue
+  fi
+
+  scanned=$((scanned + 1))
+
+  # Consider directories with README inside — the README is the directory's
+  # entry point; don't flag it as orphan if the directory is referenced
+  # elsewhere.
+  search_terms=("$base")
+  if [[ "$base" == "README.md" ]]; then
+    # Dir-level reference (e.g. "docs/research/README.md" or "docs/research/").
+    dir="$(dirname "$rel")"
+    search_terms+=("$dir" "$(basename "$dir")")
+  fi
+  # Also consider the relative-path form (e.g. `docs/architecture.md`).
+  search_terms+=("$rel")
+
+  # Single awk pass over the concatenated corpus: track which corpus
+  # file each line belongs to and report a hit only when a search term
+  # matches in a file OTHER than the candidate itself. Exits on first
+  # qualifying match for early termination on huge corpora.
+  #
+  # Search terms go through a temp file rather than `-v terms_csv=...`
+  # because `awk -v` does not accept embedded newlines (and a search
+  # term can legitimately be a path with `/` etc., though not newlines
+  # — using a file is the consistent pattern).
+  terms_file=$(mktemp -t nyann-orphan-terms.XXXXXX)
+  printf '%s\n' "${search_terms[@]}" > "$terms_file"
+  found_ref=false
+  if awk \
+       -v marker="$CORPUS_MARKER" \
+       -v self="$f" \
+       -v terms_path="$terms_file" \
+       '
+       BEGIN {
+         n = 0
+         while ((getline line < terms_path) > 0) {
+           if (line != "") { n++; terms[n] = line }
+         }
+         close(terms_path)
+         marker_len = length(marker)
+         is_self = 0
+       }
+       substr($0, 1, marker_len) == marker {
+         current = substr($0, marker_len + 1)
+         is_self = (current == self)
+         next
+       }
+       !is_self {
+         for (i = 1; i <= n; i++) {
+           if (index($0, terms[i]) > 0) { print "1"; exit 0 }
+         }
+       }
+       ' "$corpus_buf" | grep -Fxq "1"; then
+    found_ref=true
+  fi
+  rm -f "$terms_file"
+
+  if ! $found_ref; then
+    # Compute age in days.
+    if stat -f "%m" "$f" >/dev/null 2>&1; then
+      mtime=$(stat -f "%m" "$f")
+    else
+      mtime=$(stat -c "%Y" "$f")
+    fi
+    now=$(date +%s)
+    days=$(( (now - mtime) / 86400 ))
+    orphans=$(jq --arg p "$rel" --argjson d "$days" \
+      '. + [{ path: $p, last_modified_days_ago: $d }]' <<<"$orphans")
+  fi
+done < <(find "${scan_dirs[@]}" -type f -print0)
+
+jq -n \
+  --argjson scanned "$scanned" \
+  --argjson orphans "$orphans" \
+  '{ scanned: $scanned, orphans: $orphans }'

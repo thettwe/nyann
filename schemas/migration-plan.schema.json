@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/migration-plan/v1.json",
+  "title": "MigrationPlan",
+  "description": "Output of bin/switch-profile.sh — diff between two profiles. Consumed by skills/migrate-profile/ to render the preview the user confirms, and re-displayed before the bootstrap re-run that applies the migration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["from_profile", "to_profile", "additions", "removals", "changes", "total_modifications"],
+  "properties": {
+    "from_profile": { "type": "string" },
+    "to_profile": { "type": "string" },
+    "additions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/MigrationEntry" }
+    },
+    "removals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/MigrationEntry" }
+    },
+    "changes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/MigrationEntry" }
+    },
+    "total_modifications": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "additions + removals + changes; convenience for the skill's confirmation prompt."
+    }
+  },
+  "$defs": {
+    "MigrationEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "path", "before", "after", "action"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["hook", "branching", "extras", "conventions", "ci"],
+          "description": "Which profile sub-tree the change applies to."
+        },
+        "path": {
+          "type": "string",
+          "description": "Dot-path inside the profile (e.g. 'hooks.pre_commit.eslint', 'branching.strategy')."
+        },
+        "before": {
+          "type": "string",
+          "description": "Pre-migration value as a string (empty when this is an addition)."
+        },
+        "after": {
+          "type": "string",
+          "description": "Post-migration value as a string (empty when this is a removal)."
+        },
+        "action": {
+          "type": "string",
+          "enum": ["add", "remove", "change"]
+        }
+      }
+    }
+  }
+}

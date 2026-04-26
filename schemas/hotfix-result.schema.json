@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/hotfix-result/v1.json",
+  "title": "HotfixResult",
+  "description": "Output of `bin/hotfix.sh`. Sets up the branch topology for a patch release against a previously tagged version: ensures a `release/<major>.<minor>` branch exists from the source tag, then creates a `hotfix/<slug>` branch off it. The user commits their fix there; `/nyann:release --version <patch>` does the rest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "source_tag", "release_branch", "hotfix_branch", "release_branch_created", "hotfix_branch_created", "next_steps"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo path the hotfix flow ran against."
+    },
+    "source_tag": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tag the hotfix lineage starts from (the `--from` argument)."
+    },
+    "release_branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Long-lived branch the patch release will be tagged from. Defaults to `release/<major>.<minor>` derived from the source tag; overridable via `--release-branch`."
+    },
+    "hotfix_branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Short-lived branch the user commits the fix on. Always `hotfix/<slug>`."
+    },
+    "release_branch_created": {
+      "type": "boolean",
+      "description": "True when the release branch didn't already exist locally and was created from the source tag in this run. False when it already existed (idempotent)."
+    },
+    "hotfix_branch_created": {
+      "type": "boolean",
+      "description": "True when the hotfix branch was created in this run. Always true when this script succeeds — it refuses if the branch already exists (no silent overwrite)."
+    },
+    "checked_out": {
+      "type": "boolean",
+      "description": "True when --checkout was passed AND the script switched to the hotfix branch successfully. Absent when --checkout wasn't requested."
+    },
+    "next_steps": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Concrete shell snippets the user runs next. Includes: switch to the hotfix branch (if --checkout wasn't passed), commit the fix, run `/nyann:release --version <patch> --base <release_branch>` to tag and push."
+    }
+  }
+}

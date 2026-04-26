@@ -1,0 +1,20 @@
+{
+  "skill": "pr",
+  "trigger_cases": [
+    { "prompt": "open a PR for this branch",                "should_trigger": true,  "tag": "open-pr" },
+    { "prompt": "create a pull request",                    "should_trigger": true,  "tag": "create-pr" },
+    { "prompt": "push and PR",                              "should_trigger": true,  "tag": "push-and-pr" },
+    { "prompt": "submit this for review",                   "should_trigger": true,  "tag": "submit-review" },
+    { "prompt": "ship this PR",                             "should_trigger": true,  "tag": "ship-pr" },
+    { "prompt": "open a draft PR",                          "should_trigger": true,  "tag": "draft-pr" },
+    { "prompt": "file a PR",                                "should_trigger": true,  "tag": "file-pr" },
+    { "prompt": "/nyann:pr",                                "should_trigger": true,  "tag": "slash" },
+    { "prompt": "merge the PR",                             "should_trigger": false, "tag": "merge-distractor" },
+    { "prompt": "approve the PR",                           "should_trigger": false, "tag": "approve-distractor" },
+    { "prompt": "review PR #42",                            "should_trigger": false, "tag": "review-distractor" },
+    { "prompt": "rebase on main",                           "should_trigger": false, "tag": "sync-distractor" },
+    { "prompt": "commit these changes",                     "should_trigger": false, "tag": "commit-distractor" },
+    { "prompt": "create a new branch",                      "should_trigger": false, "tag": "branch-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

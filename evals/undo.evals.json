@@ -1,0 +1,17 @@
+{
+  "skill": "undo",
+  "trigger_cases": [
+    { "prompt": "undo my last commit",                     "should_trigger": true,  "tag": "undo-last" },
+    { "prompt": "undo the last 3 commits",                 "should_trigger": true,  "tag": "undo-multi" },
+    { "prompt": "oops revert that commit",                 "should_trigger": true,  "tag": "oops" },
+    { "prompt": "uncommit but keep my changes",            "should_trigger": true,  "tag": "uncommit" },
+    { "prompt": "take back that commit",                   "should_trigger": true,  "tag": "take-back" },
+    { "prompt": "/nyann:undo",                             "should_trigger": true,  "tag": "slash" },
+    { "prompt": "undo the last edit",                      "should_trigger": false, "tag": "editor-distractor" },
+    { "prompt": "rollback the deploy",                     "should_trigger": false, "tag": "deploy-distractor" },
+    { "prompt": "revert a pushed commit on main",          "should_trigger": false, "tag": "git-revert-distractor" },
+    { "prompt": "commit these changes",                    "should_trigger": false, "tag": "commit-distractor" },
+    { "prompt": "open a PR",                               "should_trigger": false, "tag": "pr-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

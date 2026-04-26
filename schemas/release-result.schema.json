@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/release-result/v1.json",
+  "title": "ReleaseResult",
+  "description": "Output of bin/release.sh — generate CHANGELOG section, commit, tag. Consumed by skills/release/SKILL.md.",
+  "oneOf": [
+    {
+      "title": "ReleaseSuccess",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "strategy", "version", "tag", "from", "commits", "changelog", "pushed", "next_steps", "prerelease"],
+      "properties": {
+        "status": { "const": "released" },
+        "strategy": { "type": "string", "enum": ["conventional-changelog", "manual", "changesets", "release-please"] },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?$" },
+        "tag": { "type": "string" },
+        "from": { "type": "string", "description": "Reference (tag or SHA) the changelog was generated from." },
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sha", "type", "scope", "subject", "breaking"],
+            "properties": {
+              "sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+              "type": { "type": "string" },
+              "scope": { "type": "string" },
+              "subject": { "type": "string" },
+              "breaking": { "type": "boolean" }
+            }
+          }
+        },
+        "changelog": { "type": "string", "description": "The rendered Markdown CHANGELOG block that was prepended." },
+        "pushed": {
+          "type": "boolean",
+          "description": "True only when --push was requested AND every push step (tag, plus the conventional-changelog branch push) succeeded. False otherwise — including when --push wasn't requested at all. The exit code is non-zero when --push was requested but pushed is false; consumers should also inspect next_steps[]."
+        },
+        "next_steps": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Concrete recovery commands the user should run when a push step failed mid-release. Empty when nothing failed. Each entry is a copy-paste-ready shell snippet."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "True when emitted from the --dry-run path (no commit/tag/push performed). Absent on a real release run. Consumers can use this to gate any side-effect that should only fire on the real path."
+        },
+        "prerelease": {
+          "type": "boolean",
+          "description": "True when --version contains a SemVer pre-release suffix (e.g. `1.0.0-rc.1`, `2.0.0-alpha`). Prerelease cuts skip CHANGELOG promotion (the [Unreleased] section stays queued for the eventual stable release) and skip the release-commit branch push. Consumers should pass `--prerelease` to `gh release create` when this is true."
+        },
+        "ci_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "description": "Present only when --wait-for-checks was passed and the run wasn't --dry-run AND the gate let the release proceed. Failed gates (CI fail / timeout / unreachable gh / no-PR-found-without-opt-in) die before any JSON is emitted, so the only outcomes that surface here are the ones that allowed the tag to be created.",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "enum": ["pass", "no-checks", "no-pr-found"],
+              "description": "pass = polled PR's checks all green; no-checks = polled PR had no checks attached; no-pr-found = no PR matched HEAD's SHA AND the user passed --allow-no-pr to opt out of the gate (legitimate for first-cut releases or local-only commits — without --allow-no-pr the no-PR case dies hard to prevent silent CI bypass on squash/rebase release flows)."
+            },
+            "pr_number": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "PR number that was polled. Absent when outcome is 'no-pr-found'."
+            }
+          }
+        }
+      }
+    },
+    {
+      "title": "ReleaseSkipped",
+      "description": "Emitted when --strategy is 'changesets' or 'release-please' (nyann doesn't duplicate those tools).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "strategy", "version", "tag", "reason"],
+      "properties": {
+        "status": { "const": "skipped" },
+        "strategy": { "type": "string" },
+        "version": { "type": "string" },
+        "tag": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    {
+      "title": "ReleaseNoop",
+      "description": "Emitted when no commits exist between --from and HEAD (nothing to release).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "strategy", "version", "tag", "from", "reason"],
+      "properties": {
+        "status": { "const": "noop" },
+        "strategy": { "type": "string" },
+        "version": { "type": "string" },
+        "tag": { "type": "string" },
+        "from": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
+  ]
+}

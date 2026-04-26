@@ -1,0 +1,17 @@
+{
+  "skill": "sync-team-profiles",
+  "trigger_cases": [
+    { "prompt": "sync team profiles",                         "should_trigger": true,  "tag": "sync" },
+    { "prompt": "pull the latest team profiles",              "should_trigger": true,  "tag": "pull-latest" },
+    { "prompt": "refresh team profiles",                      "should_trigger": true,  "tag": "refresh" },
+    { "prompt": "update team profiles",                       "should_trigger": true,  "tag": "update" },
+    { "prompt": "sync from the platform-team profile source", "should_trigger": true,  "tag": "sync-named-source" },
+    { "prompt": "fetch profiles from the team repo",          "should_trigger": true,  "tag": "fetch-team" },
+    { "prompt": "/nyann:sync-team-profiles",                  "should_trigger": true,  "tag": "slash" },
+    { "prompt": "add a new team profile source",              "should_trigger": false, "tag": "add-distractor" },
+    { "prompt": "sync my branch",                             "should_trigger": false, "tag": "sync-skill-distractor" },
+    { "prompt": "sync with main",                             "should_trigger": false, "tag": "sync-main-distractor" },
+    { "prompt": "bootstrap this repo",                        "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

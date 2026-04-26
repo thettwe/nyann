@@ -1,0 +1,92 @@
+name: Nightly Evals
+
+on:
+  schedule:
+    # 09:00 UTC daily — off-peak for most of nyann's user timezones.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}
+
+# Least-privilege GITHUB_TOKEN. This workflow only needs read access for
+# checkout + write access to the issues API for regression reports.
+permissions:
+  contents: read
+  issues: write
+
+# Prevent overlapping runs (cron + manual dispatch could race).
+concurrency:
+  group: nightly-evals
+  cancel-in-progress: false
+
+jobs:
+  evals:
+    name: output-quality evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to commit SHA (not @v6) — floating tags can be re-pointed
+      # by a compromised maintainer.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install prereqs
+        run: |
+          # Only install what's missing.
+          need=()
+          for pkg in shellcheck bats jq; do
+            command -v "$pkg" >/dev/null 2>&1 || need+=("$pkg")
+          done
+          if (( ${#need[@]} > 0 )); then
+            sudo apt-get update
+            sudo apt-get install -y "${need[@]}"
+          fi
+          python3 -c "import yaml" 2>/dev/null || \
+            python3 -m pip install --user --break-system-packages PyYAML || \
+            python3 -m pip install --user PyYAML
+
+      # Pinned (vs `curl | sh` of astral.sh) — the official action ships
+      # SHA-verified release tarballs.
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Run every eval spec
+        id: evals
+        continue-on-error: true
+        run: |
+          set -e
+          fail=0
+          for f in evals/*.evals.json; do
+            echo "::group::$(basename "$f")"
+            if ! ./evals/run.sh --file "$f"; then
+              echo "eval spec failed: $f"
+              fail=$((fail + 1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "failed=$fail" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # Pinned to commit SHA (resolved from v9.0.0 annotated tag).
+      - name: Open issue on regression
+        if: steps.evals.outputs.failed != '0'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FAILED_COUNT: ${{ steps.evals.outputs.failed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const fail = process.env.FAILED_COUNT;
+            const runUrl = process.env.RUN_URL;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Nightly eval regression: ${fail} spec(s) failing`,
+              body: [
+                'Nightly eval run detected regressions.',
+                '',
+                `Check run: ${runUrl}`,
+                '',
+                'Open each failing eval spec and reproduce with ./evals/run.sh --file <path>.'
+              ].join('\n'),
+              labels: ['evals', 'regression']
+            });

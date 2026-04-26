@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/orphan-report/v1.json",
+  "title": "OrphanReport",
+  "description": "Output of bin/find-orphans.sh. Lists docs/ + memory/ files with no inbound references.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scanned", "orphans"],
+  "properties": {
+    "scanned": { "type": "integer", "minimum": 0 },
+    "orphans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "last_modified_days_ago"],
+        "properties": {
+          "path":                   { "type": "string", "minLength": 1 },
+          "last_modified_days_ago": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "skill": "bootstrap-project",
+  "trigger_cases": [
+    { "prompt": "set me up from scratch",                             "should_trigger": true,  "tag": "setup-intent" },
+    { "prompt": "bootstrap this repo with the default profile",        "should_trigger": true,  "tag": "setup-intent" },
+    { "prompt": "initialize git workflow here",                        "should_trigger": true,  "tag": "setup-intent" },
+    { "prompt": "audit this project's git hygiene",                    "should_trigger": true,  "tag": "audit-intent" },
+    { "prompt": "use my nextjs-prototype profile",                     "should_trigger": true,  "tag": "profile-intent" },
+    { "prompt": "install all the standard hooks",                      "should_trigger": true,  "tag": "opinionated-bulk" },
+    { "prompt": "give this repo the usual setup",                      "should_trigger": true,  "tag": "opinionated-bulk" },
+    { "prompt": "make this repo standard",                             "should_trigger": true,  "tag": "opinionated-bulk" },
+    { "prompt": "install nyann",                                       "should_trigger": true,  "tag": "opinionated-bulk" },
+    { "prompt": "commit these changes",                                "should_trigger": false, "tag": "commit-distractor" },
+    { "prompt": "what's the weather today?",                           "should_trigger": false, "tag": "unrelated" },
+    { "prompt": "add a lint rule that bans console.log",               "should_trigger": false, "tag": "narrow-edit" }
+  ],
+  "output_quality_scenarios": [
+    {
+      "name": "empty-dir-nextjs",
+      "fixture": "tests/fixtures/jsts-empty",
+      "profile": "nextjs-prototype",
+      "project_name": "nextjs-eval",
+      "assertions": [
+        { "kind": "file_exists",     "path": ".husky/pre-commit" },
+        { "kind": "file_contains",   "path": ".husky/pre-commit",  "substring": "lint-staged" },
+        { "kind": "file_exists",     "path": "CLAUDE.md" },
+        { "kind": "file_size_max",   "path": "CLAUDE.md",          "bytes": 3072 },
+        { "kind": "file_contains",   "path": "CLAUDE.md",          "substring": "## Docs map" },
+        { "kind": "file_contains",   "path": "CLAUDE.md",          "substring": "next" },
+        { "kind": "file_exists",     "path": "docs/architecture.md" },
+        { "kind": "file_contains",   "path": "docs/architecture.md","substring": "typescript" },
+        { "kind": "file_exists",     "path": "docs/decisions/ADR-000-record-architecture-decisions.md" },
+        { "kind": "file_exists",     "path": ".git/hooks/commit-msg" },
+        { "kind": "file_exists",     "path": ".gitignore" },
+        { "kind": "file_contains",   "path": ".gitignore",         "substring": "node_modules/" }
+      ]
+    },
+    {
+      "name": "empty-dir-python",
+      "fixture": "tests/fixtures/python-empty",
+      "profile": "python-cli",
+      "project_name": "python-eval",
+      "bootstrap_flags": ["--no-install-hook-py"],
+      "assertions": [
+        { "kind": "file_exists",     "path": ".pre-commit-config.yaml" },
+        { "kind": "file_contains",   "path": ".pre-commit-config.yaml", "substring": "ruff-pre-commit" },
+        { "kind": "file_contains",   "path": ".pre-commit-config.yaml", "substring": "commitizen" },
+        { "kind": "file_exists",     "path": "CLAUDE.md" },
+        { "kind": "file_size_max",   "path": "CLAUDE.md",              "bytes": 3072 },
+        { "kind": "file_contains",   "path": "CLAUDE.md",              "substring": "python" },
+        { "kind": "file_exists",     "path": "docs/architecture.md" },
+        { "kind": "file_contains",   "path": "docs/architecture.md",   "substring": "python" },
+        { "kind": "file_exists",     "path": "docs/decisions/ADR-000-record-architecture-decisions.md" },
+        { "kind": "file_exists",     "path": "memory/README.md" }
+      ]
+    }
+  ]
+}

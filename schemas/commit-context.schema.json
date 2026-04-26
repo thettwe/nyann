@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/commit-context/v1.json",
+  "title": "CommitContext",
+  "description": "Output of bin/commit.sh — staged diff + commit-convention detection passed to the commit skill so the LLM can compose a message before bin/try-commit.sh attempts it. NOT to be confused with commit-result (that schema covers try-commit.sh's outcome).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "target",
+    "branch",
+    "on_main",
+    "convention",
+    "convention_source",
+    "staged_files",
+    "n_files",
+    "insertions",
+    "deletions",
+    "summary",
+    "diff",
+    "truncated"
+  ],
+  "properties": {
+    "target": { "type": "string", "description": "Absolute path to the repo." },
+    "branch": { "type": "string" },
+    "on_main": { "type": "boolean" },
+    "convention": {
+      "type": "string",
+      "enum": ["conventional-commits", "commitizen", "default"]
+    },
+    "convention_source": {
+      "type": "string",
+      "enum": ["commitlint.config.js", "pre-commit.com", "default"]
+    },
+    "staged_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "n_files": { "type": "integer", "minimum": 0 },
+    "insertions": { "type": "integer", "minimum": 0 },
+    "deletions": { "type": "integer", "minimum": 0 },
+    "summary": { "type": "string", "description": "One-line numstat-style per-file summary." },
+    "diff": { "type": "string", "description": "git diff --staged content; truncated when oversized." },
+    "truncated": { "type": "boolean", "description": "True when diff was truncated to --max-diff-bytes." }
+  }
+}

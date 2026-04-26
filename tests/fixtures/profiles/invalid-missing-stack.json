@@ -1,0 +1,24 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-missing-stack",
+  "description": "Negative fixture: top-level `stack` object is missing.",
+  "schemaVersion": 1,
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": [],
+    "commit_msg": [],
+    "pre_push": []
+  },
+  "extras": {},
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "claude_md_mode": "router"
+  }
+}

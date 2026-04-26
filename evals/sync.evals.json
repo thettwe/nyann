@@ -1,0 +1,19 @@
+{
+  "skill": "sync",
+  "trigger_cases": [
+    { "prompt": "sync with main",                             "should_trigger": true,  "tag": "sync-main" },
+    { "prompt": "update my branch",                           "should_trigger": true,  "tag": "update-branch" },
+    { "prompt": "rebase on main",                             "should_trigger": true,  "tag": "rebase" },
+    { "prompt": "catch up with main",                         "should_trigger": true,  "tag": "catch-up" },
+    { "prompt": "pull in main",                               "should_trigger": true,  "tag": "pull-in" },
+    { "prompt": "bring this branch up to date",               "should_trigger": true,  "tag": "up-to-date" },
+    { "prompt": "merge main into this branch",                "should_trigger": true,  "tag": "merge-main" },
+    { "prompt": "/nyann:sync",                                "should_trigger": true,  "tag": "slash" },
+    { "prompt": "pull",                                       "should_trigger": false, "tag": "plain-pull" },
+    { "prompt": "commit these changes",                       "should_trigger": false, "tag": "commit-distractor" },
+    { "prompt": "open a PR",                                  "should_trigger": false, "tag": "pr-distractor" },
+    { "prompt": "create a new branch",                        "should_trigger": false, "tag": "branch-distractor" },
+    { "prompt": "push my changes",                            "should_trigger": false, "tag": "push-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

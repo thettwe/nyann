@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "some-other-tool": {
+      "command": "npx",
+      "args": ["some-other-tool"],
+      "enabled": true
+    }
+  }
+}

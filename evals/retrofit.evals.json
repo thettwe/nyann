@@ -1,0 +1,22 @@
+{
+  "skill": "retrofit",
+  "trigger_cases": [
+    { "prompt": "retrofit this repo",                              "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "fix this repo's hygiene",                          "should_trigger": true,  "tag": "fix-hygiene" },
+    { "prompt": "bring this repo into compliance",                  "should_trigger": true,  "tag": "compliance" },
+    { "prompt": "fix what's drifted",                               "should_trigger": true,  "tag": "fix-drift" },
+    { "prompt": "make this repo match the profile",                 "should_trigger": true,  "tag": "match-profile" },
+    { "prompt": "my repo is half set up, finish it",                "should_trigger": true,  "tag": "half-set-up" },
+    { "prompt": "fill in the gaps",                                 "should_trigger": true,  "tag": "fill-gaps" },
+    { "prompt": "upgrade this repo to nyann standards",             "should_trigger": true,  "tag": "upgrade-standards" },
+    { "prompt": "/nyann:retrofit",                                  "should_trigger": true,  "tag": "slash" },
+    { "prompt": "is this repo healthy",                             "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "check hygiene",                                    "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "audit docs",                                       "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "what's wrong with this repo",                      "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "set up this project",                              "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "initialize this project",                          "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "scaffold this project",                            "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

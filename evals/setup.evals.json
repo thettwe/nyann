@@ -1,0 +1,21 @@
+{
+  "skill": "setup",
+  "trigger_cases": [
+    { "prompt": "set up nyann",                                     "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "configure nyann",                                  "should_trigger": true,  "tag": "configure" },
+    { "prompt": "nyann setup",                                      "should_trigger": true,  "tag": "noun-form" },
+    { "prompt": "onboard me",                                       "should_trigger": true,  "tag": "onboard" },
+    { "prompt": "first time using nyann",                           "should_trigger": true,  "tag": "first-time" },
+    { "prompt": "initialize nyann",                                 "should_trigger": true,  "tag": "initialize" },
+    { "prompt": "nyann first run",                                  "should_trigger": true,  "tag": "first-run" },
+    { "prompt": "get nyann ready",                                  "should_trigger": true,  "tag": "get-ready" },
+    { "prompt": "/nyann:setup",                                     "should_trigger": true,  "tag": "slash" },
+    { "prompt": "set up this project",                              "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "bootstrap this repo",                              "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "scaffold this project",                            "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "check prereqs",                                    "should_trigger": false, "tag": "check-prereqs-distractor" },
+    { "prompt": "what does nyann need",                             "should_trigger": false, "tag": "check-prereqs-distractor" },
+    { "prompt": "what is nyann",                                    "should_trigger": false, "tag": "informational" }
+  ],
+  "output_quality_scenarios": []
+}

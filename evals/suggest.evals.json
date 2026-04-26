@@ -1,0 +1,21 @@
+{
+  "skill": "suggest",
+  "trigger_cases": [
+    { "prompt": "suggest profile changes",                          "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "what should I add to my profile",                  "should_trigger": true,  "tag": "what-add" },
+    { "prompt": "profile recommendations",                          "should_trigger": true,  "tag": "recommendations" },
+    { "prompt": "analyze my hooks",                                 "should_trigger": true,  "tag": "analyze-hooks" },
+    { "prompt": "detect missing hooks",                             "should_trigger": true,  "tag": "detect-missing" },
+    { "prompt": "suggest improvements",                             "should_trigger": true,  "tag": "improvements" },
+    { "prompt": "profile audit",                                    "should_trigger": true,  "tag": "audit" },
+    { "prompt": "what tools am I missing",                          "should_trigger": true,  "tag": "missing-tools" },
+    { "prompt": "check profile coverage",                           "should_trigger": true,  "tag": "coverage" },
+    { "prompt": "profile gaps",                                     "should_trigger": true,  "tag": "gaps" },
+    { "prompt": "/nyann:suggest",                                   "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what's in the python-cli profile",                 "should_trigger": false, "tag": "inspect-distractor" },
+    { "prompt": "save this setup as a profile",                     "should_trigger": false, "tag": "learn-profile-distractor" },
+    { "prompt": "switch profile",                                   "should_trigger": false, "tag": "migrate-distractor" },
+    { "prompt": "is this repo healthy",                             "should_trigger": false, "tag": "doctor-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

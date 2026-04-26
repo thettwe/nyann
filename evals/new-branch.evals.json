@@ -1,0 +1,32 @@
+{
+  "skill": "new-branch",
+  "trigger_cases": [
+    { "prompt": "create a branch for the login feature",     "should_trigger": true,  "tag": "feature-intent" },
+    { "prompt": "start a bugfix branch for checkout modal",  "should_trigger": true,  "tag": "bugfix-intent" },
+    { "prompt": "cut a release branch for 1.2.0",            "should_trigger": true,  "tag": "release-intent" },
+    { "prompt": "start a hotfix for the auth header bug",    "should_trigger": true,  "tag": "hotfix-intent" },
+    { "prompt": "/nyann:branch feature dashboard",           "should_trigger": true,  "tag": "slash" },
+    { "prompt": "start a branch and commit this",            "should_trigger": true,  "tag": "compound-branch-wins" },
+    { "prompt": "branch and commit for the login feature",   "should_trigger": true,  "tag": "compound-branch-wins" },
+    { "prompt": "what branch am I on?",                      "should_trigger": false, "tag": "state-read" },
+    { "prompt": "git log --graph --all",                     "should_trigger": false, "tag": "history-read" },
+    { "prompt": "merge develop into my feature",             "should_trigger": false, "tag": "merge-intent" }
+  ],
+  "output_quality_scenarios": [
+    {
+      "name": "branch-name-matrix",
+      "mode": "branch_name_fixtures",
+      "profile": "nextjs-prototype",
+      "cases": [
+        { "strategy_profile": "nextjs-prototype",   "purpose": "feature", "slug": "login",         "expected_branch": "feat/login",       "expected_base": "main" },
+        { "strategy_profile": "python-cli",         "purpose": "bugfix",  "slug": "csv-escape",    "expected_branch": "fix/csv-escape",   "expected_base": "main" },
+        { "strategy_profile": "synthetic-gitflow",  "purpose": "feature", "slug": "login",         "expected_branch": "feat/login",       "expected_base": "develop" },
+        { "strategy_profile": "synthetic-gitflow",  "purpose": "release", "version": "1.2.0",      "expected_branch": "release/1.2.0",    "expected_base": "main" },
+        { "strategy_profile": "synthetic-gitflow",  "purpose": "hotfix",  "slug": "auth-header",   "expected_branch": "hotfix/auth-header","expected_base": "main" }
+      ],
+      "assertions": [
+        { "kind": "every_case_creates_expected_branch_off_expected_base" }
+      ]
+    }
+  ]
+}

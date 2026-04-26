@@ -1,0 +1,30 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-changelog-traversal",
+  "description": "release.changelog_path with .. — must fail schema validation.",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "typescript"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": [],
+    "commit_msg": [],
+    "pre_push": []
+  },
+  "extras": {},
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "release": {
+    "changelog_path": "../../../etc/passwd"
+  },
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "claude_md_mode": "router"
+  }
+}

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# nyann hook v1 — pre-commit
+# Runs language-agnostic checks:
+#   1. block direct commits to main/master (override with --no-verify)
+#   2. gitleaks secret scan on staged changes (if gitleaks is installed)
+set -e
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+
+case "$branch" in
+  main|master)
+    printf '\n[nyann] direct commits to %s are blocked.\n' "$branch" >&2
+    printf '  Create a feature branch first:\n' >&2
+    printf '    git checkout -b feat/your-change\n' >&2
+    printf '    git commit ...\n\n' >&2
+    printf '  To bypass for an emergency, re-run with:  git commit --no-verify\n\n' >&2
+    exit 1
+    ;;
+esac
+
+# Gitleaks scan. If gitleaks is missing we warn once but do not fail — the
+# block-main check is the load-bearing guard at this tier.
+if command -v gitleaks >/dev/null 2>&1; then
+  # Use --redact so any finding doesn't print the secret itself.
+  if ! gitleaks protect --staged --redact --verbose 2>&1; then
+    printf '\n[nyann] gitleaks found possible secrets in staged changes. Aborting commit.\n' >&2
+    # Backticks in the user-facing message are literal markdown, not
+    # shell command substitution. Single-quoting is intentional.
+    # shellcheck disable=SC2016
+    printf '  Remove the secret and retry, or `git commit --no-verify` if it is a false positive.\n\n' >&2
+    exit 1
+  fi
+else
+  # shellcheck disable=SC2016
+  printf '[nyann] gitleaks not installed; skipping secret scan. Install via `brew install gitleaks`.\n' >&2
+fi

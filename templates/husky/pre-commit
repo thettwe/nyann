@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# nyann hook v1 — husky pre-commit
+# Run lint-staged, then block-main, then gitleaks.
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+case "$branch" in
+  main|master)
+    printf '\n[nyann] direct commits to %s are blocked. Create a feature branch first.\n\n' "$branch" >&2
+    exit 1
+    ;;
+esac
+
+# lint-staged wires ESLint + Prettier onto staged files.
+if command -v npx >/dev/null 2>&1; then
+  npx --no-install lint-staged
+fi
+
+# gitleaks secret scan. Warn-and-skip if not installed.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --verbose
+fi

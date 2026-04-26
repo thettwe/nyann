@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/action-plan/v1.json",
+  "title": "ActionPlan",
+  "description": "The full plan of file writes, shell commands, and remote mutations that bootstrap.sh executes. Every destructive path is expressed here so preview.sh can render a preview.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["writes", "commands", "remote"],
+  "properties": {
+    "writes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "action"],
+        "properties": {
+          "path":   { "type": "string", "minLength": 1 },
+          "action": { "type": "string", "enum": ["create", "merge", "overwrite", "delete"] },
+          "bytes":  { "type": "integer", "minimum": 0 },
+          "diff":   { "type": "string" }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cmd"],
+        "properties": {
+          "cmd": { "type": "string", "minLength": 1 },
+          "cwd": { "type": "string" }
+        }
+      }
+    },
+    "remote": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type":   { "type": "string" },
+          "branch": { "type": "string" },
+          "rules":  { "type": "object" }
+        }
+      }
+    }
+  }
+}

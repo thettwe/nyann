@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/stack-descriptor/v1.json",
+  "title": "StackDescriptor",
+  "description": "Output of bin/detect-stack.sh. Captures everything the downstream branching recommender, hook installer, and docs router need to know about a repo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "primary_language",
+    "secondary_languages",
+    "framework",
+    "package_manager",
+    "is_monorepo",
+    "monorepo_tool",
+    "workspaces",
+    "has_git",
+    "git_is_empty_repo",
+    "has_claude_md",
+    "existing_precommit_config",
+    "existing_ci",
+    "contributor_count",
+    "has_changelog",
+    "has_semver_tags",
+    "confidence",
+    "reasoning"
+  ],
+  "properties": {
+    "primary_language": {
+      "type": "string",
+      "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby", "unknown"]
+    },
+    "secondary_languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby"]
+      },
+      "uniqueItems": true
+    },
+    "framework": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "enum": [
+            "next", "nuxt", "remix", "sveltekit", "react", "vue",
+            "express", "fastify",
+            "django", "flask", "fastapi",
+            "gin", "echo",
+            "actix", "axum", "rocket"
+          ]
+        }
+      ]
+    },
+    "package_manager": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "enum": [
+            "npm", "pnpm", "yarn", "bun",
+            "pip", "poetry", "uv", "pipenv",
+            "cargo",
+            "go",
+            "spm",
+            "gradle"
+          ]
+        }
+      ]
+    },
+    "is_monorepo": { "type": "boolean" },
+    "monorepo_tool": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "enum": ["turbo", "nx", "pnpm-workspaces", "lerna", "cargo-workspace"]
+        }
+      ]
+    },
+    "has_git": { "type": "boolean" },
+    "git_is_empty_repo": { "type": "boolean" },
+    "has_claude_md": { "type": "boolean" },
+    "existing_precommit_config": {
+      "type": "string",
+      "enum": ["pre-commit.com", "husky", "none"]
+    },
+    "existing_ci": {
+      "type": "string",
+      "enum": ["github-actions", "none"],
+      "$comment": "Enum trimmed to values detect-stack.sh actually emits. v1.0 is GitHub-only per CLAUDE.md scope; gitlab-ci / circleci values were advertised but had no detector, leading consumers to branch on values that can never occur."
+    },
+    "contributor_count": { "type": "integer", "minimum": 0 },
+    "has_changelog": { "type": "boolean" },
+    "has_semver_tags": { "type": "boolean" },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "reasoning": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "workspaces": {
+      "type": "array",
+      "description": "Per-workspace mini-descriptors when is_monorepo is true. Each entry is a subset of StackDescriptor scoped to one workspace dir.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "primary_language"],
+        "properties": {
+          "path":             { "type": "string", "minLength": 1 },
+          "primary_language": {
+            "type": "string",
+            "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby", "unknown"]
+          },
+          "framework": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string" }
+            ]
+          },
+          "package_manager": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

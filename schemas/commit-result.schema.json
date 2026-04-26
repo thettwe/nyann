@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/commit-result/v1.json",
+  "title": "CommitResult",
+  "description": "Output of bin/try-commit.sh — the staged-diff commit attempt + hook outcome. Consumed by skills/commit/SKILL.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result", "sha", "subject", "stage", "reason", "exit_code"],
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": ["committed", "rejected", "error"],
+      "description": "Outcome bucket. 'committed' = git commit succeeded; 'rejected' = a hook (commit-msg / pre-commit) refused; 'error' = anything else."
+    },
+    "sha": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+      ],
+      "description": "Resolved commit SHA when result=='committed', null otherwise."
+    },
+    "subject": {
+      "type": "string",
+      "description": "First line of the commit message that was attempted (always present so the skill can re-prompt with context)."
+    },
+    "stage": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "enum": ["commit-msg", "pre-commit", "pre-push", "unknown"] }
+      ],
+      "description": "Which hook stage rejected the commit (only meaningful when result=='rejected'). null for committed/error."
+    },
+    "reason": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string" }
+      ],
+      "description": "Stderr captured from the failing git/hook process. Truncated by try-commit if huge."
+    },
+    "exit_code": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Raw exit code from `git commit` (0 on success)."
+    }
+  }
+}

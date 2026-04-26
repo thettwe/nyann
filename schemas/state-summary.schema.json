@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/state-summary/v1.json",
+  "title": "StateSummary",
+  "description": "Output of bin/explain-state.sh — handoff snapshot of repo state (stack, profile, branching, hooks, CLAUDE.md, recent commits). Consumed by skills/explain-state/SKILL.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repo",
+    "branch",
+    "stack",
+    "profile",
+    "branching",
+    "hooks",
+    "claude_md",
+    "recent_commits"
+  ],
+  "properties": {
+    "repo": { "type": "string", "description": "Absolute path to the repo." },
+    "branch": { "type": "string" },
+    "stack": {
+      "type": "object",
+      "description": "Truncated StackDescriptor — kept loose to avoid coupling explain-state to every detect-stack field.",
+      "additionalProperties": true
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source"],
+      "properties": {
+        "name": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" }
+          ],
+          "description": "null when no profile could be resolved (no preferences.json, no CLAUDE.md marker, no override flag)."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["starter", "user", "team", "loaded", "unknown"]
+        }
+      }
+    },
+    "branching": {
+      "type": "object",
+      "description": "Excerpt of the profile's branching block.",
+      "additionalProperties": true
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["husky", "pre_commit_com", "core"],
+      "properties": {
+        "husky": { "type": "boolean" },
+        "pre_commit_com": { "type": "boolean" },
+        "core": { "type": "boolean" }
+      }
+    },
+    "claude_md": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "bytes", "router_markers"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "router_markers": { "type": "boolean" }
+      }
+    },
+    "recent_commits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

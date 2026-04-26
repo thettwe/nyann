@@ -1,0 +1,26 @@
+# nyann template v1 — Rust pre-commit.com config
+# rustfmt + clippy via doublify/pre-commit-rust. Clippy runs with
+# --deny-warnings so every warning becomes an error on the nyann-managed
+# hook. gitleaks + local block-main from the shared core.
+
+repos:
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+      - id: clippy
+        args: ["--", "--deny", "warnings"]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false

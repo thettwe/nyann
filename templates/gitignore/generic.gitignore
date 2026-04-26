@@ -1,0 +1,29 @@
+# nyann template v1 — generic gitignore
+# Language-agnostic fallback for repos with no detected stack. Covers OS,
+# editor, and env-file concerns only.
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+
+# Env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# nyann ephemeral tracking
+memory/.claudemd-session-*
+
+# Logs
+*.log

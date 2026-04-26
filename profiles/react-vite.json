@@ -1,0 +1,74 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "react-vite",
+  "description": "React + Vite SPA baseline: eslint, prettier, vitest, pnpm. Distinct from nextjs-prototype (no SSR, no Next-specific lint rules).",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "typescript",
+    "framework": "react",
+    "package_manager": "pnpm"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": [
+      "main"
+    ],
+    "branch_name_patterns": {
+      "feature": "feat/{slug}",
+      "bugfix": "fix/{slug}"
+    }
+  },
+  "hooks": {
+    "pre_commit": [
+      "eslint",
+      "prettier",
+      "block-main",
+      "gitleaks"
+    ],
+    "commit_msg": [
+      "conventional-commits"
+    ],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "editorconfig": true,
+    "claude_md": true,
+    "github_actions_ci": false,
+    "commit_message_template": true,
+    "github_templates": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits",
+    "commit_scopes": [
+      "ui",
+      "state",
+      "api",
+      "tests",
+      "docs"
+    ]
+  },
+  "documentation": {
+    "scaffold_types": [
+      "architecture",
+      "prd",
+      "adrs"
+    ],
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {
+      "broken_internal_links": true,
+      "broken_mcp_links": true,
+      "orphans": true,
+      "staleness": false
+    }
+  },
+  "ci": {
+    "enabled": true,
+    "node_version": "20"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "nyann",
+  "version": "1.0.0",
+  "description": "Project governance for Claude Code. Bootstrap and maintain git workflow, hooks, commits, releases, CI, docs, and repo health.",
+  "author": {
+    "name": "Thet Twe Aung",
+    "email": "thettweaung@gmail.com"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/thettwe/nyann",
+  "keywords": [
+    "git",
+    "bootstrap",
+    "hooks",
+    "conventional-commits",
+    "docs-routing",
+    "project-setup",
+    "releases",
+    "ci",
+    "repo-health",
+    "profiles"
+  ]
+}

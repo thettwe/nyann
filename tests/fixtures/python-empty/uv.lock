@@ -1,0 +1,4 @@
+version = 1
+# Minimal uv lock fixture. Structure is a subset of a real uv.lock so
+# detect-stack can treat this repo as uv-managed.
+requires-python = ">=3.11"

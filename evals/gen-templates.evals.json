@@ -1,0 +1,20 @@
+{
+  "skill": "gen-templates",
+  "trigger_cases": [
+    { "prompt": "generate templates",                               "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "add PR template",                                  "should_trigger": true,  "tag": "pr-template" },
+    { "prompt": "create issue templates",                           "should_trigger": true,  "tag": "issue-templates" },
+    { "prompt": "add GitHub templates",                             "should_trigger": true,  "tag": "github-templates" },
+    { "prompt": "set up PR template",                               "should_trigger": true,  "tag": "set-up-pr-template" },
+    { "prompt": "add pull request template",                        "should_trigger": true,  "tag": "pull-request-template" },
+    { "prompt": "create bug report template",                       "should_trigger": true,  "tag": "bug-report-template" },
+    { "prompt": "add feature request template",                     "should_trigger": true,  "tag": "feature-request-template" },
+    { "prompt": "/nyann:gen-templates",                             "should_trigger": true,  "tag": "slash" },
+    { "prompt": "generate CI",                                      "should_trigger": false, "tag": "gen-ci-distractor" },
+    { "prompt": "set up CI/CD",                                     "should_trigger": false, "tag": "gen-ci-distractor" },
+    { "prompt": "set up this project",                              "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "open a PR",                                        "should_trigger": false, "tag": "pr-distractor" },
+    { "prompt": "what's a good PR template?",                       "should_trigger": false, "tag": "informational" }
+  ],
+  "output_quality_scenarios": []
+}

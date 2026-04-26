@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/mcp-registry/v1.json",
+  "title": "MCPRegistry",
+  "description": "templates/mcp-registry.json contract. Classifies known doc-tool MCP servers by name pattern and required tool set.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "connectors"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "connectors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "name_patterns", "required_tools", "uri_scheme"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["obsidian", "notion", "confluence", "linear-docs", "google-docs"]
+          },
+          "name_patterns": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "required_tools": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1
+          },
+          "uri_scheme": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9+.-]*://$"
+          },
+          "docs_hint": { "type": "string" }
+        }
+      }
+    }
+  }
+}

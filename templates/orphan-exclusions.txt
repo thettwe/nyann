@@ -1,0 +1,16 @@
+# nyann — default orphan-detector exclusion patterns.
+# One basename or shell glob per line; blank lines and #-comments are ignored.
+# Matched against file basenames. Repo-local .nyann-ignore extends this list.
+
+README.md
+LICENSE
+LICENSE.md
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+SECURITY.md
+.gitkeep
+
+# ADRs: numbered sequentially, discoverable via decisions/ directory listing.
+# Don't expect inbound links from other docs.
+ADR-*.md

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/workspace-configs/v1.json",
+  "title": "WorkspaceConfigs",
+  "description": "Output of bin/resolve-workspace-configs.sh — per-workspace effective configuration after merging detected workspace stacks with profile.workspaces overrides. Consumed by bin/bootstrap.sh and bin/gen-codeowners.sh.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["path", "primary_language", "framework", "package_manager", "hooks", "extras"],
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Workspace-relative path (e.g. 'apps/web', 'packages/api')."
+      },
+      "primary_language": {
+        "type": "string",
+        "description": "Resolved language for this workspace; mirrors stack-descriptor's primary_language enum but kept loose because secondary languages may surface from detection."
+      },
+      "framework": {
+        "oneOf": [
+          { "type": "null" },
+          { "type": "string" }
+        ]
+      },
+      "package_manager": {
+        "oneOf": [
+          { "type": "null" },
+          { "type": "string" }
+        ]
+      },
+      "hooks": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pre_commit", "commit_msg", "pre_push"],
+        "properties": {
+          "pre_commit": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } },
+          "commit_msg": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } },
+          "pre_push":   { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } }
+        }
+      },
+      "extras": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "gitignore":    { "type": "boolean" },
+          "editorconfig": { "type": "boolean" }
+        }
+      },
+      "owner": {
+        "type": "string",
+        "pattern": "^@[a-zA-Z0-9_/-]+$",
+        "description": "GitHub handle (@user or @org/team) for CODEOWNERS — forwarded from profile.workspaces.<key>.owner. Optional; gen-codeowners.sh falls back to --default-owner when absent."
+      }
+    }
+  }
+}

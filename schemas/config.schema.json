@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/config/v1.json",
+  "title": "NyannConfig",
+  "description": "~/.claude/nyann/config.json — per-user nyann settings (team profile sources, etc.)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "team_profile_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "description": "Short identifier; used as the cache namespace (<name>/<profile-name>)."
+          },
+          "url":                  { "type": "string", "minLength": 1 },
+          "ref":                  { "type": "string", "default": "main" },
+          "sync_interval_hours":  { "type": "integer", "minimum": 0, "default": 24 },
+          "last_synced_at":       { "type": "integer", "minimum": 0, "description": "Unix timestamp of last successful sync." }
+        }
+      }
+    }
+  }
+}

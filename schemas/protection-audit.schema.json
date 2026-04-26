@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/protection-audit/v1.json",
+  "title": "ProtectionAudit",
+  "description": "Read-only audit of GitHub repository protection settings. Output of `bin/gh-integration.sh --check`. Covers branch protection (per strategy-declared branch), tag protection (via the Rulesets API), the CODEOWNERS-required gate, and repo-level security settings (Dependabot, secret scanning, push protection, code scanning). All sub-sections soft-skip with a `skipped: {reason}` shape when `gh` is missing or unauthenticated; the audit never prompts for credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "owner", "repo", "branches", "tag_protection", "codeowners_gate", "security", "signing", "repo_settings", "summary"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Local-repo path the audit was run against."
+    },
+    "owner": {
+      "type": "string",
+      "description": "GitHub owner inferred from the repo's origin remote (or `--owner` override). Empty when no remote is configured."
+    },
+    "repo": {
+      "type": "string",
+      "description": "GitHub repo name inferred from the origin remote (or `--repo` override). Empty when no remote is configured."
+    },
+    "branches": {
+      "type": "array",
+      "description": "One entry per branch the profile's strategy declares (e.g. `main` for github-flow / trunk-based; `main` + `develop` for gitflow). Branches present remotely but absent from this list are not audited.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "expected", "actual", "drift"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["required_reviews", "required_checks", "require_code_owner_reviews", "enforce_admins", "allow_force_pushes", "allow_deletions"],
+            "properties": {
+              "required_reviews": { "type": "integer", "minimum": 0 },
+              "required_checks":  { "type": "array", "items": { "type": "string" } },
+              "require_code_owner_reviews": { "type": "boolean" },
+              "enforce_admins":    { "type": "boolean" },
+              "allow_force_pushes":{ "type": "boolean" },
+              "allow_deletions":   { "type": "boolean" }
+            }
+          },
+          "actual": {
+            "oneOf": [
+              { "type": "null", "description": "Branch protection not configured remotely (404 from the protection endpoint)." },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["required_reviews", "required_checks", "require_code_owner_reviews", "enforce_admins", "allow_force_pushes", "allow_deletions"],
+                "properties": {
+                  "required_reviews": { "type": "integer", "minimum": 0 },
+                  "required_checks":  { "type": "array", "items": { "type": "string" } },
+                  "require_code_owner_reviews": { "type": "boolean" },
+                  "enforce_admins":    { "type": "boolean" },
+                  "allow_force_pushes":{ "type": "boolean" },
+                  "allow_deletions":   { "type": "boolean" }
+                }
+              }
+            ]
+          },
+          "drift": {
+            "type": "array",
+            "description": "Per-field drift entries. Empty when actual matches expected. Each entry names the field, the expected value, the actual value, and a severity hint that the doctor probe consumes.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "expected", "actual", "severity"],
+              "properties": {
+                "field": { "type": "string", "minLength": 1 },
+                "expected": {},
+                "actual": {},
+                "severity": { "type": "string", "enum": ["critical", "warn"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tag_protection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["skipped", "reason"],
+          "properties": {
+            "skipped": { "const": true },
+            "reason":  { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pattern_present", "blocks_deletion", "blocks_force_push", "drift"],
+          "properties": {
+            "pattern_present":   { "type": "boolean", "description": "True when at least one ruleset targets `refs/tags/v*` (or a superset)." },
+            "blocks_deletion":   { "type": "boolean" },
+            "blocks_force_push": { "type": "boolean" },
+            "ruleset_id":        { "type": ["integer", "null"] },
+            "ruleset_name":      { "type": "string" },
+            "drift": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["field", "expected", "actual", "severity"],
+                "properties": {
+                  "field":    { "type": "string" },
+                  "expected": {},
+                  "actual":   {},
+                  "severity": { "type": "string", "enum": ["critical", "warn"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "codeowners_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_present", "gate_required_in_profile", "branches_with_gate", "drift"],
+      "properties": {
+        "file_present":              { "type": "boolean", "description": "True when CODEOWNERS exists at any of the conventional paths (`CODEOWNERS`, `.github/CODEOWNERS`, `docs/CODEOWNERS`)." },
+        "gate_required_in_profile":  { "type": "boolean", "description": "Mirrors `profile.branching.require_code_owner_reviews`." },
+        "branches_with_gate":        { "type": "array", "items": { "type": "string" }, "description": "Strategy-declared branches whose actual protection has require_code_owner_reviews=true." },
+        "drift": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "branch", "severity"],
+            "properties": {
+              "kind":     { "type": "string", "enum": ["file-missing-but-required", "file-present-but-gate-off", "file-present-but-not-required-by-profile"] },
+              "branch":   { "type": "string" },
+              "severity": { "type": "string", "enum": ["critical", "warn"] }
+            }
+          }
+        }
+      }
+    },
+    "security": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["skipped", "reason"],
+          "properties": {
+            "skipped": { "const": true },
+            "reason":  { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dependabot_alerts", "secret_scanning", "secret_scanning_push_protection", "code_scanning_default_setup", "drift"],
+          "properties": {
+            "dependabot_alerts":               { "type": "string", "enum": ["enabled", "disabled", "unknown"] },
+            "secret_scanning":                 { "type": "string", "enum": ["enabled", "disabled", "unknown"] },
+            "secret_scanning_push_protection": { "type": "string", "enum": ["enabled", "disabled", "unknown"] },
+            "code_scanning_default_setup":     { "type": "string", "enum": ["enabled", "disabled", "unknown", "not-applicable"] },
+            "drift": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["field", "expected", "actual", "severity"],
+                "properties": {
+                  "field":    { "type": "string" },
+                  "expected": { "type": "string" },
+                  "actual":   { "type": "string" },
+                  "severity": { "type": "string", "enum": ["critical", "warn"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_signing_required_in_profile", "tag_signing_required_in_profile", "branches", "local_config", "drift"],
+      "description": "Audits commit + tag signing posture. Branch-protection `required_signatures.enabled` is read per strategy-declared branch; local `commit.gpgsign` and `tag.gpgsign` git config is also surfaced so the user can spot 'remote requires signing but my local config is unset'.",
+      "properties": {
+        "commit_signing_required_in_profile": { "type": "boolean", "description": "Mirrors `profile.github.require_signed_commits`." },
+        "tag_signing_required_in_profile":    { "type": "boolean", "description": "Mirrors `profile.github.require_signed_tags`." },
+        "branches": {
+          "type": "array",
+          "description": "Per strategy-declared branch: did GitHub return required_signatures.enabled=true?",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "required_signatures_enabled"],
+            "properties": {
+              "name":                        { "type": "string", "minLength": 1 },
+              "required_signatures_enabled": { "type": "boolean" }
+            }
+          }
+        },
+        "local_config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit_gpgsign", "tag_gpgsign", "user_signingkey_present"],
+          "properties": {
+            "commit_gpgsign":          { "type": "boolean", "description": "git config commit.gpgsign value." },
+            "tag_gpgsign":             { "type": "boolean", "description": "git config tag.gpgsign value." },
+            "user_signingkey_present": { "type": "boolean", "description": "git config user.signingkey resolves to a non-empty value." }
+          }
+        },
+        "drift": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "expected", "actual", "severity"],
+            "properties": {
+              "field":    { "type": "string", "minLength": 1 },
+              "expected": {},
+              "actual":   {},
+              "branch":   { "type": "string" },
+              "severity": { "type": "string", "enum": ["critical", "warn"] }
+            }
+          }
+        }
+      }
+    },
+    "repo_settings": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["skipped", "reason"],
+          "properties": {
+            "skipped": { "const": true },
+            "reason":  { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["default_branch", "merge_buttons", "delete_branch_on_merge", "drift"],
+          "description": "Audits non-protection repo configuration: default branch (must match profile's primary base branch), allowed merge buttons (squash/rebase/merge-commit), and delete-branch-on-merge hygiene. Profile fields under `.github.{allow_squash_merge, allow_rebase_merge, allow_merge_commit, delete_branch_on_merge}` opt sub-checks in. The default-branch check is automatic — profile.branching.base_branches[0] is the expected value.",
+          "properties": {
+            "default_branch": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["expected", "actual", "matches"],
+              "properties": {
+                "expected": { "type": "string", "minLength": 1 },
+                "actual":   { "type": "string" },
+                "matches":  { "type": "boolean" }
+              }
+            },
+            "merge_buttons": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["squash", "rebase", "commit"],
+              "description": "Each entry has a tri-state: enabled-actual + expected-from-profile (null = profile silent on this button). Drift fires when expected != actual.",
+              "properties": {
+                "squash": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["expected", "actual"],
+                  "properties": {
+                    "expected": { "oneOf": [{ "type": "null" }, { "type": "boolean" }] },
+                    "actual":   { "type": "boolean" }
+                  }
+                },
+                "rebase": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["expected", "actual"],
+                  "properties": {
+                    "expected": { "oneOf": [{ "type": "null" }, { "type": "boolean" }] },
+                    "actual":   { "type": "boolean" }
+                  }
+                },
+                "commit": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["expected", "actual"],
+                  "properties": {
+                    "expected": { "oneOf": [{ "type": "null" }, { "type": "boolean" }] },
+                    "actual":   { "type": "boolean" }
+                  }
+                }
+              }
+            },
+            "delete_branch_on_merge": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["expected", "actual"],
+              "properties": {
+                "expected": { "oneOf": [{ "type": "null" }, { "type": "boolean" }] },
+                "actual":   { "type": "boolean" }
+              }
+            },
+            "drift": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["field", "expected", "actual", "severity"],
+                "properties": {
+                  "field":    { "type": "string", "minLength": 1 },
+                  "expected": {},
+                  "actual":   {},
+                  "severity": { "type": "string", "enum": ["critical", "warn"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_drift", "critical", "warn", "skipped_sections"],
+      "properties": {
+        "total_drift":      { "type": "integer", "minimum": 0 },
+        "critical":         { "type": "integer", "minimum": 0 },
+        "warn":             { "type": "integer", "minimum": 0 },
+        "skipped_sections": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["branches", "tag_protection", "codeowners_gate", "security", "signing", "repo_settings"] }
+        }
+      }
+    }
+  }
+}

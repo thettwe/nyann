@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/team-drift-report/v1.json",
+  "title": "TeamDriftReport",
+  "description": "Output of bin/check-team-drift.sh — per-team-source comparison of locally-cached profiles against their remote ref. Consumed by bin/check-team-staleness.sh and skills/sync-team-profiles.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["drift", "up_to_date", "unreachable"],
+  "properties": {
+    "drift": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "name", "namespaced", "cached_hash", "remote_hash", "kind"],
+        "properties": {
+          "source": { "type": "string" },
+          "name": { "type": "string" },
+          "namespaced": { "type": "string", "description": "<source>/<name>." },
+          "cached_hash": { "type": "string" },
+          "remote_hash": { "type": "string" },
+          "kind": { "type": "string", "enum": ["remote-updated", "removed-remotely"] }
+        }
+      }
+    },
+    "up_to_date": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "name", "namespaced", "cached_hash"],
+        "properties": {
+          "source": { "type": "string" },
+          "name": { "type": "string" },
+          "namespaced": { "type": "string" },
+          "cached_hash": { "type": "string" }
+        }
+      }
+    },
+    "unreachable": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "error"],
+        "properties": {
+          "source": { "type": "string" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

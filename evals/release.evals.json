@@ -1,0 +1,19 @@
+{
+  "skill": "release",
+  "trigger_cases": [
+    { "prompt": "cut a release v1.2.0",                     "should_trigger": true,  "tag": "cut-release" },
+    { "prompt": "tag a release 1.2.0",                       "should_trigger": true,  "tag": "tag-release" },
+    { "prompt": "release v1.2.0",                            "should_trigger": true,  "tag": "release-version" },
+    { "prompt": "ship version 1.2.0",                        "should_trigger": true,  "tag": "ship-version" },
+    { "prompt": "bump the version to 1.2.0",                 "should_trigger": true,  "tag": "bump" },
+    { "prompt": "generate a changelog and tag",              "should_trigger": true,  "tag": "changelog-tag" },
+    { "prompt": "make a release",                            "should_trigger": true,  "tag": "make-release" },
+    { "prompt": "/nyann:release",                            "should_trigger": true,  "tag": "slash" },
+    { "prompt": "cut a release branch",                      "should_trigger": false, "tag": "branch-distractor" },
+    { "prompt": "publish to npm",                            "should_trigger": false, "tag": "npm-distractor" },
+    { "prompt": "push to pypi",                              "should_trigger": false, "tag": "pypi-distractor" },
+    { "prompt": "open a PR",                                 "should_trigger": false, "tag": "pr-distractor" },
+    { "prompt": "commit these changes",                      "should_trigger": false, "tag": "commit-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/gh-integration-result/v1.json",
+  "title": "GhIntegrationResult",
+  "description": "Output of bin/gh-integration.sh — branch-protection application against the upstream GitHub repo. Consumed by bin/bootstrap.sh, bin/retrofit.sh, and the bootstrap-project skill.",
+  "oneOf": [
+    {
+      "title": "GhIntegrationApplied",
+      "description": "Emitted when the gh CLI was usable and at least one branch was attempted.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "repo", "strategy", "applied", "noop", "errors"],
+      "properties": {
+        "owner": { "type": "string" },
+        "repo": { "type": "string" },
+        "strategy": { "type": "string", "enum": ["github-flow", "gitflow", "trunk-based"] },
+        "applied": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["branch", "strategy"],
+            "properties": {
+              "branch": { "type": "string" },
+              "strategy": { "type": "string" }
+            }
+          }
+        },
+        "noop": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["branch", "reason"],
+            "properties": {
+              "branch": { "type": "string" },
+              "reason": { "type": "string" },
+              "detail": { "type": "string" },
+              "current_reviews": { "type": "integer" },
+              "profile_reviews": { "type": "integer" }
+            }
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["branch", "error"],
+            "properties": {
+              "branch": { "type": "string" },
+              "error": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "title": "GhIntegrationSkipped",
+      "description": "Emitted when gh is missing, not authenticated, the profile disables branch protection, or repo identity can't be parsed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skipped", "reason"],
+      "properties": {
+        "skipped": { "const": "gh-integration" },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "gh-not-installed",
+            "gh-not-authenticated",
+            "no-origin-remote",
+            "profile-disabled-branch-protection",
+            "invalid-owner",
+            "invalid-repo",
+            "unknown-repo"
+          ]
+        }
+      }
+    }
+  ]
+}

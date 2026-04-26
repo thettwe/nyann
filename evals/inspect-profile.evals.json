@@ -1,0 +1,18 @@
+{
+  "skill": "inspect-profile",
+  "trigger_cases": [
+    { "prompt": "what does the nextjs-prototype profile do",     "should_trigger": true,  "tag": "what-does-profile" },
+    { "prompt": "explain the python-cli profile",                 "should_trigger": true,  "tag": "explain-profile" },
+    { "prompt": "show me what go-service enables",                "should_trigger": true,  "tag": "what-enables" },
+    { "prompt": "what's in profile rust-cli",                     "should_trigger": true,  "tag": "whats-in" },
+    { "prompt": "describe the django-app profile",                "should_trigger": true,  "tag": "describe" },
+    { "prompt": "inspect profile fastapi-service",                "should_trigger": true,  "tag": "inspect" },
+    { "prompt": "/nyann:inspect-profile",                         "should_trigger": true,  "tag": "slash" },
+    { "prompt": "show this repo's setup",                         "should_trigger": false, "tag": "explain-state-distractor" },
+    { "prompt": "apply the nextjs-prototype profile to this repo", "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "save this setup as a profile",                   "should_trigger": false, "tag": "learn-distractor" },
+    { "prompt": "what's the active profile",                      "should_trigger": false, "tag": "state-distractor" },
+    { "prompt": "bootstrap this repo",                            "should_trigger": false, "tag": "bootstrap-distractor-2" }
+  ],
+  "output_quality_scenarios": []
+}

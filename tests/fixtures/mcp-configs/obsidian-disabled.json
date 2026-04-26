@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "obsidian-mcp-tools": {
+      "command": "npx",
+      "args": ["-y", "obsidian-mcp-tools"],
+      "enabled": false
+    }
+  }
+}

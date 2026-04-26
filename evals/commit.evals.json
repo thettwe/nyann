@@ -1,0 +1,33 @@
+{
+  "skill": "commit",
+  "trigger_cases": [
+    { "prompt": "commit these changes",                             "should_trigger": true,  "tag": "commit-intent" },
+    { "prompt": "generate a commit message",                        "should_trigger": true,  "tag": "message-gen" },
+    { "prompt": "write a Conventional Commits message for my diff", "should_trigger": true,  "tag": "explicit-cc" },
+    { "prompt": "summarize my staged diff into a commit",           "should_trigger": true,  "tag": "summarize" },
+    { "prompt": "/nyann:commit",                                    "should_trigger": true,  "tag": "slash" },
+    { "prompt": "git log --oneline",                                "should_trigger": false, "tag": "history-read" },
+    { "prompt": "create a branch for login",                        "should_trigger": false, "tag": "branch-intent" },
+    { "prompt": "what's a good commit message format?",             "should_trigger": false, "tag": "informational" },
+    { "prompt": "start a branch and commit this",                   "should_trigger": false, "tag": "compound-branch-wins" },
+    { "prompt": "branch and commit for the login feature",          "should_trigger": false, "tag": "compound-branch-wins" }
+  ],
+  "output_quality_scenarios": [
+    {
+      "name": "ten-diverse-cc-messages",
+      "mode": "commit_msg_hook",
+      "messages": [
+        "feat: add login page",
+        "feat(api): add /healthz endpoint",
+        "fix(ui): disable submit until form validates",
+        "fix: handle 204 as success in response parser",
+        "docs: explain the retry policy in architecture.md",
+        "refactor(auth): extract token parser into its own module",
+        "test(cli): add coverage for --dry-run path",
+        "chore(deps): bump prettier to 3.3",
+        "perf(search): precompute ngram index on startup",
+        "feat(cli)!: rename --flag to --option"
+      ]
+    }
+  ]
+}

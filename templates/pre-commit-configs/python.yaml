@@ -1,0 +1,32 @@
+# nyann template v1 — Python pre-commit.com config
+# Pairs Ruff (lint + format), commitizen (Conventional Commits), and the
+# language-agnostic gitleaks + local block-main hook.
+# Merge-safe: install-hooks.sh merges by hook id into any existing config.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.27.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false

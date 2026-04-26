@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/ship-result/v1.json",
+  "title": "ShipResult",
+  "description": "Output of `bin/ship.sh`. Combines PR creation (via bin/pr.sh) with check-wait + merge so the user gets one invocation instead of three. Two modes: server-side `auto-merge` (default — fast return; GitHub merges when required checks + reviews pass) and `client-side` (poll-and-merge — terminal blocks until ship-or-fail, useful when auto-merge isn't enabled on the repo).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "mode", "outcome"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo path the ship was initiated from."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["auto-merge", "client-side"],
+      "description": "auto-merge = `gh pr merge --auto` enabled server-side, ship returns immediately. client-side = ship polls wait-for-pr-checks then merges."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["shipped", "queued", "ci-failed", "ci-timeout", "merge-failed", "pr-failed", "skipped"],
+      "description": "shipped = client-side merged successfully. queued = auto-merge enabled, GitHub will merge when checks pass. ci-failed / ci-timeout = client-side waiter bailed. merge-failed = client-side merge step failed (e.g. branch protection blocked). pr-failed = PR creation step failed. skipped = gh missing/unauthenticated, no PR was created."
+    },
+    "elapsed_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Wall-clock seconds the ship took, including any client-side polling. 0 in the skipped path."
+    },
+    "pr_url": {
+      "type": "string",
+      "pattern": "^https?://",
+      "description": "URL of the created PR. Absent only when `outcome` is `skipped` or `pr-failed`."
+    },
+    "pr_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "PR number. Absent under the same conditions as `pr_url`."
+    },
+    "merge_strategy": {
+      "type": "string",
+      "enum": ["squash", "rebase", "merge"],
+      "description": "Merge strategy used (auto-merge or client-side). From --merge-strategy or profile.github.auto_merge_strategy. Default squash."
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "passing", "failing", "in_progress"],
+      "description": "Present only in `client-side` mode. Mirrors the summary block of the wrapped wait-for-pr-checks call.",
+      "properties": {
+        "outcome":     { "type": "string", "enum": ["pass", "fail", "timeout", "skipped", "no-checks"] },
+        "passing":     { "type": "integer", "minimum": 0 },
+        "failing":     { "type": "integer", "minimum": 0 },
+        "in_progress": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "skip_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Set when `outcome == \"skipped\"`. Examples: `gh-not-installed`, `gh-not-authenticated`, `no-origin-remote`."
+    },
+    "merge_failed_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Set when `outcome == \"merge-failed\"`. Capped error text from `gh pr merge`."
+    },
+    "ci_failed_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Set when `outcome == \"ci-failed\"` for a structured reason a generic CI failure can't carry — currently only the no-checks-attached case in client-side mode (workflows hadn't registered yet, or the repo runs no PR CI; re-run with --allow-no-checks if intentional). Absent for unstructured CI failures."
+    }
+  }
+}

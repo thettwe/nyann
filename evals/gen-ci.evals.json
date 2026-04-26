@@ -1,0 +1,21 @@
+{
+  "skill": "gen-ci",
+  "trigger_cases": [
+    { "prompt": "generate CI",                                      "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "add GitHub Actions",                               "should_trigger": true,  "tag": "actions" },
+    { "prompt": "create CI workflow",                               "should_trigger": true,  "tag": "workflow" },
+    { "prompt": "set up CI",                                        "should_trigger": true,  "tag": "set-up-ci" },
+    { "prompt": "add CI/CD",                                        "should_trigger": true,  "tag": "ci-cd" },
+    { "prompt": "create a CI pipeline",                             "should_trigger": true,  "tag": "pipeline" },
+    { "prompt": "add continuous integration",                       "should_trigger": true,  "tag": "continuous-integration" },
+    { "prompt": "add a lint+test workflow",                         "should_trigger": true,  "tag": "lint-test-workflow" },
+    { "prompt": "/nyann:gen-ci",                                    "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what's in my .github/workflows",                   "should_trigger": false, "tag": "informational" },
+    { "prompt": "explain how CI works",                             "should_trigger": false, "tag": "informational" },
+    { "prompt": "set up this project",                              "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "add PR template",                                  "should_trigger": false, "tag": "gen-templates-distractor" },
+    { "prompt": "create issue templates",                           "should_trigger": false, "tag": "gen-templates-distractor" },
+    { "prompt": "my CI is broken, fix it",                          "should_trigger": false, "tag": "debug-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

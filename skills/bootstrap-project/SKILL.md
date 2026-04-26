@@ -1,0 +1,189 @@
+---
+name: bootstrap-project
+description: >
+  Bootstrap a fresh or existing repo with nyann. TRIGGER when the user says "set up this project",
+  "initialize git workflow", "bootstrap this repo", "scaffold this project", "ngyamm this repo",
+  "use my <name> profile" / "apply the nextjs-prototype profile" (profile mode).
+  ALSO trigger on "standard setup" / "usual stack" / "the usual setup" /
+  "install all the standard hooks" / "give this repo the usual setup" /
+  "make this repo standard" / "install nyann" — these read as opinionated bulk setup,
+  not narrow edits, even though they sound small.
+  Also trigger on any phrasing that mentions wiring up git hooks + branching +
+  conventions + docs as a single opinionated setup. DO NOT trigger on narrow requests
+  like "add a lint hook" or "update CLAUDE.md" — those are edits, not bootstraps.
+  DO NOT trigger on "audit this project" / "fix what's drifted" / "bring into compliance" —
+  those are retrofit. DO NOT trigger on "check this project's health" / "is this healthy" —
+  those are doctor.
+  When in doubt, run the detection step and ask.
+---
+
+# bootstrap-project
+
+You are executing nyann's main bootstrap flow. The goal is to take an empty directory, a fresh
+repo, or an existing messy repo and bring it up to the conventions in a nyann profile — without
+silently mutating anything.
+
+**Work in phases.** Each phase is one or more bash scripts in `bin/`. Never run a destructive
+action outside a preview-confirmed plan. If a phase emits a structured skip record
+(`{"skipped": "...", "reason": "..."}`), log it in your final summary and continue with the
+remaining phases.
+
+## 1. Detect
+
+1. Run `bin/detect-stack.sh --path <target>`. Capture the JSON. Never proceed without it.
+2. If `confidence < 0.6`, tell the user what you found and ask them to confirm the stack before
+   continuing. Show the top two or three reasoning entries so they can see *why* you chose what
+   you chose.
+3. If `is_monorepo` is true, note it — bootstrap will auto-resolve per-workspace configs
+   (hooks, lint-staged entries, commit scopes) using `bin/resolve-workspace-configs.sh`.
+
+See `references/python.md` and `references/javascript.md` for stack-specific notes Claude should
+fold into its follow-ups. Only load them when the detected stack matches.
+
+## 2. Pick a profile
+
+Three branches:
+
+- **User named a profile.** Load it with `bin/load-profile.sh <name>`. If the loader exits 2
+  (profile not found), list the available profiles it reported and ask the user to pick one.
+- **No profile named.** Map the detection result to a starter profile using this table. Walk
+  top-to-bottom; first match wins. Only fall through to `default` when nothing above matches —
+  **warn the user** when you do, because `default` means "skip all stack-specific hooks".
+
+  | Detected stack | Starter profile |
+  |---|---|
+  | TypeScript + `next` | `nextjs-prototype` |
+  | TypeScript + `react` (not Next) | `react-vite` |
+  | TypeScript + `express` or `fastify` | `node-api` |
+  | TypeScript, no framework (library) | `typescript-library` |
+  | JavaScript (any framework) | pick the TS equivalent above; confirm with user |
+  | Python + `fastapi` | `fastapi-service` |
+  | Python + `django` | `django-app` |
+  | Python (CLI, flask, or other) | `python-cli` |
+  | Go (any framework) | `go-service` |
+  | Rust (any framework) | `rust-cli` |
+  | Swift (iOS / SPM) | `swift-ios` |
+  | Kotlin (Android / Gradle) | `kotlin-android` |
+  | Shell (3+ .sh files, no other stack) | `shell-cli` |
+  | Unknown / nothing matched | `default` — **warn** this skips stack hooks |
+
+  When the StackDescriptor's `primary_language` is clearly one of the above but detection
+  `confidence < 0.5`, propose the matching profile **and** ask the user to confirm, rather
+  than silently applying it. When confidence ≥ 0.5, proceed with the match.
+- **Audit mode** ("check hygiene", "is this healthy"). Invoke the `doctor` skill instead.
+- **Retrofit mode** ("fix what's drifted", "bring into compliance"). Invoke the `retrofit`
+  skill instead — it handles audit + remediation for existing repos.
+
+## 3. Recommend branching (unless the profile already pins one)
+
+1. Pipe the StackDescriptor into `bin/recommend-branch.sh`.
+2. If `needs_user_confirm` is true, show the three top reasoning strings and ask the user to
+   confirm before writing the strategy into the plan.
+3. Otherwise, feed the recommendation straight into the action plan.
+
+## 4. Route docs
+
+1. Run `bin/detect-mcp-docs.sh` to discover Obsidian / Notion connectors. Capture the JSON.
+2. If `available[]` is empty, run `bin/route-docs.sh --profile <path>` with no routing flags —
+   plan is local-only.
+3. If any MCP connector is available, load `references/mcp-routing.md` and walk the user through
+   local vs MCP vs split. It covers the questions to ask, how to compose the `--routing` string,
+   the connector-target inputs (`--obsidian-vault`, `--obsidian-folder`, `--notion-parent`),
+   and the post-route creation flow (MCP tool calls per non-local target + plan update with
+   returned identifiers).
+
+Capture the resulting `DocumentationPlan`. `memory/` stays local by invariant regardless of
+any routing choice.
+
+## 5. Build and preview the plan
+
+Compose an ActionPlan JSON from the profile + StackDescriptor + DocumentationPlan + BranchingChoice.
+The shape:
+
+```json
+{
+  "writes":   [{ "path": "...", "action": "create|merge|overwrite", "bytes": 123 }],
+  "commands": [{ "cmd": "git init", "cwd": "." }],
+  "remote":   []
+}
+```
+
+**Required writes[] entries** — include each one the profile/plan opts into; bootstrap.sh will
+refuse to materialise a file that isn't in this list (preview-before-mutate):
+
+- `.gitignore` — when gitignore templates apply
+- `.editorconfig` — when `profile.extras.editorconfig == true`
+- `CLAUDE.md` — when `profile.extras.claude_md == true`
+- `.husky/pre-commit`, `.husky/commit-msg`, `commitlint.config.js` — for JS/TS hook phase
+- `.pre-commit-config.yaml` — for Python hook phase
+- `.git/hooks/commit-msg`, `.git/hooks/pre-commit` — always for core hooks
+- Doc files per DocumentationPlan (`docs/architecture.md`, `docs/prd.md`,
+  `docs/decisions/ADR-000-…md`, `docs/research/README.md`) — when the profile's
+  `documentation.scaffold_types` declares them
+
+Pipe the plan through `bin/preview.sh --plan <file>`. Show the stderr preview to the user. If
+they respond with `skip <path>`, re-invoke with `--skip <path>` and reshow. If `no`, stop and
+exit.
+
+## 6. Execute
+
+Capture the plan SHA-256 first — `bin/preview.sh --plan <file> --emit-sha256` prints just the
+hex on stdout. Pass it as `--plan-sha256` so bootstrap can recompute and verify the bytes
+haven't changed between the user's "yes" and execution. The SHA binding is required;
+bootstrap refuses to run without it.
+
+```
+sha=$(bin/preview.sh --plan <confirmed-plan.json> --emit-sha256)
+bin/bootstrap.sh --plan <confirmed-plan.json> --plan-sha256 "$sha" \
+  --target <repo> --profile <path> --doc-plan <path> --stack <path>
+```
+
+bootstrap.sh handles:
+
+1. `git init` if needed.
+2. Creating base branches per the strategy.
+3. Writing files in the plan.
+4. Running install commands (declared in the plan, never inferred).
+5. Calling `bin/install-hooks.sh` with the matching phase flags (`--core`, `--jsts`, `--python`).
+   For monorepos, also passes `--workspace-configs` (per-workspace lint-staged entries) and
+   `--commit-scopes` (workspace-derived scopes for commitlint).
+6. Calling `bin/scaffold-docs.sh` with the DocumentationPlan.
+7. Calling `bin/gen-claudemd.sh` with profile + plan + stack.
+   For monorepos, also passes `--workspace-configs` (renders Workspaces table) and
+   `--extra-scopes` (merges workspace scopes into conventions table).
+
+Every step is idempotent. On any failure, bootstrap.sh aborts cleanly with which step failed in
+its summary; surface that verbatim. Do not retry automatically.
+
+## 7. Offer the post-bootstrap nudges
+
+After success, ask *only these three* — in order:
+
+1. "Save this as a profile for reuse?" → if yes, call `bin/learn-profile.sh`.
+2. "Run `/nyann:doctor` now to audit?" → invoke the doctor skill. Doctor's
+   `GITHUB PROTECTION` section will surface whether branch / tag
+   protection is in place; tell the user they can re-run doctor anytime
+   to verify protection state.
+3. "Set up GitHub branch protection?" → invoke `bin/gh-integration.sh`
+   (apply mode). For audit-only ("is protection drift on this repo?"),
+   doctor already covers it via `bin/gh-integration.sh --check` —
+   no separate skill needed.
+
+## Output summary
+
+End with a compact report:
+
+- Detected stack + confidence.
+- Profile applied (source: user / starter).
+- Files created / merged (count only; the plan has the detail).
+- Hook phases run, with any skip records.
+- Whether CLAUDE.md was under the soft-cap budget.
+- Next steps the user can take.
+
+## When something goes wrong
+
+- Detection confidence low → ask before writing.
+- `preview.sh` declined → stop, no cleanup needed (nothing was written).
+- Any bin script exits non-zero during execute → do not proceed; show the failing step's stderr
+  and exit. The user can re-run after fixing.
+- A structured skip record is *not* a failure; include it in the summary but keep going.

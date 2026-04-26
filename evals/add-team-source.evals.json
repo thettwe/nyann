@@ -1,0 +1,17 @@
+{
+  "skill": "add-team-source",
+  "trigger_cases": [
+    { "prompt": "add a team profile source",                          "should_trigger": true,  "tag": "add-source" },
+    { "prompt": "register a team profile source",                      "should_trigger": true,  "tag": "register" },
+    { "prompt": "set up team profiles from github.com/acme/nyann-profiles", "should_trigger": true,  "tag": "setup-from-url" },
+    { "prompt": "wire up our team's shared profiles at git@...",       "should_trigger": true,  "tag": "wire-up" },
+    { "prompt": "add profile source named platform-team at <url>",     "should_trigger": true,  "tag": "named" },
+    { "prompt": "install team profiles from the ops repo",             "should_trigger": true,  "tag": "install" },
+    { "prompt": "/nyann:add-team-source",                              "should_trigger": true,  "tag": "slash" },
+    { "prompt": "sync team profiles now",                              "should_trigger": false, "tag": "sync-distractor" },
+    { "prompt": "save my setup as a profile",                          "should_trigger": false, "tag": "learn-distractor" },
+    { "prompt": "add a git remote",                                    "should_trigger": false, "tag": "git-remote-distractor" },
+    { "prompt": "set up this project",                                 "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

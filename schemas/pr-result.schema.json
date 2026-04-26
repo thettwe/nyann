@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/pr-result/v1.json",
+  "title": "PrResult",
+  "description": "Output of bin/pr.sh. Three shapes: context-only (skill builds title/body), success (PR URL), or skipped (gh missing/auth). Consumed by skills/pr/SKILL.md.",
+  "oneOf": [
+    {
+      "title": "PrContext",
+      "description": "Emitted by --context-only mode: the head/base + commits the skill needs to synthesize a title and body before invoking the create path.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head", "base", "commits", "ahead", "behind", "has_remote", "remote_url", "suggested_title"],
+      "properties": {
+        "head": { "type": "string" },
+        "base": { "type": "string" },
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sha", "subject"],
+            "properties": {
+              "sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+              "subject": { "type": "string" }
+            }
+          }
+        },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 },
+        "has_remote": { "type": "boolean" },
+        "remote_url": { "type": "string", "description": "Origin remote URL with embedded credentials redacted via nyann::redact_url." },
+        "suggested_title": { "type": "string" }
+      }
+    },
+    {
+      "title": "PrCreated",
+      "description": "Emitted on the create path when gh pr create succeeded. The `auto_merge` field is present only when --auto-merge was passed; its `outcome` reports whether `gh pr merge --auto` setup succeeded (the actual merge happens server-side later when required checks + reviews pass).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^https?://" },
+        "auto_merge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy", "outcome"],
+          "properties": {
+            "strategy": { "type": "string", "enum": ["squash", "rebase", "merge"] },
+            "outcome":  { "type": "string", "enum": ["enabled", "failed"] },
+            "reason":   { "type": "string", "description": "Capped error text when outcome=failed (e.g. `auto-merge is not allowed on this repo`)." }
+          }
+        }
+      }
+    },
+    {
+      "title": "PrSkipped",
+      "description": "Emitted when the create path soft-skips (gh missing, not authed, no origin remote, etc.).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skipped", "reason"],
+      "properties": {
+        "skipped": { "type": "string", "const": "pr" },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "gh-not-installed",
+            "gh-not-authenticated",
+            "no-origin-remote",
+            "profile-disabled-branch-protection",
+            "invalid-owner",
+            "invalid-repo",
+            "unknown-repo",
+            "remote-stricter"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/claudemd-usage/v1.json",
+  "title": "ClaudeMdUsage",
+  "description": "Persisted CLAUDE.md usage tracking data. Stored in memory/claudemd-usage.json.",
+  "type": "object",
+  "required": ["sessions", "sections", "commands_run", "docs_read"],
+  "additionalProperties": false,
+  "properties": {
+    "sessions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["referenced", "last_referenced"],
+        "additionalProperties": false,
+        "properties": {
+          "referenced": { "type": "integer", "minimum": 0 },
+          "last_referenced": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "commands_run": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "docs_read": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "last_optimized": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

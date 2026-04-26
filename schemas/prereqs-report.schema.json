@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/prereqs-report/v1.json",
+  "title": "PrereqsReport",
+  "description": "Output of bin/check-prereqs.sh --json — survey of hard + soft prerequisites Nyann depends on. Consumed by skills/check-prereqs/SKILL.md and the setup wizard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prereqs"],
+  "properties": {
+    "prereqs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "tool", "status"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["hard", "soft"],
+            "description": "'hard' = nyann won't run without it; 'soft' = degrades gracefully when missing."
+          },
+          "tool": { "type": "string", "minLength": 1 },
+          "status": {
+            "type": "string",
+            "description": "'ok' (or 'ok-some-flavour') when present; 'missing' otherwise."
+          },
+          "version": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string" }
+            ]
+          },
+          "hint": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "string" }
+            ],
+            "description": "Install hint surfaced when status is 'missing'."
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-tag-prefix-injection",
+  "description": "release.tag_prefix starting with '-' — option-injection vector. Must fail.",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "typescript"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": [],
+    "commit_msg": [],
+    "pre_push": []
+  },
+  "extras": {},
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "release": {
+    "tag_prefix": "-d main; "
+  },
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "claude_md_mode": "router"
+  }
+}

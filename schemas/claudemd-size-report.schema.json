@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/claudemd-size-report/v1.json",
+  "title": "ClaudemdSizeReport",
+  "description": "Output of bin/check-claude-md-size.sh — CLAUDE.md size budget check + per-section breakdown for the largest extract candidates. Consumed by bin/compute-drift.sh (folded into the documentation block of DriftReport).",
+  "oneOf": [
+    {
+      "title": "ClaudemdSizeAbsent",
+      "description": "Emitted when no CLAUDE.md exists at the target path.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status", "budget_bytes", "bytes"],
+      "properties": {
+        "path": { "type": "string" },
+        "status": { "const": "absent" },
+        "budget_bytes": { "type": "integer", "minimum": 0 },
+        "bytes": { "const": 0 }
+      }
+    },
+    {
+      "title": "ClaudemdSizePresent",
+      "description": "Emitted when CLAUDE.md exists; status reflects whether it fits the soft / hard budget.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "budget_bytes", "hard_cap_bytes", "status", "sections", "recommendation"],
+      "properties": {
+        "path": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "budget_bytes": { "type": "integer", "minimum": 0, "description": "Soft budget (typically 3072)." },
+        "hard_cap_bytes": { "type": "integer", "minimum": 0, "description": "Plugin-wide hard cap (NYANN_CLAUDEMD_HARD_CAP_BYTES = 8192)." },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "warn", "error"],
+          "description": "'ok' = under soft budget; 'warn' = over soft, under hard; 'error' = over hard cap."
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "bytes"],
+            "properties": {
+              "title": { "type": "string" },
+              "bytes": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "description": "Top-level `## ` sections sorted by byte size (descending). Empty when python3 is unavailable."
+        },
+        "recommendation": {
+          "type": "string",
+          "description": "Human-readable suggestion for the user (typically points at the largest extract candidates)."
+        }
+      }
+    }
+  ]
+}

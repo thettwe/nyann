@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/undo-result/v1.json",
+  "title": "UndoResult",
+  "description": "Output of bin/undo.sh — undo the last N commits via soft/mixed/hard reset. Consumed by skills/undo/SKILL.md.",
+  "oneOf": [
+    {
+      "title": "UndoApplied",
+      "description": "Emitted on success or dry-run (status reflects which).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scope", "count", "strategy", "target_sha", "new_head", "undone_commits"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["undone", "preview"],
+          "description": "'undone' after a real reset; 'preview' for --dry-run."
+        },
+        "scope": { "type": "string", "enum": ["last-commit", "last-n", "bootstrap"] },
+        "count": { "type": "integer", "minimum": 1 },
+        "strategy": { "type": "string", "enum": ["soft", "mixed", "hard"] },
+        "target_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$", "description": "SHA of HEAD at the moment undo started — the 'before' commit." },
+        "new_head": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+          ],
+          "description": "SHA of HEAD after the reset (null in --dry-run)."
+        },
+        "undone_commits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sha", "subject"],
+            "properties": {
+              "sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+              "subject": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "title": "UndoRefused",
+      "description": "Emitted when undo refuses to proceed (long-lived branch, merge commit, pushed, etc.).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scope", "count", "strategy", "refused_reason"],
+      "properties": {
+        "status": { "const": "refused" },
+        "scope": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "strategy": { "type": "string", "enum": ["soft", "mixed", "hard"] },
+        "refused_reason": { "type": "string" }
+      }
+    }
+  ]
+}

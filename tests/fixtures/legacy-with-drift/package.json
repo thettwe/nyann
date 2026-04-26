@@ -1,0 +1,9 @@
+{
+  "name": "legacy-with-drift",
+  "private": true,
+  "version": "0.1.0",
+  "dependencies": {
+    "next": "14.0.0",
+    "react": "18.2.0"
+  }
+}

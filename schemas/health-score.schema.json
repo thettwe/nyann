@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/health-score/v1.json",
+  "title": "HealthScore",
+  "description": "Persisted health score history for a repository. Stored in memory/health.json.",
+  "type": "object",
+  "required": ["scores"],
+  "additionalProperties": false,
+  "properties": {
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "score", "profile"],
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "profile": { "type": "string" },
+          "breakdown": {
+            "type": "object",
+            "additionalProperties": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "trend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "direction": { "type": "string", "enum": ["up", "down", "stable"] },
+        "delta": { "type": "integer" },
+        "window_days": { "type": "integer" }
+      }
+    }
+  }
+}

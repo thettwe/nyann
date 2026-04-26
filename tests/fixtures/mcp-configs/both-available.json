@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "obsidian-mcp-tools": {
+      "command": "npx",
+      "args": ["-y", "obsidian-mcp-tools"],
+      "enabled": true
+    },
+    "notion": {
+      "command": "notion-mcp",
+      "enabled": true
+    }
+  }
+}

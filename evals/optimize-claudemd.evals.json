@@ -1,0 +1,21 @@
+{
+  "skill": "optimize-claudemd",
+  "trigger_cases": [
+    { "prompt": "optimize CLAUDE.md",                               "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "improve CLAUDE.md",                                "should_trigger": true,  "tag": "improve" },
+    { "prompt": "make CLAUDE.md better",                            "should_trigger": true,  "tag": "make-better" },
+    { "prompt": "trim CLAUDE.md",                                   "should_trigger": true,  "tag": "trim" },
+    { "prompt": "what is unused in CLAUDE.md",                      "should_trigger": true,  "tag": "unused" },
+    { "prompt": "CLAUDE.md is too big",                             "should_trigger": true,  "tag": "too-big" },
+    { "prompt": "shrink CLAUDE.md",                                 "should_trigger": true,  "tag": "shrink" },
+    { "prompt": "which docs are never read",                        "should_trigger": true,  "tag": "never-read" },
+    { "prompt": "optimize context",                                 "should_trigger": true,  "tag": "optimize-context" },
+    { "prompt": "/nyann:optimize-claudemd",                         "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what is CLAUDE.md",                                "should_trigger": false, "tag": "informational" },
+    { "prompt": "show me my CLAUDE.md",                             "should_trigger": false, "tag": "read-distractor" },
+    { "prompt": "explain the setup",                                "should_trigger": false, "tag": "explain-state-distractor" },
+    { "prompt": "is this repo healthy",                             "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "regenerate CLAUDE.md from scratch",                "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

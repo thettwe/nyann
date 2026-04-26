@@ -1,0 +1,86 @@
+# nyann template v1 — JS/TS gitignore
+# Derived from github/gitignore Node.gitignore with framework-specific additions
+# (Next.js, Nuxt, SvelteKit, Remix) and package manager caches (pnpm, yarn,
+# bun). Used for both JavaScript and TypeScript projects.
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage and test artifacts
+lib-cov
+coverage
+*.lcov
+.nyc_output
+.grunt
+
+# Dependencies
+node_modules/
+jspm_packages/
+bower_components
+.pnp
+.pnp.js
+.pnp.cjs
+.yarn/install-state.gz
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.turbo/
+.cache/
+.parcel-cache
+.docusaurus
+.serverless/
+
+# TypeScript
+*.tsbuildinfo
+.tsbuildinfo
+
+# ESLint / Prettier caches
+.eslintcache
+.stylelintcache
+.prettiercache
+
+# Env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# IDE / editor
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package manager caches
+.npm
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/documentation-plan/v1.json",
+  "title": "DocumentationPlan",
+  "description": "Where each doc type will live (local, obsidian, notion, split). MCP routing is planned for a future release.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["storage_strategy", "targets", "claude_md_mode", "size_budget_kb", "staleness_days"],
+  "properties": {
+    "storage_strategy": {
+      "type": "string",
+      "enum": ["local", "obsidian", "notion", "split"]
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/target"
+      }
+    },
+    "claude_md_mode": {
+      "type": "string",
+      "enum": ["router", "content", "off"]
+    },
+    "size_budget_kb": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "staleness_days": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":    { "type": "string", "enum": ["local", "obsidian", "notion"] },
+        "path":    { "type": "string" },
+        "page_id": { "type": "string" },
+        "url":     { "type": "string" },
+        "vault":   { "type": "string" },
+        "folder":  { "type": "string" },
+        "link_in_claude_md": { "type": "string" }
+      }
+    }
+  }
+}

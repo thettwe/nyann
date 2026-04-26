@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Only one CI run per branch at a time — no untrusted input in run: commands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege GITHUB_TOKEN. CI only reads source — no PRs, releases,
+# or issue mutations from this workflow.
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: lint + bats
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+      # Pinned to commit SHA (not @v6) — floating tags can be re-pointed
+      # by a compromised maintainer (cf. tj-actions/changed-files 2025).
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install shellcheck + bats (ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          # Only install what's actually missing — GitHub-hosted runners
+          # already have jq, and a repeat apt pulls-in an update loop.
+          need=()
+          for pkg in shellcheck bats jq; do
+            command -v "$pkg" >/dev/null 2>&1 || need+=("$pkg")
+          done
+          if (( ${#need[@]} > 0 )); then
+            sudo apt-get update
+            sudo apt-get install -y "${need[@]}"
+          fi
+
+      - name: Install shellcheck + bats (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # macOS ships bash 3.2 which has no `declare -A`; parallel
+          # arrays keep this step portable. `bats` is packaged as
+          # bats-core on brew.
+          tools=(shellcheck bats jq)
+          formulas=(shellcheck bats-core jq)
+          need=()
+          for i in "${!tools[@]}"; do
+            command -v "${tools[$i]}" >/dev/null 2>&1 \
+              || need+=("${formulas[$i]}")
+          done
+          if (( ${#need[@]} > 0 )); then
+            brew install "${need[@]}"
+          fi
+
+      - name: Install PyYAML (for pre-commit config merge + MCP detector)
+        run: |
+          # Skip if PyYAML is already importable.
+          python3 -c "import yaml" 2>/dev/null && exit 0
+          python3 -m pip install --user --break-system-packages PyYAML || \
+            python3 -m pip install --user PyYAML
+
+      # Pinned (vs `curl | sh` of astral.sh) — the official action ships
+      # SHA-verified release tarballs, removing the ambient curl-pipe-bash
+      # supply-chain step. SHA matches v8.1.0.
+      - name: Install uv (for schema validation via uvx check-jsonschema)
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Show tool versions
+        run: |
+          bash --version | head -1
+          shellcheck --version | head -2
+          bats --version
+          jq --version
+          uvx --version || true
+          python3 --version
+
+      - name: Lint (shellcheck + SKILL length)
+        run: ./tests/lint.sh
+
+      - name: Bats
+        run: bats tests/bats
+
+      - name: Output-quality evals (non-blocking)
+        continue-on-error: true
+        run: |
+          set -e
+          for f in evals/*.evals.json; do
+            echo "::group::$(basename "$f")"
+            ./evals/run.sh --file "$f"
+            echo "::endgroup::"
+          done

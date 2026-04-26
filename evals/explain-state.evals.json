@@ -1,0 +1,18 @@
+{
+  "skill": "explain-state",
+  "trigger_cases": [
+    { "prompt": "what does nyann think is set up here",     "should_trigger": true,  "tag": "nyann-thinks" },
+    { "prompt": "show nyann state",                         "should_trigger": true,  "tag": "show-state" },
+    { "prompt": "explain the setup",                        "should_trigger": true,  "tag": "explain-setup" },
+    { "prompt": "what's the current config",               "should_trigger": true,  "tag": "current-config" },
+    { "prompt": "what's the active profile",                "should_trigger": true,  "tag": "active-profile" },
+    { "prompt": "describe this repo's nyann setup",         "should_trigger": true,  "tag": "describe-setup" },
+    { "prompt": "what's wired up",                          "should_trigger": true,  "tag": "wired-up" },
+    { "prompt": "/nyann:explain-state",                     "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what does this repo do",                   "should_trigger": false, "tag": "docs-distractor" },
+    { "prompt": "is this repo healthy",                     "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "what's in the python-cli profile",         "should_trigger": false, "tag": "inspect-distractor" },
+    { "prompt": "set up this project",                      "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

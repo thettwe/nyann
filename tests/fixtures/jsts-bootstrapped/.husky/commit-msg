@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# nyann-managed-husky: commit-msg
+# nyann hook v1 — husky commit-msg
+# Delegates to commitlint for Conventional Commits enforcement.
+npx --no-install commitlint --edit "$1"

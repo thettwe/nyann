@@ -1,0 +1,19 @@
+{
+  "skill": "record-decision",
+  "trigger_cases": [
+    { "prompt": "record this decision",                      "should_trigger": true,  "tag": "record" },
+    { "prompt": "log this decision",                         "should_trigger": true,  "tag": "log" },
+    { "prompt": "add an ADR for using Postgres",             "should_trigger": true,  "tag": "add-adr" },
+    { "prompt": "create an ADR about the auth redesign",     "should_trigger": true,  "tag": "create-adr" },
+    { "prompt": "record the choice to use pnpm",             "should_trigger": true,  "tag": "record-choice" },
+    { "prompt": "write up this decision",                    "should_trigger": true,  "tag": "write-up" },
+    { "prompt": "document this as an ADR",                   "should_trigger": true,  "tag": "as-adr" },
+    { "prompt": "/nyann:record-decision",                    "should_trigger": true,  "tag": "slash" },
+    { "prompt": "write a doc",                               "should_trigger": false, "tag": "doc-distractor" },
+    { "prompt": "add documentation",                         "should_trigger": false, "tag": "docs-distractor" },
+    { "prompt": "record a bug",                              "should_trigger": false, "tag": "bug-distractor" },
+    { "prompt": "open an issue",                             "should_trigger": false, "tag": "issue-distractor" },
+    { "prompt": "what decisions have we made",               "should_trigger": false, "tag": "read-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

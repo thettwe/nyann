@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/sync-result/v1.json",
+  "title": "SyncResult",
+  "description": "Output of bin/sync.sh — branch rebase/merge against base. Consumed by skills/sync/SKILL.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "strategy", "base", "head", "ahead", "behind", "conflicts"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["up-to-date", "synced", "conflicts", "dirty", "skipped"],
+      "description": "'up-to-date' = behind=0; 'synced' = rebase/merge ran cleanly; 'conflicts' = strategy stopped at unmerged paths; 'dirty' = working tree had uncommitted changes (refused); 'skipped' = base unresolvable or precondition failed."
+    },
+    "strategy": {
+      "type": "string",
+      "enum": ["rebase", "merge"],
+      "description": "Which strategy ran. Default is 'rebase'; --strategy merge for shared-history branches."
+    },
+    "base": {
+      "type": "string",
+      "description": "Resolved base ref name (e.g. 'main', 'develop'). May be empty when status=='dirty' (sync exited before resolution)."
+    },
+    "head": {
+      "type": "string",
+      "description": "Current branch name."
+    },
+    "ahead": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Commits HEAD has that base doesn't (post-sync count when status=='synced')."
+    },
+    "behind": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Commits base has that HEAD doesn't (pre-sync count; 0 after a successful sync)."
+    },
+    "conflicts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Unmerged paths when status=='conflicts'. Empty array otherwise."
+    }
+  }
+}

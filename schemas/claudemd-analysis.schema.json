@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/claudemd-analysis/v1.json",
+  "title": "ClaudemdAnalysis",
+  "description": "Output of bin/analyze-claudemd-usage.sh — section reference density + budget consumption + recommended actions. Consumed by skills/optimize-claudemd/SKILL.md and bin/optimize-claudemd.sh.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "total_sessions",
+    "sufficient_data",
+    "section_analysis",
+    "unused_docs",
+    "missing_commands",
+    "budget_used",
+    "budget_remaining",
+    "recommendations"
+  ],
+  "properties": {
+    "total_sessions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of Claude Code sessions the usage tracker has observed."
+    },
+    "sufficient_data": {
+      "type": "boolean",
+      "description": "False until total_sessions >= minimum_sessions; analysis fields are stub-empty until then."
+    },
+    "minimum_sessions": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Threshold below which the analyser refuses to recommend changes (only present when sufficient_data is false)."
+    },
+    "section_analysis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "bytes", "references", "density", "verdict"],
+        "properties": {
+          "section": { "type": "string" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "references": { "type": "integer", "minimum": 0 },
+          "density": { "type": "number", "minimum": 0 },
+          "verdict": { "type": "string", "enum": ["keep", "compress", "remove"] }
+        }
+      }
+    },
+    "unused_docs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Docs linked from CLAUDE.md that have never been read by Claude in tracked sessions."
+    },
+    "missing_commands": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Commands frequently run by Claude (>=3 invocations) that aren't mentioned in CLAUDE.md."
+    },
+    "budget_used": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Bytes inside the nyann-managed CLAUDE.md block."
+    },
+    "budget_remaining": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Bytes remaining under the soft budget (typically 3072)."
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "section", "reason"],
+            "properties": {
+              "action": { "type": "string", "enum": ["compress", "remove"] },
+              "section": { "type": "string" },
+              "reason": { "type": "string" },
+              "savings_bytes": { "type": "integer", "minimum": 0 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "content", "reason"],
+            "properties": {
+              "action": { "const": "add" },
+              "content": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

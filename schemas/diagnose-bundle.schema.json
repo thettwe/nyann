@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/diagnose-bundle/v1.json",
+  "title": "DiagnoseBundle",
+  "description": "Output of bin/diagnose.sh --json — support-grade snapshot of the current nyann state. Used in the support flow: a user paste of this bundle gives the maintainer everything needed to reproduce or pinpoint a bug. Every URL is run through nyann::redact_url before emission, so the bundle is safe to paste into a public issue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["nyann_version", "target", "generated_at", "host", "repo", "health", "git", "hook_files", "nyann_config", "prereqs"],
+  "properties": {
+    "nyann_version": { "type": "string" },
+    "target": { "type": "string", "description": "Absolute path to the target repo." },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uname", "bash", "jq", "git", "gh"],
+      "properties": {
+        "uname": { "type": "string" },
+        "bash":  { "type": "string" },
+        "jq":    { "type": "string" },
+        "git":   { "type": "string" },
+        "gh":    { "type": "string", "description": "Either the version string or 'missing'." }
+      }
+    },
+    "repo": {
+      "description": "explain-state output (StateSummary). Empty {} when the target isn't a git repo.",
+      "oneOf": [
+        { "type": "object", "maxProperties": 0 },
+        { "type": "object", "additionalProperties": true }
+      ]
+    },
+    "health": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "additionalProperties": true, "description": "DriftReport + .health_score from doctor --json." }
+      ]
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "status"],
+      "properties": {
+        "config": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "git config --list lines, with embedded URL credentials redacted."
+        },
+        "status": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "git status --porcelain lines."
+        }
+      }
+    },
+    "hook_files": {
+      "type": "object",
+      "description": "Map of hook-file path → contents (truncated to 8 KB) or null when absent.",
+      "additionalProperties": false,
+      "properties": {
+        ".git/hooks/pre-commit":   { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        ".git/hooks/commit-msg":   { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        ".husky/pre-commit":       { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        ".husky/commit-msg":       { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        ".pre-commit-config.yaml": { "oneOf": [{ "type": "null" }, { "type": "string" }] }
+      }
+    },
+    "nyann_config": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["preferences", "team_profile_sources"],
+          "properties": {
+            "preferences": { "type": "object", "additionalProperties": true },
+            "team_profile_sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "url", "ref", "last_synced_at", "sync_interval_hours"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "url": { "type": "string", "description": "URL with credentials redacted." },
+                  "ref": { "type": "string" },
+                  "last_synced_at": { "type": "integer" },
+                  "sync_interval_hours": { "type": "integer" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "prereqs": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "additionalProperties": true, "description": "PrereqsReport from check-prereqs --json." }
+      ]
+    }
+  }
+}

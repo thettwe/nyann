@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/profile/v1.json",
+  "title": "NyannProfile",
+  "description": "A saved nyann bootstrap configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "schemaVersion",
+    "stack",
+    "branching",
+    "hooks",
+    "extras",
+    "conventions",
+    "documentation"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "_meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Runtime metadata injected by bin/load-profile.sh after a profile is resolved. NOT present on profile files at rest — writing this field into a stored profile is meaningless because the loader overwrites it. Skill-layer callers read _meta to detect shadowing without scraping stderr.",
+      "properties": {
+        "source": { "type": "string", "pattern": "^(user|starter|team(:[a-zA-Z0-9_-]+)?)$" },
+        "source_path": { "type": "string", "description": "Filesystem path of the resolved profile." },
+        "shadowed_starter": { "type": "string", "description": "Path to a starter profile that this user/team profile shadowed (omit when nothing was shadowed)." },
+        "shadowed_team": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths to team profiles shadowed by this user profile."
+        }
+      }
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Lowercase-kebab profile identifier."
+    },
+    "description": { "type": "string" },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Profile schema version. Incremented on breaking changes."
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_language"],
+      "properties": {
+        "primary_language": {
+          "type": "string",
+          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby", "unknown"]
+        },
+        "framework": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" }
+          ]
+        },
+        "package_manager": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle"] }
+          ]
+        }
+      }
+    },
+    "branching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "base_branches"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["github-flow", "gitflow", "trunk-based"]
+        },
+        "base_branches": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]*$" },
+          "minItems": 1
+        },
+        "branch_name_patterns": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "feature": { "type": "string" },
+            "bugfix":  { "type": "string" },
+            "release": { "type": "string" },
+            "hotfix":  { "type": "string" }
+          }
+        },
+        "stale_after_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650,
+          "description": "Age threshold (in days) for `bin/check-stale-branches.sh`. Local branches whose last commit is older than this AND that are not merged into a base branch are flagged as `stale_unmerged`. Doctor folds the result into its drift display. Default 90."
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pre_commit", "commit_msg", "pre_push"],
+      "properties": {
+        "pre_commit": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } },
+        "commit_msg": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } },
+        "pre_push":   { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } }
+      }
+    },
+    "extras": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gitignore":               { "type": "boolean" },
+        "editorconfig":            { "type": "boolean" },
+        "claude_md":               { "type": "boolean" },
+        "github_actions_ci":       { "type": "boolean" },
+        "github_templates":        { "type": "boolean" },
+        "commit_message_template": { "type": "boolean" }
+      }
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional CI workflow generation settings. Controls GitHub Actions workflow output.",
+      "properties": {
+        "enabled":        { "type": "boolean" },
+        "node_version":   { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" },
+        "python_version": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" },
+        "go_version":     { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" }
+      }
+    },
+    "conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_format"],
+      "properties": {
+        "commit_format": {
+          "type": "string",
+          "enum": ["conventional-commits", "custom", "unknown"]
+        },
+        "commit_scopes": { "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$" } }
+      }
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GitHub branch / tag / repo-security settings. Used by `bin/gh-integration.sh` for both --apply (write protection) and --check (audit protection drift via the doctor probe).",
+      "properties": {
+        "enable_branch_protection": { "type": "boolean" },
+        "require_pr_reviews":       {
+          "type": "integer", "minimum": 0, "maximum": 6,
+          "description": "Number of approving PR reviews required to merge into a strategy-declared branch. 0 disables the review-required rule entirely (single-developer flow)."
+        },
+        "require_status_checks":    {
+          "type": "array",
+          "items": {
+            "type": "string", "minLength": 1,
+            "pattern": "^[A-Za-z0-9 _.\\-/()]+$",
+            "description": "Status-check context name as it appears in GitHub's Branch protection screen. Matrix-job names include the matrix vector (e.g. 'lint + bats (ubuntu-latest)')."
+          },
+          "uniqueItems": true,
+          "description": "Status checks that MUST pass before merging into a strategy-declared branch. Empty array means no required checks."
+        },
+        "require_code_owner_reviews": {
+          "type": "boolean",
+          "description": "When true, branch protection requires a review from a CODEOWNERS-listed reviewer. Only meaningful when a CODEOWNERS file exists; gh-integration.sh --check warns when this is true but no CODEOWNERS file ships in the repo, and warns when CODEOWNERS exists but the gate is off."
+        },
+        "tag_protection_pattern": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9*?_./-]+$",
+          "description": "fnmatch-style tag pattern that should be protected against deletion + force-push (e.g. 'v*'). Audited via the GitHub Rulesets API; setting this enables the tag_protection section of `gh-integration.sh --check`. Absent = audit skipped."
+        },
+        "require_signed_commits": {
+          "type": "boolean",
+          "description": "When true, branch protection requires GPG/SSH-signed commits on strategy-declared branches. The audit also reads the local `commit.gpgsign` git config (warn when remote requires signing but local config is unset)."
+        },
+        "require_signed_tags": {
+          "type": "boolean",
+          "description": "When true, the audit asserts the local `tag.gpgsign` config is on. There is no GitHub-side rule for required signed tags; this is purely a local-config audit so release.sh's `git tag` commands produce signed tags."
+        },
+        "allow_squash_merge": {
+          "type": "boolean",
+          "description": "When true, audit asserts the repo allows squash-merge from the PR merge button. Mirrors the GitHub repo setting `allow_squash_merge`."
+        },
+        "allow_rebase_merge": {
+          "type": "boolean",
+          "description": "When true, audit asserts the repo allows rebase-merge from the PR merge button. Mirrors `allow_rebase_merge`."
+        },
+        "allow_merge_commit": {
+          "type": "boolean",
+          "description": "When true, audit asserts the repo allows merge-commits from the PR merge button. Mirrors `allow_merge_commit`. Most projects want exactly one of squash / rebase / merge-commit enabled."
+        },
+        "delete_branch_on_merge": {
+          "type": "boolean",
+          "description": "When true, audit asserts the repo auto-deletes head branches after merge. Mirrors `delete_branch_on_merge`. Recommended for hygiene; pairs with the local cleanup-branches skill."
+        },
+        "auto_merge_strategy": {
+          "type": "string",
+          "enum": ["squash", "rebase", "merge"],
+          "description": "Merge strategy `bin/pr.sh --auto-merge` uses when calling `gh pr merge --auto`. Default `squash` when unset. The repo must allow the chosen strategy via .github.allow_*_merge for auto-merge to succeed; the audit catches that mismatch in the repo_settings section."
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional release-skill configuration. When absent, release skill defaults to conventional-changelog against CHANGELOG.md.",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["conventional-changelog", "changesets", "release-please", "manual"]
+        },
+        "changelog_path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$",
+          "maxLength": 256,
+          "description": "Relative path (from repo root) where CHANGELOG entries are appended. Must not start with '-' (option injection) or contain '..' (path traversal)."
+        },
+        "tag_prefix": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$",
+          "description": "Prefix for version tags (default: 'v'). Must not start with '-' (option injection) or contain shell metacharacters."
+        }
+      }
+    },
+    "workspaces": {
+      "type": "object",
+      "description": "Per-workspace config overrides for monorepos. Keys are relative paths (e.g. 'apps/web', 'packages/api') or '*' for all unmatched workspaces. Merged with detected workspace stacks by bin/resolve-workspace-configs.sh.",
+      "propertyNames": {
+        "pattern": "^(\\*|[A-Za-z0-9][A-Za-z0-9._/-]{0,127})$",
+        "description": "Either '*' for the catch-all override or a repo-relative path. Path constraint matches base_branches[]'s shape so workspace keys can't smuggle leading-dash or shell-metachar values into resolve-workspace-configs.sh."
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "hooks": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pre_commit": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } },
+              "commit_msg": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } },
+              "pre_push":   { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } }
+            }
+          },
+          "extras": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "gitignore":    { "type": "boolean" },
+              "editorconfig": { "type": "boolean" }
+            }
+          },
+          "owner": {
+            "type": "string",
+            "pattern": "^@[a-zA-Z0-9_/-]+$",
+            "description": "GitHub handle (@user or @org/team) for CODEOWNERS."
+          }
+        }
+      }
+    },
+    "documentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scaffold_types", "storage_strategy", "claude_md_mode"],
+      "properties": {
+        "scaffold_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["architecture", "prd", "adrs", "research"]
+          },
+          "uniqueItems": true
+        },
+        "storage_strategy": {
+          "type": "string",
+          "enum": ["local", "obsidian", "notion", "split"]
+        },
+        "preferred_mcp": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$" }
+          ]
+        },
+        "adr_format": {
+          "type": "string",
+          "enum": ["madr", "nygard", "custom"]
+        },
+        "claude_md_mode": {
+          "type": "string",
+          "enum": ["router", "content", "off"]
+        },
+        "claude_md_size_budget_kb": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "staleness_days": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "enable_drift_checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "broken_internal_links": { "type": "boolean" },
+            "broken_mcp_links":      { "type": "boolean" },
+            "orphans":               { "type": "boolean" },
+            "staleness":             { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/mcp-doc-targets/v1.json",
+  "title": "MCPDocTargets",
+  "description": "Output of bin/detect-mcp-docs.sh. Lists Claude Code MCP servers classified against templates/mcp-registry.json. Read-only — the detector never invokes MCP tools.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["available", "configured_but_disabled", "unknown_servers_skipped"],
+  "properties": {
+    "settings_path": { "type": "string" },
+    "available": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "server_name", "uri_scheme", "capabilities", "status"],
+        "properties": {
+          "type":         { "type": "string" },
+          "server_name":  { "type": "string" },
+          "uri_scheme":   { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } },
+          "status":       { "type": "string", "enum": ["reachable", "unknown"] }
+        }
+      }
+    },
+    "configured_but_disabled": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "server_name"],
+        "properties": {
+          "type":        { "type": "string" },
+          "server_name": { "type": "string" }
+        }
+      }
+    },
+    "unknown_servers_skipped": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-preferred-mcp-shellmeta",
+  "description": "documentation.preferred_mcp with shell metacharacters — must fail.",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "typescript"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": [],
+    "commit_msg": [],
+    "pre_push": []
+  },
+  "extras": {},
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "claude_md_mode": "router",
+    "preferred_mcp": "obsidian; rm -rf /"
+  }
+}

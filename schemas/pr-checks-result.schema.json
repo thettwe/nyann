@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/pr-checks-result/v1.json",
+  "title": "PRChecksResult",
+  "description": "Output of `bin/wait-for-pr-checks.sh`. Reports the terminal state of a polling loop that watches a GitHub PR's checks until they all pass, any one fails, or a timeout is reached. Soft-skips when `gh` is missing or unauthenticated.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "pr_number", "outcome", "elapsed_seconds", "checks", "summary"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo path the wait was initiated from."
+    },
+    "pr_number": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "null", "description": "PR number unresolved; only valid when outcome is `skipped`." }
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["pass", "fail", "timeout", "skipped", "no-checks"],
+      "description": "pass = every check completed with a passing conclusion. fail = at least one check completed with a failing conclusion (the loop bails immediately on first failure). timeout = the polling deadline was hit before all checks completed. skipped = gh missing/unauthenticated or PR couldn't be resolved. no-checks = the PR returned an empty checks list (clean exit, treat as pass for gating)."
+    },
+    "elapsed_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Wall-clock seconds the wait took. 0 in the skipped path."
+    },
+    "checks": {
+      "type": "array",
+      "description": "Per-check terminal state. Mirrors the shape `gh pr checks --json` returns. Empty in the skipped path.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "conclusion"],
+        "properties": {
+          "name":       { "type": "string" },
+          "status":     { "type": "string", "enum": ["queued", "in_progress", "completed", "pending", "waiting", ""] },
+          "conclusion": { "type": "string", "enum": ["success", "failure", "cancelled", "skipped", "neutral", "action_required", "timed_out", "stale", ""] },
+          "workflow":   { "type": "string" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "passing", "failing", "in_progress"],
+      "properties": {
+        "total":       { "type": "integer", "minimum": 0 },
+        "passing":     { "type": "integer", "minimum": 0 },
+        "failing":     { "type": "integer", "minimum": 0 },
+        "in_progress": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "skip_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Set when `outcome == \"skipped\"`. Examples: `gh-not-installed`, `gh-not-authenticated`, `pr-not-resolved`."
+    }
+  }
+}

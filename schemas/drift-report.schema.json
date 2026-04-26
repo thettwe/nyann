@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/drift-report/v1.json",
+  "title": "DriftReport",
+  "description": "Output of bin/retrofit.sh / bin/doctor.sh. Describes how a target repo differs from a profile's expected state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "profile", "missing", "misconfigured", "non_compliant_history", "documentation", "summary"],
+  "properties": {
+    "target":  { "type": "string", "minLength": 1 },
+    "profile": { "type": "string", "minLength": 1 },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "misconfigured": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path":    { "type": "string" },
+          "reason":  { "type": "string" },
+          "missing_entries": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "non_compliant_history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checked", "offenders"],
+      "properties": {
+        "checked":   { "type": "integer", "minimum": 0 },
+        "offenders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sha", "subject"],
+            "properties": {
+              "sha":     { "type": "string", "minLength": 7 },
+              "subject": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "documentation": {
+      "type": "object",
+      "description": "Documentation-tier drift: CLAUDE.md size budget, internal link check, orphan detector. Staleness is planned for a future release. `subsystem_errors` lists subsystems that failed to execute (not 'nothing found' — an actual failure); consumers should treat these as warnings, not missing-drift.",
+      "additionalProperties": false,
+      "required": ["claude_md", "links", "orphans", "staleness"],
+      "properties": {
+        "subsystem_errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["subsystem", "error"],
+            "properties": {
+              "subsystem": { "type": "string" },
+              "error":     { "type": "string" }
+            }
+          }
+        },
+        "claude_md": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["status", "bytes", "budget_bytes"],
+          "properties": {
+            "status":         { "type": "string", "enum": ["ok", "warn", "error", "absent"] },
+            "bytes":          { "type": "integer", "minimum": 0 },
+            "budget_bytes":   { "type": "integer", "minimum": 0 },
+            "hard_cap_bytes": { "type": "integer" },
+            "recommendation": { "type": "string" }
+          }
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checked", "broken", "needs_mcp_verify", "skipped"],
+          "properties": {
+            "checked":          { "type": "integer", "minimum": 0 },
+            "broken":           { "type": "array" },
+            "needs_mcp_verify": { "type": "array" },
+            "skipped":          { "type": "array" }
+          }
+        },
+        "orphans": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scanned", "orphans"],
+          "properties": {
+            "scanned": { "type": "integer", "minimum": 0 },
+            "orphans": { "type": "array" }
+          }
+        },
+        "staleness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "scanned", "stale"],
+          "properties": {
+            "enabled":         { "type": "boolean" },
+            "threshold_days":  { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }] },
+            "scanned":         { "type": "integer", "minimum": 0 },
+            "stale":           { "type": "array" }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missing", "misconfigured", "non_compliant_commits", "broken_links", "orphans", "claude_md_status", "stale_docs"],
+      "properties": {
+        "missing":               { "type": "integer", "minimum": 0 },
+        "misconfigured":         { "type": "integer", "minimum": 0 },
+        "non_compliant_commits": { "type": "integer", "minimum": 0 },
+        "broken_links":          { "type": "integer", "minimum": 0 },
+        "orphans":               { "type": "integer", "minimum": 0 },
+        "stale_docs":            { "type": "integer", "minimum": 0 },
+        "subsystem_errors":      { "type": "integer", "minimum": 0 },
+        "claude_md_status":      { "type": "string", "enum": ["ok", "warn", "error", "absent"] }
+      }
+    }
+  }
+}

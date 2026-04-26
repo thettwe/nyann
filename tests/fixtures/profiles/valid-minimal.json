@@ -1,0 +1,34 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "valid-minimal",
+  "description": "Smallest fully-valid profile fixture. Used by validator tests.",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "typescript",
+    "framework": "next",
+    "package_manager": "pnpm"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": ["block-main", "gitleaks"],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "claude_md": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": ["architecture"],
+    "storage_strategy": "local",
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3
+  }
+}

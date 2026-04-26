@@ -1,0 +1,6 @@
+lockfileVersion: '9.0'
+# Minimal fixture pnpm lock. Enough for detect-stack to treat pnpm as
+# the package manager; not a valid lock for actual install.
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false

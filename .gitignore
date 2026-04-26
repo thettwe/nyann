@@ -1,0 +1,27 @@
+# macOS / Linux noise
+.DS_Store
+*.swp
+*~
+*.bak
+*.orig
+*.rej
+
+# Editor / IDE
+.idea/
+.vscode/
+
+# Per-user local state (Claude Code agent memory, third-party plugin caches)
+.claude/
+.claude-octopus/
+
+# Language / tooling artifacts (in case contributors run tests against fixtures)
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.log
+

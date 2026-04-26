@@ -1,0 +1,32 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-workspace-key",
+  "description": "Workspace key starting with '-' (option-injection vector) — must fail.",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "typescript"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": [],
+    "commit_msg": [],
+    "pre_push": []
+  },
+  "extras": {},
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "workspaces": {
+    "--exec=evil": {
+      "extras": { "gitignore": true }
+    }
+  },
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "claude_md_mode": "router"
+  }
+}

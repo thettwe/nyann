@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/link-check-report/v1.json",
+  "title": "LinkCheckReport",
+  "description": "Output of bin/check-links.sh.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checked", "broken", "needs_mcp_verify", "skipped"],
+  "properties": {
+    "checked": { "type": "integer", "minimum": 0 },
+    "broken": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "link", "reason"],
+        "properties": {
+          "source": { "type": "string" },
+          "link":   { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "needs_mcp_verify": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "link", "connector"],
+        "properties": {
+          "source":    { "type": "string" },
+          "link":      { "type": "string" },
+          "connector": { "type": "string", "enum": ["obsidian", "notion"] }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["link", "reason"],
+        "properties": {
+          "source": { "type": "string" },
+          "link":   { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/cleanup-branches-result/v1.json",
+  "title": "CleanupBranchesResult",
+  "description": "Output of `bin/cleanup-branches.sh`. The script first runs the same merged-into-base detection that `bin/check-stale-branches.sh` does, then either previews the list (default — `--yes` was not passed) or actually deletes the branches via `git branch -d` (safe deletion; refuses if a candidate isn't reachable from base). Three modes: `preview` (no --yes, no --dry-run; the JSON shows the list and the user must re-run with --yes to apply), `dry-run` (--dry-run; same shape, no apply), `applied` (--yes; deletions executed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "base_branch", "mode", "candidates", "deleted", "errors", "summary"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo path the cleanup ran against."
+    },
+    "base_branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Branch the merged-into-base check was run against."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["preview", "dry-run", "applied"],
+      "description": "preview = invoked with neither --yes nor --dry-run (the JSON is shown to the human; nothing was deleted). dry-run = explicit --dry-run (no deletions). applied = --yes was passed (deletions executed)."
+    },
+    "candidates": {
+      "type": "array",
+      "description": "Branches whose tip is reachable from the base branch — safe to delete with `git branch -d`. Mirrors the merged_into_base[] from the underlying StaleBranchesReport.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "last_commit_at", "last_commit_sha"],
+        "properties": {
+          "name":            { "type": "string", "minLength": 1 },
+          "last_commit_at":  { "type": "string" },
+          "last_commit_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+        }
+      }
+    },
+    "deleted": {
+      "type": "array",
+      "description": "Branches actually deleted. Empty for preview / dry-run modes; equals candidates minus errors for applied mode.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "deleted_sha"],
+        "properties": {
+          "name":        { "type": "string", "minLength": 1 },
+          "deleted_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Branches the apply path tried to delete but failed (e.g. underlying git refused). Each entry includes the reason. Empty in non-apply modes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reason"],
+        "properties": {
+          "name":   { "type": "string", "minLength": 1 },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates_count", "deleted_count", "error_count"],
+      "properties": {
+        "candidates_count": { "type": "integer", "minimum": 0 },
+        "deleted_count":    { "type": "integer", "minimum": 0 },
+        "error_count":      { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

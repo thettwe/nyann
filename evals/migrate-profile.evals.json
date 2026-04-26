@@ -1,0 +1,20 @@
+{
+  "skill": "migrate-profile",
+  "trigger_cases": [
+    { "prompt": "switch profile",                                   "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "migrate profile",                                  "should_trigger": true,  "tag": "migrate" },
+    { "prompt": "change this repo profile",                         "should_trigger": true,  "tag": "change-profile" },
+    { "prompt": "switch from python to nextjs",                     "should_trigger": true,  "tag": "switch-from-to" },
+    { "prompt": "use the python profile instead",                   "should_trigger": true,  "tag": "use-instead" },
+    { "prompt": "switch to nextjs",                                 "should_trigger": true,  "tag": "switch-to-named" },
+    { "prompt": "migrate from python-cli to fastapi-service",       "should_trigger": true,  "tag": "named-migration" },
+    { "prompt": "/nyann:migrate-profile",                           "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what's in the nextjs-prototype profile",           "should_trigger": false, "tag": "inspect-distractor" },
+    { "prompt": "show me what profiles are available",              "should_trigger": false, "tag": "inspect-distractor" },
+    { "prompt": "set up this project",                              "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "fix what's drifted",                               "should_trigger": false, "tag": "retrofit-distractor" },
+    { "prompt": "migrate this profile to schema v2",                "should_trigger": false, "tag": "schema-migration-distractor" },
+    { "prompt": "save this setup as a profile",                     "should_trigger": false, "tag": "learn-profile-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

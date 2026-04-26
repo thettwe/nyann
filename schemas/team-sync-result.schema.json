@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/team-sync-result/v1.json",
+  "title": "TeamSyncResult",
+  "description": "Output of bin/sync-team-profiles.sh — per-team-source clone/fetch result + the profiles that registered cleanly. Consumed by skills/sync-team-profiles/SKILL.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["synced", "skipped", "registered", "invalid"],
+  "properties": {
+    "synced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "synced_at"],
+        "properties": {
+          "name": { "type": "string" },
+          "synced_at": { "type": "integer", "description": "Unix timestamp." }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reason"],
+        "properties": {
+          "name": { "type": "string" },
+          "reason": { "type": "string", "enum": ["within-interval"] },
+          "next_due": { "type": "integer" }
+        }
+      }
+    },
+    "registered": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "name", "namespaced", "path"],
+        "properties": {
+          "source": { "type": "string" },
+          "name": { "type": "string" },
+          "namespaced": { "type": "string" },
+          "path": { "type": "string" }
+        }
+      }
+    },
+    "invalid": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind"],
+        "properties": {
+          "name": { "type": "string" },
+          "source": { "type": "string" },
+          "path": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["invalid-name", "invalid-ref", "invalid-url", "fetch-failed", "clone-failed", "toctou", "invalid-schema"]
+          },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

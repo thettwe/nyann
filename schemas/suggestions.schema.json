@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/suggestions/v1.json",
+  "title": "Suggestions",
+  "description": "Output of bin/suggest-profile-updates.sh — profile-update suggestions derived from devDependencies, config files, and recent git history. Consumed by skills/suggest/SKILL.md. Top-level value is an array (the script does not wrap it in an object) so consumers must handle 0..N items.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["category", "signal", "suggestion", "confidence", "action"],
+    "properties": {
+      "category": {
+        "type": "string",
+        "description": "Class of mismatch (e.g. 'missing-hook', 'scope-gap', 'extras-mismatch')."
+      },
+      "signal": {
+        "type": "string",
+        "description": "What in the repo triggered the suggestion (e.g. 'eslint dependency in package.json')."
+      },
+      "suggestion": {
+        "type": "string",
+        "description": "Human-readable proposed change."
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "action": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "add"],
+            "properties": {
+              "field": { "type": "string" },
+              "add": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "maxProperties": 0,
+            "description": "Empty object when the suggestion is informational and has no programmatic add target."
+          }
+        ]
+      }
+    }
+  }
+}

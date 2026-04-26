@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "connectors": [
+    {
+      "type": "obsidian",
+      "name_patterns": ["obsidian-mcp-tools", "obsidian", "obsidian-mcp"],
+      "required_tools": [
+        "list_vault_files",
+        "create_vault_file",
+        "read_vault_file"
+      ],
+      "uri_scheme": "obsidian://",
+      "docs_hint": "Obsidian MCP exposes vault-level read/write. nyann scaffolds PRDs/ADRs/architecture as notes at obsidian://vault/<vault>/<folder>/<file>."
+    },
+    {
+      "type": "notion",
+      "name_patterns": ["notion", "notion-mcp", "@notion/mcp"],
+      "required_tools": [
+        "pages.create",
+        "pages.retrieve",
+        "pages.update",
+        "databases.query"
+      ],
+      "uri_scheme": "notion://",
+      "docs_hint": "Notion MCP exposes page CRUD. nyann creates documentation pages under a user-selected parent page."
+    }
+  ]
+}

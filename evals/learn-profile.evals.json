@@ -1,0 +1,34 @@
+{
+  "skill": "learn-profile",
+  "trigger_cases": [
+    { "prompt": "save this project's setup as a profile called good-app",      "should_trigger": true,  "tag": "explicit-name" },
+    { "prompt": "learn a profile from this repo",                               "should_trigger": true,  "tag": "implicit-name" },
+    { "prompt": "capture the hygiene of ~/projects/my-good-app as a profile",   "should_trigger": true,  "tag": "external-path" },
+    { "prompt": "make my nextjs-prototype profile from this",                   "should_trigger": true,  "tag": "overwrite-intent" },
+    { "prompt": "turn this repo into a profile",                                "should_trigger": true,  "tag": "turn-into-profile" },
+    { "prompt": "extract a profile from ~/Works/my-api",                        "should_trigger": true,  "tag": "extract-profile" },
+    { "prompt": "remember this setup as my-clean-stack",                        "should_trigger": true,  "tag": "remember-setup" },
+    { "prompt": "/nyann:learn-profile",                                         "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what's in the python-cli profile?",                            "should_trigger": false, "tag": "inspect-distractor" },
+    { "prompt": "apply the nextjs-prototype profile to this repo",              "should_trigger": false, "tag": "apply-distractor-bootstrap" },
+    { "prompt": "bootstrap this repo",                                           "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "fix the drift in this repo",                                   "should_trigger": false, "tag": "drift-distractor" },
+    { "prompt": "commit these changes",                                          "should_trigger": false, "tag": "commit-distractor" }
+  ],
+  "output_quality_scenarios": [
+    {
+      "name": "learn-from-jsts-bootstrapped",
+      "mode": "learn_profile_fixture",
+      "fixture": "tests/fixtures/jsts-bootstrapped",
+      "needs_seed": true,
+      "expected_exit": 0,
+      "expected_fields": {
+        "stack.primary_language": "typescript",
+        "stack.framework":        "next",
+        "stack.package_manager":  "pnpm",
+        "branching.strategy":     "github-flow",
+        "conventions.commit_format": "conventional-commits"
+      }
+    }
+  ]
+}

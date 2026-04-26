@@ -1,0 +1,63 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "default",
+  "description": "Stack-agnostic fallback. GitHub Flow, Conventional Commits, language-agnostic hooks, local docs. Applied when no other profile is named and detection cannot uniquely match.",
+  "schemaVersion": 1,
+  "stack": {
+    "primary_language": "unknown",
+    "framework": null,
+    "package_manager": null
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": [
+      "main"
+    ],
+    "branch_name_patterns": {
+      "feature": "feat/{slug}",
+      "bugfix": "fix/{slug}"
+    }
+  },
+  "hooks": {
+    "pre_commit": [
+      "block-main",
+      "gitleaks"
+    ],
+    "commit_msg": [
+      "conventional-commits"
+    ],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "editorconfig": false,
+    "claude_md": true,
+    "github_actions_ci": false,
+    "commit_message_template": false,
+    "github_templates": false
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": [
+      "architecture",
+      "adrs"
+    ],
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {
+      "broken_internal_links": true,
+      "broken_mcp_links": true,
+      "orphans": true,
+      "staleness": false
+    }
+  },
+  "ci": {
+    "enabled": false
+  }
+}

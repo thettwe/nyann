@@ -1,0 +1,42 @@
+{
+  "skill": "doctor",
+  "trigger_cases": [
+    { "prompt": "is this project healthy?",                             "should_trigger": true,  "tag": "health-check" },
+    { "prompt": "check this repo's hygiene",                            "should_trigger": true,  "tag": "hygiene-check" },
+    { "prompt": "audit this project's docs",                            "should_trigger": true,  "tag": "doc-audit" },
+    { "prompt": "run nyann doctor on this project",                     "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "any drift vs. my profile?",                            "should_trigger": true,  "tag": "drift-question" },
+    { "prompt": "/nyann:doctor",                                        "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what's broken in this project",                        "should_trigger": true,  "tag": "whats-broken" },
+    { "prompt": "are the hooks still installed",                        "should_trigger": true,  "tag": "hook-status" },
+    { "prompt": "run a health check",                                   "should_trigger": true,  "tag": "health-check-phrase" },
+    { "prompt": "what's drifted in this repo",                          "should_trigger": true,  "tag": "drift-phrase" },
+    { "prompt": "fix the drift",                                        "should_trigger": false, "tag": "remediation-intent" },
+    { "prompt": "bring this repo into compliance",                      "should_trigger": false, "tag": "compliance-remediate" },
+    { "prompt": "bootstrap this repo",                                  "should_trigger": false, "tag": "setup-intent" },
+    { "prompt": "what does this repo do",                               "should_trigger": false, "tag": "docs-pointer" },
+    { "prompt": "what's for dinner?",                                   "should_trigger": false, "tag": "unrelated" }
+  ],
+  "output_quality_scenarios": [
+    {
+      "name": "legacy-with-drift",
+      "mode": "doctor",
+      "fixture": "tests/fixtures/legacy-with-drift",
+      "profile": "nextjs-prototype",
+      "needs_seed": true,
+      "expected_exit": 5,
+      "assertions": [
+        { "kind": "drift_summary_nonzero", "field": "missing" },
+        { "kind": "drift_summary_nonzero", "field": "misconfigured" },
+        { "kind": "drift_summary_nonzero", "field": "non_compliant_commits" },
+        { "kind": "drift_section_present", "section": "MISSING" },
+        { "kind": "drift_section_present", "section": "MISCONFIGURED" },
+        { "kind": "drift_section_present", "section": "NON-COMPLIANT HISTORY" },
+        { "kind": "drift_section_present", "section": "DOCUMENTATION" },
+        { "kind": "drift_missing_entry_contains",   "substring": ".husky/pre-commit" },
+        { "kind": "drift_missing_entry_contains",   "substring": "CLAUDE.md" },
+        { "kind": "drift_misconfigured_path_contains", "substring": ".gitignore" }
+      ]
+    }
+  ]
+}

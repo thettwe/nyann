@@ -1,0 +1,16 @@
+{
+  "skill": "check-prereqs",
+  "trigger_cases": [
+    { "prompt": "is my machine ready for nyann",         "should_trigger": true,  "tag": "readiness-question" },
+    { "prompt": "what do I need to install",              "should_trigger": true,  "tag": "install-question" },
+    { "prompt": "check my setup",                         "should_trigger": true,  "tag": "setup-check" },
+    { "prompt": "do I have the right tools",              "should_trigger": true,  "tag": "tools-check" },
+    { "prompt": "audit my environment",                   "should_trigger": true,  "tag": "env-audit" },
+    { "prompt": "I'm on a new machine, what's missing",   "should_trigger": true,  "tag": "new-machine" },
+    { "prompt": "/nyann:check-prereqs",                   "should_trigger": true,  "tag": "slash" },
+    { "prompt": "what is nyann",                          "should_trigger": false, "tag": "what-is-nyann" },
+    { "prompt": "set up this project",                    "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "commit these changes",                   "should_trigger": false, "tag": "commit-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

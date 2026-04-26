@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/branching-choice/v1.json",
+  "title": "BranchingChoice",
+  "description": "Output of bin/recommend-branch.sh.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recommendation",
+    "confidence",
+    "reasoning",
+    "base_branches",
+    "long_lived_branches",
+    "branch_name_patterns",
+    "default_base",
+    "needs_user_confirm"
+  ],
+  "properties": {
+    "recommendation": {
+      "type": "string",
+      "enum": ["github-flow", "gitflow", "trunk-based"]
+    },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "reasoning": { "type": "array", "items": { "type": "string" } },
+    "base_branches": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "long_lived_branches": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "branch_name_patterns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature", "bugfix"],
+      "properties": {
+        "feature": { "type": "string" },
+        "bugfix":  { "type": "string" },
+        "release": { "type": "string" },
+        "hotfix":  { "type": "string" }
+      }
+    },
+    "default_base": { "type": "string", "minLength": 1 },
+    "needs_user_confirm": { "type": "boolean" }
+  }
+}

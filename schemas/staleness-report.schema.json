@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/staleness-report/v1.json",
+  "title": "StalenessReport",
+  "description": "Output of bin/check-staleness.sh — opt-in staleness check on docs/ + memory/ entries. Consumed by bin/compute-drift.sh (folded into the documentation block of DriftReport).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["enabled", "threshold_days", "scanned", "stale"],
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "False when the active profile leaves documentation.staleness_days unset; the rest of the fields are stub-empty in that case."
+    },
+    "threshold_days": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1 }
+      ],
+      "description": "From profile.documentation.staleness_days; null when disabled."
+    },
+    "scanned": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of files inspected (post-exclusions)."
+    },
+    "stale": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "last_modified_days_ago"],
+        "properties": {
+          "path": { "type": "string", "description": "Repo-relative path to the stale doc." },
+          "last_modified_days_ago": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

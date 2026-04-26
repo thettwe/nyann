@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/setup-status/v1.json",
+  "title": "SetupStatus",
+  "description": "Output of bin/setup.sh --json. Three shapes: 'not_configured' (--check before setup ran), 'configured' (--check after setup), or 'ok' (write path completed). Consumed by skills/setup/SKILL.md and the bootstrap-project skill on first-run.",
+  "oneOf": [
+    {
+      "title": "SetupNotConfigured",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "preferences_path", "user_root", "directories"],
+      "properties": {
+        "status": { "const": "not_configured" },
+        "preferences_path": { "type": "string" },
+        "user_root": { "type": "string" },
+        "directories": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profiles", "cache"],
+          "properties": {
+            "profiles": { "type": "string" },
+            "cache": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "title": "SetupConfigured",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "preferences", "directories_ok"],
+      "properties": {
+        "status": { "const": "configured" },
+        "preferences": {
+          "type": "object",
+          "description": "The contents of preferences.json (validated against preferences.schema.json elsewhere)."
+        },
+        "directories_ok": { "type": "boolean" }
+      }
+    },
+    {
+      "title": "SetupOk",
+      "description": "Emitted on the write path after setup successfully created/updated preferences.json.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "preferences_path", "user_root", "preferences", "directories"],
+      "properties": {
+        "status": { "const": "ok" },
+        "preferences_path": { "type": "string" },
+        "user_root": { "type": "string" },
+        "preferences": { "type": "object" },
+        "directories": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profiles", "cache"],
+          "properties": {
+            "profiles": { "type": "string" },
+            "cache": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}

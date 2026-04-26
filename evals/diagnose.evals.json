@@ -1,0 +1,21 @@
+{
+  "skill": "diagnose",
+  "trigger_cases": [
+    { "prompt": "nyann is broken",                                  "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "nyann diagnose",                                   "should_trigger": true,  "tag": "noun-form" },
+    { "prompt": "diagnose nyann",                                   "should_trigger": true,  "tag": "verb-form" },
+    { "prompt": "diagnose this repo",                               "should_trigger": true,  "tag": "diagnose-repo" },
+    { "prompt": "support bundle",                                   "should_trigger": true,  "tag": "support-bundle" },
+    { "prompt": "what's wrong with nyann",                          "should_trigger": true,  "tag": "whats-wrong" },
+    { "prompt": "help me file a bug report",                        "should_trigger": true,  "tag": "file-bug" },
+    { "prompt": "what should I include in a nyann bug report",      "should_trigger": true,  "tag": "what-include" },
+    { "prompt": "/nyann:diagnose",                                  "should_trigger": true,  "tag": "slash" },
+    { "prompt": "is this repo healthy",                             "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "audit this repo",                                  "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "what does nyann see here",                         "should_trigger": false, "tag": "explain-state-distractor" },
+    { "prompt": "show nyann state",                                 "should_trigger": false, "tag": "explain-state-distractor" },
+    { "prompt": "fix this repo",                                    "should_trigger": false, "tag": "retrofit-distractor" },
+    { "prompt": "set up this project",                              "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}
