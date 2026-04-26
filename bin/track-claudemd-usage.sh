@@ -113,7 +113,7 @@ done
 
 cleanup() {
   rm -f "$tmp_file"
-  $acquired && rmdir "$lockdir" 2>/dev/null || true
+  if $acquired; then rmdir "$lockdir" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 

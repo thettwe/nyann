@@ -38,7 +38,7 @@ nyann::require_cmd jq
 _install_hooks_tmp_files=()
 # Invoked indirectly via the trap below; shellcheck can't see the
 # reference because the function name is single-quoted in the trap arg.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2329,SC2317
 _install_hooks_cleanup() { rm -f ${_install_hooks_tmp_files[@]+"${_install_hooks_tmp_files[@]}"} 2>/dev/null || true; }
 trap '_install_hooks_cleanup' EXIT
 
