@@ -41,8 +41,16 @@ The user's intent maps to a `--routing` value:
 | "docs in Notion" | `all:notion` |
 | "PRDs in Notion, ADRs in Obsidian, rest local" | `prd:notion,adrs:obsidian,research:local,architecture:local` |
 
-If the user's intent is ambiguous, show the available routing options
-and ask them to pick. `memory` is always local regardless of routing.
+If the user's intent is ambiguous, use `AskUserQuestion` to pick:
+
+- header: "Routing"
+- options:
+  - "Local (Recommended)" — docs/ directory in the repo
+  - "Obsidian" — route to an Obsidian vault via MCP
+  - "Notion" — route to a Notion workspace via MCP
+  - "Custom split" — different backend per doc type
+
+`memory` is always local regardless of routing.
 
 For any non-local routing, first run `bin/detect-mcp-docs.sh` to
 discover available MCP connectors. The result is an MCP doc-targets

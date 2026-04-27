@@ -84,7 +84,13 @@ Show the user the generated message plus:
 - Which files are in the commit.
 - A one-line reminder they can edit before you commit.
 
-Ask: "Commit with this message?" Options: yes / edit / abort.
+Use `AskUserQuestion` to confirm:
+
+- header: "Commit"
+- options:
+  - "Commit" — create the commit with this message
+  - "Edit" — let me revise the message first
+  - "Abort" — cancel, don't commit anything
 
 ## 5. Commit
 

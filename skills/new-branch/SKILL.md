@@ -32,8 +32,16 @@ Read the user's phrasing. Purpose inference:
 | "hotfix production", "emergency fix" | `hotfix` |
 
 If the phrasing is ambiguous ("I want a branch for the auth work"),
-ask which of `feature` / `bugfix` applies. Don't guess when stakes are
-non-trivial (release vs hotfix especially).
+use `AskUserQuestion` to let the user pick:
+
+- header: "Purpose"
+- options:
+  - "Feature" — new functionality or enhancement
+  - "Bugfix" — fix for an existing issue
+  - "Release" — cut a release branch
+  - "Hotfix" — emergency fix against a tagged version
+
+Don't guess when stakes are non-trivial (release vs hotfix especially).
 
 ## 2. Derive a slug
 

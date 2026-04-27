@@ -40,9 +40,12 @@ Default to `rebase`. Use `merge` when:
 - The branch has already been pushed to a shared remote and has open
   PRs (rebasing rewrites history; merges don't).
 
-If unclear, ask: *"Rebase or merge? Rebase keeps history linear;
-merge preserves the feature branch's original commits and adds a
-merge commit."*
+If unclear, use `AskUserQuestion` to pick:
+
+- header: "Sync strategy"
+- options:
+  - "Rebase (Recommended)" — keeps history linear; replays your commits on top of base
+  - "Merge" — preserves original commits; adds a merge commit
 
 ## 3. Resolve base
 
