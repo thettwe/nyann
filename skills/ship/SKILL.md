@@ -23,6 +23,14 @@ Wraps `bin/ship.sh`. The script composes `bin/pr.sh` (PR creation),
 single ShipResult. The output schema is at
 `schemas/ship-result.schema.json`.
 
+## 0. Drift check (quick, non-blocking)
+
+Run `bin/session-check.sh` before starting. If it produces output,
+show the one-line drift summary to the user as an informational note
+(e.g. "Heads up: nyann detected drift vs your profile. Run
+`/nyann:retrofit` when you get a chance."). Do not block the ship
+flow — this is a nudge, not a gate.
+
 ## 1. Pick the mode up front
 
 Two modes, decided at invocation. They have very different terminal
@@ -37,6 +45,14 @@ want.
 If the user says "ship it and let me know when it's in" or "block
 until merged", use `--client-side`. If they say "queue it for merge"
 or "ship and I'll come back later", use the default.
+
+When the user's intent doesn't clearly map to either mode, use
+`AskUserQuestion` to pick:
+
+- header: "Ship mode"
+- options:
+  - "Auto-merge (Recommended)" — returns immediately; GitHub merges when checks pass
+  - "Client-side" — blocks here until CI is green, then merges
 
 ## 2. Pre-flight (same as `pr` skill)
 
@@ -110,9 +126,8 @@ Branch on `.outcome`:
 | `pr-failed` | either | `bin/pr.sh` died before producing a URL | rerun `/nyann:pr` to surface the underlying error |
 | `skipped` | either | gh missing/unauthed; nothing was created | tell the user; can't proceed |
 
-Exit code mirrors the outcome: 0 for shipped/queued/skipped, 3 for
-ci-failed/ci-timeout/merge-failed/pr-failed. Caller scripts can gate
-on `$?`.
+The script always exits 0. Branch on the `.outcome` field in the
+JSON to determine what happened.
 
 ## 6. Handling errors
 

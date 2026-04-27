@@ -123,7 +123,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | **GitHub protection** | Audits or applies branch protection, tag rulesets, signing requirements, and repo settings. |
 | **Docs routing** | Routes docs to local, Obsidian, or Notion. Memory is always local. Standalone re-routing after bootstrap. |
 | **CLAUDE.md** | Router-mode generation (3 KB soft / 8 KB hard cap), standalone regeneration, and usage-based optimization. |
-| **Background monitors** | Session-start drift detection and team-profile staleness checks. Read-only and silent on a clean repo. |
+| **Inline drift checks** | Drift detection runs at point-of-use (commit, PR, ship, release) — not on session start. Non-blocking nudge, not a gate. |
 
 ## Skills & commands
 
@@ -204,7 +204,7 @@ bin/add-team-source.sh --name our-team --url https://github.com/our-org/nyann-pr
 bin/sync-team-profiles.sh [--force]
 ```
 
-When a team profile updates upstream, nyann's session-start monitor (`bin/check-team-staleness.sh`, which wraps the internal `bin/check-team-drift.sh`) prompts `yes / diff / later`.
+When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding.
 
 ## Documentation routing
 
@@ -285,7 +285,7 @@ profiles/              # 13 starter profiles (+ _schema.json)
 schemas/               # 38 JSON Schemas for every exchanged shape
 skills/                # 30 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, memory
-monitors/              # Monitor manifest (monitors.json)
+monitors/              # Monitor manifest (monitors.json, currently empty)
 tests/                 # 711 bats tests + fixtures
 ```
 

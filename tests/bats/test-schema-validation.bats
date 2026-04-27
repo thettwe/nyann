@@ -259,10 +259,9 @@ EOF
 @test "setup-status schema: --check on a fresh user-root emits not_configured shape" {
   fake_home="$TMP/home"
   mkdir -p "$fake_home/.claude/nyann"
-  # --check exits 2 when nothing is configured but emits valid JSON
-  # via --json. Capture explicitly because exit 2 fails the wrapper.
-  out=$(env HOME="$fake_home" bash "${REPO_ROOT}/bin/setup.sh" --check --json --user-root "$fake_home/.claude/nyann" 2>/dev/null || true)
-  echo "$out" > "$TMP/out.json"
+  run bash "${REPO_ROOT}/bin/setup.sh" --check --json --user-root "$fake_home/.claude/nyann"
+  [ "$status" -eq 0 ]
+  echo "$output" > "$TMP/out.json"
   "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/setup-status.schema.json" "$TMP/out.json"
 }
 

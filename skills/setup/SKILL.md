@@ -27,15 +27,20 @@ offer to update them.
 ## Phase 1: Welcome and status check
 
 1. Run `bin/setup.sh --check --json` to see if preferences already exist.
-2. If **already configured**:
+   The script always exits 0; branch on the `status` field in the JSON.
+2. If `status == "configured"`:
    - Show the current preferences as a readable summary.
    - Ask: "Want to update any of these, or are you good?"
    - If they want to update, continue to Phase 3 but pre-fill current
      values as defaults (user just presses enter to keep).
    - If they're good, skip to Phase 5.
-3. If **not configured**:
-   - Welcome the user briefly: "Let's get nyann configured. I'll ask a
-     few questions about your preferences — takes about a minute."
+3. If `status == "not_configured"`:
+   - **Never dump the raw JSON to the user.** Instead, greet them:
+
+     > **Welcome to nyann!** It looks like this is your first time.
+     > Let's get you set up — I'll ask a few questions about your
+     > preferences. Takes about a minute.
+
    - Continue to Phase 2.
 
 ## Phase 2: Prerequisites check
@@ -47,89 +52,64 @@ still continue setup since preferences don't depend on tools.
 
 ## Phase 3: Collect preferences
 
-Ask each question one at a time. Keep the conversation natural — don't
-dump all questions at once. Show the default in brackets. Accept short
-answers ("github flow", "cc", "local", "yes/no").
+Use the `AskUserQuestion` tool to present interactive selection menus.
+Batch questions into groups (max 4 per call) to reduce back-and-forth.
+If the user selects "Other" on any question, accept their free-text
+input and map it to the closest valid value.
 
-### 3.1 Default profile
+### 3.1 Default profile (conversational — too many options for a picker)
+
+Ask conversationally:
 
 > What stack do you work with most often? This sets which profile nyann
 > picks when you don't specify one during bootstrap.
 
-Options:
+List options grouped by language:
 - **auto-detect** (default) — nyann inspects the repo each time
-- A specific starter profile name: `nextjs-prototype`, `react-vite`,
-  `node-api`, `typescript-library`, `fastapi-service`, `django-app`,
-  `python-cli`, `go-service`, `rust-cli`, `swift-ios`, `kotlin-android`,
-  `shell-cli`, `default`
+- JS/TS: `nextjs-prototype`, `react-vite`, `node-api`, `typescript-library`
+- Python: `fastapi-service`, `django-app`, `python-cli`
+- Systems: `go-service`, `rust-cli`
+- Mobile: `swift-ios`, `kotlin-android`
+- Other: `shell-cli`, `default`
 
-List the options grouped by language. If the user says something like
-"I mostly do Python FastAPI", map that to `fastapi-service`. If they
-work across multiple stacks, recommend `auto-detect`.
+If the user says something like "I mostly do Python FastAPI", map to
+`fastapi-service`. If they work across multiple stacks, recommend
+`auto-detect`.
 
-### 3.2 Branching strategy
+### 3.2–3.4 First picker batch
 
-> What branching strategy do you usually follow?
+After collecting the profile answer, use `AskUserQuestion` with these
+three questions in a single call:
 
-Options:
-- **auto-detect** (default) — nyann picks based on project size/type
-- **github-flow** — simple: main + feature branches
-- **gitflow** — main + develop + feature/release/hotfix branches
-- **trunk-based** — short-lived branches, frequent merges to main
+**Question 1 — Branching strategy** (header: "Branching"):
+- "Auto-detect (Recommended)" — nyann picks based on project size/type
+- "GitHub Flow" — simple: main + feature branches
+- "GitFlow" — main + develop + feature/release/hotfix branches
+- "Trunk-based" — short-lived branches, frequent merges to main
 
-Brief each option in one sentence when the user seems unsure. Most
-individual developers want `github-flow`; teams with release cycles
-want `gitflow`; CI-heavy teams want `trunk-based`.
+**Question 2 — Commit format** (header: "Commits"):
+- "Conventional Commits (Recommended)" — enforces feat:, fix:, etc. in hooks
+- "Custom" — no commit format enforcement
 
-### 3.3 Commit format
+**Question 3 — GitHub CLI** (header: "GitHub CLI"):
+- Check `command -v gh` first. If gh is NOT installed, skip this
+  question and default to no.
+- If gh IS installed:
+  - "Yes (Recommended)" — enable branch protection and PR helpers
+  - "No" — skip all gh-dependent features
 
-> Do you use Conventional Commits (feat:, fix:, etc.)?
+### 3.5–3.6 Second picker batch
 
-Options:
-- **conventional-commits** (default) — nyann enforces CC format in hooks
-- **custom** — no commit format enforcement
+Use `AskUserQuestion` with these two questions in a single call:
 
-If they say "yes", "CC", "conventional", or similar → `conventional-commits`.
-If "no", "freestyle", "custom" → `custom`.
+**Question 1 — Documentation storage** (header: "Docs"):
+- "Local (Recommended)" — docs/ directory in the repo
+- "Obsidian" — route to an Obsidian vault via MCP
+- "Notion" — route to Notion via MCP
 
-### 3.4 GitHub CLI integration
-
-> Do you use the GitHub CLI (`gh`)? Nyann can set up branch protection
-> and PR helpers when it's available.
-
-Options:
-- **yes** (default) — enable when `gh` is installed and authenticated
-- **no** — skip all `gh`-dependent features
-
-Check `command -v gh` before asking. If gh isn't installed, mention
-that and default to no. If it is installed, default to yes.
-
-### 3.5 Documentation storage
-
-> Where should nyann route generated docs (architecture docs, ADRs,
-> etc.)?
-
-Options:
-- **local** (default) — docs/ directory in the repo
-- **obsidian** — route to an Obsidian vault via MCP
-- **notion** — route to Notion via MCP
-
-For obsidian/notion, note that they'll need the corresponding MCP
-connector configured. Most users should start with local.
-
-### 3.6 Team profile auto-sync
-
-> Do you use shared team profiles? If yes, nyann can auto-sync them
-> when they're stale during bootstrap.
-
-Options:
-- **no** (default) — manual sync only via `/nyann:sync-team-profiles`
-- **yes** — auto-sync during bootstrap when interval expires
-
-If they don't know what team profiles are, briefly explain: "Team
-profiles let your org share standardized project configs. If you don't
-have any, just say no — you can set them up later with
-`/nyann:add-team-source`."
+**Question 2 — Team profile auto-sync** (header: "Team sync"):
+- "No (Recommended)" — manual sync only via /nyann:sync-team-profiles
+- "Yes" — auto-sync during bootstrap when interval expires
 
 ## Phase 4: Write preferences
 

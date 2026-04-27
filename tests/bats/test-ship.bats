@@ -129,7 +129,7 @@ SH
   [ "$(echo "$out" | jq -r '.merge_strategy')" = "rebase" ]
 }
 
-@test "auto-merge enable failure → outcome:merge-failed, exit 3, reason captured" {
+@test "auto-merge enable failure → outcome:merge-failed, exit 0, reason captured" {
   repo=$(make_repo_with_feature_branch)
   origin_bare="$TMP/origin.git"
   git init -q --bare "$origin_bare"
@@ -137,7 +137,7 @@ SH
   # PR create succeeds, merge --auto call fails (e.g. repo doesn't allow it).
   make_mock_gh success failure
   run bash "$SHIP" --target "$repo" --title "feat: x" --gh "$TMP/mock/gh"
-  [ "$status" -eq 3 ]
+  [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "merge-failed"' >/dev/null
   # PR URL still present — create itself succeeded.
   echo "$output" | jq -e '.pr_url == "https://github.com/fake/fake/pull/42"' >/dev/null
@@ -162,7 +162,7 @@ SH
   [ "$(echo "$out" | jq -r '.checks.passing')" = "1" ]
 }
 
-@test "client-side: failing CI → outcome:ci-failed, exit 3, no merge attempted" {
+@test "client-side: failing CI → outcome:ci-failed, exit 0, no merge attempted" {
   repo=$(make_repo_with_feature_branch)
   origin_bare="$TMP/origin.git"
   git init -q --bare "$origin_bare"
@@ -170,7 +170,7 @@ SH
   make_mock_gh success success '[{"name":"test","status":"completed","conclusion":"failure","workflow":"ci.yml"}]'
   run bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
     --gh "$TMP/mock/gh" --timeout 5 --interval 1
-  [ "$status" -eq 3 ]
+  [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "ci-failed"' >/dev/null
   echo "$output" | jq -e '.checks.failing >= 1' >/dev/null
   # PR URL still present even though we didn't merge.
@@ -190,7 +190,7 @@ SH
   make_mock_gh success success '[]'  # empty checks
   run bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
     --gh "$TMP/mock/gh" --timeout 5 --interval 1
-  [ "$status" -eq 3 ]
+  [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "ci-failed"' >/dev/null
   echo "$output" | jq -e '.checks.outcome == "no-checks"' >/dev/null
   echo "$output" | jq -e '.ci_failed_reason | test("--allow-no-checks")' >/dev/null
@@ -223,7 +223,7 @@ SH
   make_mock_gh success failure '[{"name":"lint","status":"completed","conclusion":"success","workflow":"ci.yml"}]'
   run bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
     --gh "$TMP/mock/gh" --timeout 5 --interval 1
-  [ "$status" -eq 3 ]
+  [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "merge-failed"' >/dev/null
   echo "$output" | jq -e '.merge_failed_reason | test("required reviews|merge")' >/dev/null
 }
