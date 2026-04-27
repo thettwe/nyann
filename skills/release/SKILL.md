@@ -21,6 +21,14 @@ walk the commit range since the last matching tag, group commits by
 Conventional Commits type, prepend a CHANGELOG block, commit the
 changelog, then annotated-tag `v<version>`.
 
+## 0. Drift check (quick, non-blocking)
+
+Run `bin/session-check.sh` before starting. If it produces output,
+show the one-line drift summary to the user as an informational note
+(e.g. "Heads up: nyann detected drift vs your profile. Run
+`/nyann:retrofit` when you get a chance."). Do not block the release
+flow — this is a nudge, not a gate.
+
 ## 1. Collect inputs
 
 - **`--version <x.y.z>`** — required. Must be semver (or

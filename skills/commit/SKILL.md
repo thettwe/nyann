@@ -21,6 +21,14 @@ description: >
 You are generating a commit message for the user's staged changes. Work
 in phases. Never run `git commit` until the user has confirmed the message.
 
+## 0. Drift check (quick, non-blocking)
+
+Run `bin/session-check.sh` before starting. If it produces output,
+show the one-line drift summary to the user as an informational note
+(e.g. "Heads up: nyann detected 2 missing hooks. Run `/nyann:retrofit`
+when you get a chance."). Do not block the commit flow — this is a
+nudge, not a gate.
+
 ## 1. Gather context
 
 Run `bin/commit.sh --target <cwd>`. The script emits a JSON context object

@@ -23,6 +23,14 @@ Wraps `bin/ship.sh`. The script composes `bin/pr.sh` (PR creation),
 single ShipResult. The output schema is at
 `schemas/ship-result.schema.json`.
 
+## 0. Drift check (quick, non-blocking)
+
+Run `bin/session-check.sh` before starting. If it produces output,
+show the one-line drift summary to the user as an informational note
+(e.g. "Heads up: nyann detected drift vs your profile. Run
+`/nyann:retrofit` when you get a chance."). Do not block the ship
+flow — this is a nudge, not a gate.
+
 ## 1. Pick the mode up front
 
 Two modes, decided at invocation. They have very different terminal

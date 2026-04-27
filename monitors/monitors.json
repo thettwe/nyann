@@ -1,12 +1,1 @@
-[
-  {
-    "name": "drift-check",
-    "command": "${CLAUDE_PLUGIN_ROOT}/bin/session-check.sh",
-    "description": "Session-start drift detection — notifies when repo has drifted from its nyann profile"
-  },
-  {
-    "name": "team-staleness",
-    "command": "${CLAUDE_PLUGIN_ROOT}/bin/check-team-staleness.sh",
-    "description": "Team profile staleness — notifies when upstream team profiles have changed"
-  }
-]
+[]
