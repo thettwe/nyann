@@ -274,9 +274,13 @@ JSON
 ],"commands":[],"remote":[]}
 JSON
 
+    local plan_sha
+    plan_sha=$("$repo_root/bin/preview.sh" --plan "$tmp/.plan.json" --emit-sha256 2>/dev/null)
+
     "$repo_root/bin/bootstrap.sh" \
       --target "$tmp" \
       --plan "$tmp/.plan.json" \
+      --plan-sha256 "$plan_sha" \
       --profile "$repo_root/profiles/${profile}.json" \
       --doc-plan "$tmp/.docplan.json" \
       --stack "$tmp/.stack.json" \
