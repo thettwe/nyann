@@ -5,6 +5,26 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-04-27
+
+### Added
+
+- **Interactive selection menus** — 8 skills now use `AskUserQuestion` pickers instead of free-text prompts: setup (branching, commits, GitHub CLI, docs, team sync), commit (confirm/edit/abort), new-branch (purpose), route-docs (routing), undo (strategy), ship (mode), sync (strategy), record-decision (status)
+- **Inline drift checks** — drift detection runs at point-of-use (commit, pr, ship, release) as a non-blocking nudge; team-staleness checks run at bootstrap and migrate-profile
+- **README banner** — bamboo scaffolding logo banner
+
+### Changed
+
+- **Friendly error handling** — scripts that emit structured JSON (setup, commit, sync, ship) now exit 0 and convey state via JSON status/outcome fields instead of non-zero exit codes that caused Claude Code to display raw JSON as errors
+- **Monitors removed from session start** — `monitors.json` emptied; checks moved to point-of-use in skill preambles
+- **CI triggers** — removed `dev` from `pull_request` trigger to prevent duplicate CI runs
+
+### Fixed
+
+- **Nightly eval regression** — eval runner now passes `--plan-sha256` to `bootstrap.sh` (closes #6)
+- **Flaky doctor timing test** — increased threshold from 5s to 15s for CI runner variability
+- **Ubuntu CI** — resolved bats test failures on bash 5.x, suppressed shellcheck false positives
+
 ## [1.0.0] - 2026-04-26
 
 First public release. Nyann is a Claude Code plugin for project governance —
@@ -97,4 +117,5 @@ Three-tier resolution: user > team > starter. Profiles are data, never code
 - 23 eval specs for trigger discrimination + output quality
 - Public-surface count locks (skills, commands, profiles, schemas)
 
+[1.1.0]: https://github.com/thettwe/nyann/releases/tag/v1.1.0
 [1.0.0]: https://github.com/thettwe/nyann/releases/tag/v1.0.0

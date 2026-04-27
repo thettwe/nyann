@@ -70,12 +70,13 @@ make_conflict_repo() {
   echo "$output" | grep -Fq "not a git repo"
 }
 
-@test "refuses with a dirty working tree (status=dirty, exit 1)" {
+@test "exits 0 with status=dirty for dirty working tree" {
   repo=$(make_divergent_repo)
   echo "uncommitted" > "$repo/dirty.txt"
   ( cd "$repo" && git -c user.email=t@t -c user.name=t add dirty.txt )  # staged but not committed
-  out=$(bash "$SYNC" --target "$repo" 2>/dev/null || true)
-  [ "$(echo "$out" | jq -r '.status')" = "dirty" ]
+  run bash "$SYNC" --target "$repo"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.status')" = "dirty" ]
 }
 
 @test "rebase path: up-to-date when behind==0" {
@@ -96,11 +97,12 @@ make_conflict_repo() {
   [ "$(echo "$out" | jq -r '.base')"     = "main" ]
 }
 
-@test "rebase path: reports conflicts and leaves rebase in progress" {
+@test "rebase path: exits 0 with status=conflicts and leaves rebase in progress" {
   repo=$(make_conflict_repo)
-  out=$(bash "$SYNC" --target "$repo" 2>/dev/null || true)
-  [ "$(echo "$out" | jq -r '.status')" = "conflicts" ]
-  [ "$(echo "$out" | jq '.conflicts | length')" -gt 0 ]
+  run bash "$SYNC" --target "$repo"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.status')" = "conflicts" ]
+  [ "$(echo "$output" | jq '.conflicts | length')" -gt 0 ]
   # Clean up the half-rebased repo.
   ( cd "$repo" && git rebase --abort 2>/dev/null ) || true
 }

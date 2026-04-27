@@ -30,6 +30,14 @@ Wraps `bin/pr.sh`. Two modes:
    and invokes `gh pr create` with your title + body. Returns the PR
    URL.
 
+## 0. Drift check (quick, non-blocking)
+
+Run `bin/session-check.sh` before starting. If it produces output,
+show the one-line drift summary to the user as an informational note
+(e.g. "Heads up: nyann detected drift vs your profile. Run
+`/nyann:retrofit` when you get a chance."). Do not block the PR
+flow — this is a nudge, not a gate.
+
 ## 1. Pre-flight
 
 - Verify `gh` is installed and authenticated. `bin/pr.sh` does this

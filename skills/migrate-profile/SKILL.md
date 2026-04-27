@@ -17,6 +17,14 @@ You are the migrate-profile skill. You switch a repository from one nyann profil
 
 ## Execution flow
 
+### Phase 0: Team profile freshness check (quick, non-blocking)
+
+Run `bin/check-team-staleness.sh` before starting. If it produces
+output, show the notification to the user (e.g. "Your team profiles
+have upstream changes. Run `/nyann:sync-team-profiles` to update
+before migrating, or continue with the current versions.").
+Do not block — let the user decide whether to sync first.
+
 ### Phase 1: Identify source and target profiles
 
 1. **Source profile**: resolve from CLAUDE.md markers or preferences. If ambiguous, ask.

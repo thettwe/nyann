@@ -60,8 +60,12 @@ case "$branch" in main|master) on_main=true ;; esac
 
 diff_text=$(git -C "$target" diff --staged)
 if [[ -z "$diff_text" ]]; then
-  nyann::warn "no staged changes in $target — run \`git add\` first"
-  exit 3
+  jq -n \
+    --arg target "$target" \
+    --arg branch "$branch" \
+    --argjson on_main "$on_main" \
+    '{ target: $target, branch: $branch, on_main: $on_main, nothing_staged: true }'
+  exit 0
 fi
 
 # numstat summary (files + insertions + deletions). Portable loop so bash

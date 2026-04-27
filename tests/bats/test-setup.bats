@@ -9,15 +9,15 @@ setup() {
 
 teardown() { rm -rf "$TMP"; }
 
-@test "setup --check exits 2 when no preferences exist" {
+@test "setup --check exits 0 when no preferences exist" {
   run bash "${REPO_ROOT}/bin/setup.sh" --check --user-root "$USER_ROOT"
-  [ "$status" -eq 2 ]
+  [ "$status" -eq 0 ]
   [[ "$output" == *"not configured"* ]]
 }
 
-@test "setup --check --json exits 2 with status field" {
+@test "setup --check --json exits 0 with not_configured status" {
   run bash "${REPO_ROOT}/bin/setup.sh" --check --json --user-root "$USER_ROOT"
-  [ "$status" -eq 2 ]
+  [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r '.status')" = "not_configured" ]
 }
 

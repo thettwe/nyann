@@ -99,7 +99,7 @@ if $check_only; then
       printf '  user root:         %s\n' "$user_root"
       printf '\nRun /nyann:setup to configure.\n'
     fi
-    exit 2
+    exit 0
   fi
 
   existing=$(cat "$prefs_path")

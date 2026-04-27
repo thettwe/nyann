@@ -28,7 +28,13 @@ MADR format is supported in v1.
   Postgres because…"), propose a crisp title and confirm.
 - **`--status`**. `proposed` (default) when the decision is still up
   for review; `accepted` when the user says "we've already decided"
-  or similar. Never default to `accepted` silently — ask if unclear.
+  or similar. Never default to `accepted` silently — when unclear,
+  use `AskUserQuestion` to pick:
+
+  - header: "Decision status"
+  - options:
+    - "Proposed (Default)" — decision is open for review
+    - "Accepted" — decision has already been agreed upon
 - **`--dir`**. Default `docs/decisions`. Override when the repo uses
   a different location (check the profile's
   `documentation.scaffold_types` if uncertain).

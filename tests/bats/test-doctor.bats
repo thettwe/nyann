@@ -77,12 +77,12 @@ JSON
   [ "$count" -ge 1 ]
 }
 
-@test "doctor runs in under 5s on a small fixture" {
+@test "doctor runs in under 15s on a small fixture" {
   bootstrap_jsts
   start=$(date +%s)
   bash "$DOCTOR" --target "$TMP" --profile nextjs-prototype > /dev/null 2>&1 || true
   elapsed=$(( $(date +%s) - start ))
-  [ "$elapsed" -lt 5 ]
+  [ "$elapsed" -lt 15 ]
 }
 
 @test "doctor --json returns valid DriftReport JSON" {

@@ -25,7 +25,7 @@ onto its base, after a clean-tree + branch-safety check.
 - **Detached HEAD / main / master / develop** (exit 2) → refuse with
   a clear message; suggest switching to a feature branch first
   (`/nyann:branch` creates one).
-- **Dirty working tree** (status=`dirty`, exit 1) → stop and tell the
+- **Dirty working tree** (status=`dirty` in JSON) → stop and tell the
   user to commit or stash first. Don't silently stash on their behalf
   — `git stash` is a footgun when the rebase also conflicts.
 
@@ -40,9 +40,12 @@ Default to `rebase`. Use `merge` when:
 - The branch has already been pushed to a shared remote and has open
   PRs (rebasing rewrites history; merges don't).
 
-If unclear, ask: *"Rebase or merge? Rebase keeps history linear;
-merge preserves the feature branch's original commits and adds a
-merge commit."*
+If unclear, use `AskUserQuestion` to pick:
+
+- header: "Sync strategy"
+- options:
+  - "Rebase (Recommended)" — keeps history linear; replays your commits on top of base
+  - "Merge" — preserves original commits; adds a merge commit
 
 ## 3. Resolve base
 

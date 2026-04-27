@@ -36,13 +36,17 @@ default). For anything multi-commit or non-soft, always confirm.
 
 ## 2. Decide strategy
 
-Default is `soft` (safest — all changes stay staged). Bump to:
+Default is `soft` (safest — all changes stay staged). When the user's
+intent is unclear, use `AskUserQuestion` to pick:
 
-- **`mixed`** when the user says "uncommit but unstage". Changes stay
-  in the working tree but leave the index.
-- **`hard`** only when the user explicitly says "discard everything"
-  / "throw away the changes" / "--hard". Warn the user twice: the
-  work is gone after hard reset. Confirm before executing.
+- header: "Strategy"
+- options:
+  - "Soft (Recommended)" — undo commit, keep changes staged
+  - "Mixed" — undo commit, keep changes in working tree (unstaged)
+  - "Hard" — undo commit AND discard all changes permanently
+
+For `hard`, warn the user twice: the work is gone after hard reset.
+Confirm before executing even after the picker selection.
 
 ## 3. Decide scope
 

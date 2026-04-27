@@ -140,7 +140,7 @@ if [[ -z "$pr_out" ]]; then
     outcome: "pr-failed",
     elapsed_seconds: $el
   }'
-  exit 3
+  exit 0
 fi
 
 # Skipped by pr.sh (no remote, etc.).
@@ -157,7 +157,7 @@ if [[ -z "$pr_url" ]]; then
     outcome: "pr-failed",
     elapsed_seconds: $el
   }'
-  exit 3
+  exit 0
 fi
 
 # Extract PR number from URL: https://github.com/o/r/pull/N
@@ -174,13 +174,10 @@ if [[ "$mode" == "auto-merge" ]]; then
   am_strategy=$(jq -r '.auto_merge.strategy // "squash"' <<<"$pr_out")
   if [[ "$am_outcome" == "enabled" ]]; then
     ship_outcome="queued"
-    ship_exit=0
   elif [[ "$am_outcome" == "failed" ]]; then
     ship_outcome="merge-failed"
-    ship_exit=3
   else
     ship_outcome="merge-failed"
-    ship_exit=3
   fi
 
   jq -n \
@@ -199,7 +196,7 @@ if [[ "$mode" == "auto-merge" ]]; then
     }
     + (if $pr_num == null then {} else {pr_number: $pr_num} end)
     + (if $merge_failed_reason == "" then {} else {merge_failed_reason: $merge_failed_reason} end)'
-  exit "$ship_exit"
+  exit 0
 fi
 
 # --- client-side mode: poll then merge --------------------------------------
@@ -218,7 +215,6 @@ checks_passing=$(jq -r '.summary.passing // 0' <<<"$checks_out")
 checks_failing=$(jq -r '.summary.failing // 0' <<<"$checks_out")
 checks_in_progress=$(jq -r '.summary.in_progress // 0' <<<"$checks_out")
 
-ship_exit=0
 ci_failed_reason=""
 case "$checks_outcome" in
   pass)
@@ -236,21 +232,20 @@ case "$checks_outcome" in
       nyann::warn "no checks attached to PR — proceeding because --allow-no-checks was set"
     else
       ship_outcome="ci-failed"
-      ship_exit=3
       ci_failed_reason="no checks attached to PR — workflows may not have registered yet, or the repo has no PR CI. Re-run with --allow-no-checks if the empty state is intentional."
     fi
     ;;
-  fail)     ship_outcome="ci-failed";  ship_exit=3 ;;
-  timeout)  ship_outcome="ci-timeout"; ship_exit=3 ;;
+  fail)     ship_outcome="ci-failed" ;;
+  timeout)  ship_outcome="ci-timeout" ;;
   skipped)
     # Polling itself skipped (gh failed). Emit a ship-skipped wrapper.
     emit_skipped "checks-poll-skipped"
     ;;
-  *)        ship_outcome="ci-failed";  ship_exit=3 ;;
+  *)        ship_outcome="ci-failed" ;;
 esac
 
 emit_with_checks() {
-  local outcome="$1" exit_code="$2" merge_reason="${3:-}" ci_reason="${4:-}"
+  local outcome="$1" merge_reason="${2:-}" ci_reason="${3:-}"
   jq -n \
     --arg target "$target" --arg mode "$mode" --arg outcome "$outcome" \
     --arg pr_url "$pr_url" --arg strategy "$merge_strategy" \
@@ -274,11 +269,11 @@ emit_with_checks() {
     + (if $pr_num == null then {} else {pr_number: $pr_num} end)
     + (if $merge_reason == "" then {} else {merge_failed_reason: $merge_reason} end)
     + (if $ci_reason == "" then {} else {ci_failed_reason: $ci_reason} end)'
-  exit "$exit_code"
+  exit 0
 }
 
 if [[ -n "${ship_outcome:-}" ]] && [[ "$ship_outcome" != "shipped" ]]; then
-  emit_with_checks "$ship_outcome" "$ship_exit" "" "$ci_failed_reason"
+  emit_with_checks "$ship_outcome" "" "$ci_failed_reason"
 fi
 
 # Checks green — merge.
@@ -295,8 +290,8 @@ merge_args+=(--delete-branch)
 merge_err=$(mktemp -t nyann-ship-merge.XXXXXX)
 trap 'rm -f "$merge_err"' EXIT
 if ( cd "$target" && "$gh_bin" "${merge_args[@]}" ) >/dev/null 2>"$merge_err"; then
-  emit_with_checks "shipped" 0
+  emit_with_checks "shipped"
 else
   reason=$(head -c 500 "$merge_err" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
-  emit_with_checks "merge-failed" 3 "$reason"
+  emit_with_checks "merge-failed" "$reason"
 fi

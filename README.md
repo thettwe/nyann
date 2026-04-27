@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-711%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-702%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -123,7 +123,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | **GitHub protection** | Audits or applies branch protection, tag rulesets, signing requirements, and repo settings. |
 | **Docs routing** | Routes docs to local, Obsidian, or Notion. Memory is always local. Standalone re-routing after bootstrap. |
 | **CLAUDE.md** | Router-mode generation (3 KB soft / 8 KB hard cap), standalone regeneration, and usage-based optimization. |
-| **Background monitors** | Session-start drift detection and team-profile staleness checks. Read-only and silent on a clean repo. |
+| **Inline drift checks** | Drift detection runs at point-of-use (commit, PR, ship, release) — not on session start. Non-blocking nudge, not a gate. |
 
 ## Skills & commands
 
@@ -204,7 +204,7 @@ bin/add-team-source.sh --name our-team --url https://github.com/our-org/nyann-pr
 bin/sync-team-profiles.sh [--force]
 ```
 
-When a team profile updates upstream, nyann's session-start monitor (`bin/check-team-staleness.sh`, which wraps the internal `bin/check-team-drift.sh`) prompts `yes / diff / later`.
+When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding.
 
 ## Documentation routing
 
@@ -262,8 +262,16 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] CLAUDE.md generation, standalone regeneration, and usage-based optimization
 - [x] Team profile sync with drift detection
 - [x] 38 JSON schemas locking every cross-layer contract
-- [x] 711 bats tests, shellcheck, SKILL.md length enforcement
+- [x] 702 bats tests, shellcheck, SKILL.md length enforcement
 - [x] Preview-before-mutate with SHA256 integrity binding
+
+### Shipped in v1.1.0
+
+- [x] Interactive selection menus (`AskUserQuestion`) across 8 skills
+- [x] Inline drift checks at point-of-use (commit, PR, ship, release) instead of session-start monitors
+- [x] Friendly error handling — JSON-emitting scripts exit 0, skill layer presents human-readable messages
+- [x] Nightly eval regression fix (plan integrity binding)
+- [x] CI stability improvements (flaky timing tests, duplicate run prevention)
 
 ### Planned
 
@@ -285,8 +293,8 @@ profiles/              # 13 starter profiles (+ _schema.json)
 schemas/               # 38 JSON Schemas for every exchanged shape
 skills/                # 30 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, memory
-monitors/              # Monitor manifest (monitors.json)
-tests/                 # 711 bats tests + fixtures
+monitors/              # Monitor manifest (monitors.json, currently empty)
+tests/                 # 702 bats tests + fixtures
 ```
 
 ---

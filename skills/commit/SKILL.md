@@ -21,6 +21,14 @@ description: >
 You are generating a commit message for the user's staged changes. Work
 in phases. Never run `git commit` until the user has confirmed the message.
 
+## 0. Drift check (quick, non-blocking)
+
+Run `bin/session-check.sh` before starting. If it produces output,
+show the one-line drift summary to the user as an informational note
+(e.g. "Heads up: nyann detected 2 missing hooks. Run `/nyann:retrofit`
+when you get a chance."). Do not block the commit flow — this is a
+nudge, not a gate.
+
 ## 1. Gather context
 
 Run `bin/commit.sh --target <cwd>`. The script emits a JSON context object
@@ -29,10 +37,11 @@ Run `bin/commit.sh --target <cwd>`. The script emits a JSON context object
 
 Exit code handling:
 
-- `0` → context emitted. Continue.
+- `0` → JSON context emitted. Check the `nothing_staged` field:
+  - `nothing_staged: true` → ask the user what they want to stage
+    (`git add <paths>`, `git add -p`, or "everything"), then re-run.
+  - Otherwise → full context available. Continue.
 - `2` → not a git repo. Tell the user, stop.
-- `3` → nothing staged. Ask the user what they want to stage
-  (`git add <paths>`, `git add -p`, or "everything"), then re-run this phase.
 
 If `on_main: true`, warn the user that the block-main hook will reject
 the commit. Suggest they create a feature branch via the `new-branch`
@@ -84,7 +93,13 @@ Show the user the generated message plus:
 - Which files are in the commit.
 - A one-line reminder they can edit before you commit.
 
-Ask: "Commit with this message?" Options: yes / edit / abort.
+Use `AskUserQuestion` to confirm:
+
+- header: "Commit"
+- options:
+  - "Commit" — create the commit with this message
+  - "Edit" — let me revise the message first
+  - "Abort" — cancel, don't commit anything
 
 ## 5. Commit
 
@@ -130,8 +145,8 @@ On success, end with:
 
 ## When something goes wrong
 
-- `bin/commit.sh` exits 3 → ask what to stage, then re-run §1. Don't
-  assume "everything".
+- `nothing_staged: true` in the JSON → ask what to stage, then re-run
+  §1. Don't assume "everything".
 - User says "abort" → exit cleanly. Nothing to undo.
 - Two retries failed → print the last hook error + the generated message;
   ask the user to rewrite. Don't loop further.
