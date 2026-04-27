@@ -29,12 +29,23 @@ MADR format is supported in v1.
 - **`--status`**. `proposed` (default) when the decision is still up
   for review; `accepted` when the user says "we've already decided"
   or similar. Never default to `accepted` silently — when unclear,
-  use `AskUserQuestion` to pick:
+  **you MUST call the `AskUserQuestion` tool** (not plain text):
 
-  - header: "Decision status"
-  - options:
-    - "Proposed (Default)" — decision is open for review
-    - "Accepted" — decision has already been agreed upon
+  ```json
+  {
+    "questions": [
+      {
+        "question": "What is the status of this decision?",
+        "header": "Status",
+        "multiSelect": false,
+        "options": [
+          { "label": "Proposed (Default)", "description": "Decision is open for review" },
+          { "label": "Accepted", "description": "Decision has already been agreed upon" }
+        ]
+      }
+    ]
+  }
+  ```
 - **`--dir`**. Default `docs/decisions`. Override when the repo uses
   a different location (check the profile's
   `documentation.scaffold_types` if uncertain).

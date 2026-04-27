@@ -93,13 +93,24 @@ Show the user the generated message plus:
 - Which files are in the commit.
 - A one-line reminder they can edit before you commit.
 
-Use `AskUserQuestion` to confirm:
+**You MUST call the `AskUserQuestion` tool** (not plain text) to confirm:
 
-- header: "Commit"
-- options:
-  - "Commit" — create the commit with this message
-  - "Edit" — let me revise the message first
-  - "Abort" — cancel, don't commit anything
+```json
+{
+  "questions": [
+    {
+      "question": "Proceed with this commit message?",
+      "header": "Commit",
+      "multiSelect": false,
+      "options": [
+        { "label": "Commit", "description": "Create the commit with this message" },
+        { "label": "Edit", "description": "Let me revise the message first" },
+        { "label": "Abort", "description": "Cancel, don't commit anything" }
+      ]
+    }
+  ]
+}
+```
 
 ## 5. Commit
 

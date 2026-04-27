@@ -37,13 +37,25 @@ default). For anything multi-commit or non-soft, always confirm.
 ## 2. Decide strategy
 
 Default is `soft` (safest — all changes stay staged). When the user's
-intent is unclear, use `AskUserQuestion` to pick:
+intent is unclear, **you MUST call the `AskUserQuestion` tool** (not
+plain text):
 
-- header: "Strategy"
-- options:
-  - "Soft (Recommended)" — undo commit, keep changes staged
-  - "Mixed" — undo commit, keep changes in working tree (unstaged)
-  - "Hard" — undo commit AND discard all changes permanently
+```json
+{
+  "questions": [
+    {
+      "question": "How should the commit be undone?",
+      "header": "Strategy",
+      "multiSelect": false,
+      "options": [
+        { "label": "Soft (Recommended)", "description": "Undo commit, keep changes staged" },
+        { "label": "Mixed", "description": "Undo commit, keep changes in working tree (unstaged)" },
+        { "label": "Hard", "description": "Undo commit AND discard all changes permanently" }
+      ]
+    }
+  ]
+}
+```
 
 For `hard`, warn the user twice: the work is gone after hard reset.
 Confirm before executing even after the picker selection.

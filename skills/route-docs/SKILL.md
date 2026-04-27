@@ -41,14 +41,26 @@ The user's intent maps to a `--routing` value:
 | "docs in Notion" | `all:notion` |
 | "PRDs in Notion, ADRs in Obsidian, rest local" | `prd:notion,adrs:obsidian,research:local,architecture:local` |
 
-If the user's intent is ambiguous, use `AskUserQuestion` to pick:
+If the user's intent is ambiguous, **you MUST call the `AskUserQuestion`
+tool** (not plain text):
 
-- header: "Routing"
-- options:
-  - "Local (Recommended)" — docs/ directory in the repo
-  - "Obsidian" — route to an Obsidian vault via MCP
-  - "Notion" — route to a Notion workspace via MCP
-  - "Custom split" — different backend per doc type
+```json
+{
+  "questions": [
+    {
+      "question": "Where should documentation be stored?",
+      "header": "Routing",
+      "multiSelect": false,
+      "options": [
+        { "label": "Local (Recommended)", "description": "docs/ directory in the repo" },
+        { "label": "Obsidian", "description": "Route to an Obsidian vault via MCP" },
+        { "label": "Notion", "description": "Route to a Notion workspace via MCP" },
+        { "label": "Custom split", "description": "Different backend per doc type" }
+      ]
+    }
+  ]
+}
+```
 
 `memory` is always local regardless of routing.
 

@@ -7,21 +7,15 @@ description: >
 
 # /nyann:setup
 
-Run the onboarding flow defined in `skills/setup/SKILL.md`:
+**Plugin root:** nyann is a Claude Code plugin, NOT a CLI tool. Do NOT
+search for it via `which`, `npm list`, `pip list`, or `brew list`.
+Determine the plugin root from this file's path — this command file is
+at `<plugin_root>/commands/setup.md`, so the plugin root is its parent
+directory. All scripts are at `<plugin_root>/bin/`.
 
-1. Check current status via `bin/setup.sh --check --json`.
-2. If already configured, show current preferences and offer to update.
-3. If not configured, run prerequisites check (`bin/check-prereqs.sh`),
-   then collect preferences interactively (see SKILL.md §3 for each
-   question).
-4. Write preferences via `bin/setup.sh` with the collected flags.
-5. Suggest next steps: `/nyann:bootstrap`, `/nyann:check-prereqs`,
-   `/nyann:add-team-source`.
+Read `skills/setup/SKILL.md` (relative to the plugin root) and follow
+its instructions exactly. The SKILL.md defines the complete flow
+including `AskUserQuestion` interactive pickers.
 
 **This skill configures nyann itself, not a repo.** For repo setup, use
 `/nyann:bootstrap`.
-
-See also:
-- `/nyann:bootstrap` — set up a project with a profile.
-- `/nyann:check-prereqs` — survey machine tools (read-only).
-- `/nyann:add-team-source` — register a team profile repo.

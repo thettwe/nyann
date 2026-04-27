@@ -40,12 +40,23 @@ Default to `rebase`. Use `merge` when:
 - The branch has already been pushed to a shared remote and has open
   PRs (rebasing rewrites history; merges don't).
 
-If unclear, use `AskUserQuestion` to pick:
+If unclear, **you MUST call the `AskUserQuestion` tool** (not plain text):
 
-- header: "Sync strategy"
-- options:
-  - "Rebase (Recommended)" — keeps history linear; replays your commits on top of base
-  - "Merge" — preserves original commits; adds a merge commit
+```json
+{
+  "questions": [
+    {
+      "question": "How should upstream changes be integrated?",
+      "header": "Strategy",
+      "multiSelect": false,
+      "options": [
+        { "label": "Rebase (Recommended)", "description": "Keeps history linear; replays your commits on top of base" },
+        { "label": "Merge", "description": "Preserves original commits; adds a merge commit" }
+      ]
+    }
+  ]
+}
+```
 
 ## 3. Resolve base
 
