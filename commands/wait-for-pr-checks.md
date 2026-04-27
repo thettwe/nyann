@@ -14,6 +14,11 @@ arguments:
     description: Seconds between polls. Default 30. Don't go below 10 — gh API rate limits start to bite.
     optional: true
 ---
+**Plugin root:** This is a Claude Code plugin, NOT a CLI tool. Do NOT
+search via `which`, `npm list`, `pip list`, or `brew list`. This file
+is at `<plugin_root>/commands/`. All scripts: `<plugin_root>/bin/`.
+Read the matching `skills/*/SKILL.md` for the full flow.
+
 
 # /nyann:wait-for-pr-checks
 

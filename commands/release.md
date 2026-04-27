@@ -24,6 +24,11 @@ arguments:
     description: When `--wait-for-checks` is set AND no PR matches HEAD, proceed anyway (legitimate for first-cut releases or local-only commits). Without this flag, no-PR-found is a hard error to avoid silent CI bypass on squash/rebase release flows.
     optional: true
 ---
+**Plugin root:** This is a Claude Code plugin, NOT a CLI tool. Do NOT
+search via `which`, `npm list`, `pip list`, or `brew list`. This file
+is at `<plugin_root>/commands/`. All scripts: `<plugin_root>/bin/`.
+Read the matching `skills/*/SKILL.md` for the full flow.
+
 
 # /nyann:release
 

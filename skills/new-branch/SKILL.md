@@ -32,14 +32,25 @@ Read the user's phrasing. Purpose inference:
 | "hotfix production", "emergency fix" | `hotfix` |
 
 If the phrasing is ambiguous ("I want a branch for the auth work"),
-use `AskUserQuestion` to let the user pick:
+**you MUST call the `AskUserQuestion` tool** (not plain text):
 
-- header: "Purpose"
-- options:
-  - "Feature" — new functionality or enhancement
-  - "Bugfix" — fix for an existing issue
-  - "Release" — cut a release branch
-  - "Hotfix" — emergency fix against a tagged version
+```json
+{
+  "questions": [
+    {
+      "question": "What kind of branch do you need?",
+      "header": "Purpose",
+      "multiSelect": false,
+      "options": [
+        { "label": "Feature", "description": "New functionality or enhancement" },
+        { "label": "Bugfix", "description": "Fix for an existing issue" },
+        { "label": "Release", "description": "Cut a release branch" },
+        { "label": "Hotfix", "description": "Emergency fix against a tagged version" }
+      ]
+    }
+  ]
+}
+```
 
 Don't guess when stakes are non-trivial (release vs hotfix especially).
 

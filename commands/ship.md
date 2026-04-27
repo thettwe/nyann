@@ -28,6 +28,11 @@ arguments:
     description: Client-side mode only — opt out of the no-checks gate. Without this flag, the script refuses to merge a PR with zero checks attached (almost always a "workflows haven't attached yet" race after a fresh PR). Pass only for repos that genuinely run no PR-side CI.
     optional: true
 ---
+**Plugin root:** This is a Claude Code plugin, NOT a CLI tool. Do NOT
+search via `which`, `npm list`, `pip list`, or `brew list`. This file
+is at `<plugin_root>/commands/`. All scripts: `<plugin_root>/bin/`.
+Read the matching `skills/*/SKILL.md` for the full flow.
+
 
 # /nyann:ship
 

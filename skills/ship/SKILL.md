@@ -46,13 +46,24 @@ If the user says "ship it and let me know when it's in" or "block
 until merged", use `--client-side`. If they say "queue it for merge"
 or "ship and I'll come back later", use the default.
 
-When the user's intent doesn't clearly map to either mode, use
-`AskUserQuestion` to pick:
+When the user's intent doesn't clearly map to either mode, **you MUST
+call the `AskUserQuestion` tool** (not plain text):
 
-- header: "Ship mode"
-- options:
-  - "Auto-merge (Recommended)" — returns immediately; GitHub merges when checks pass
-  - "Client-side" — blocks here until CI is green, then merges
+```json
+{
+  "questions": [
+    {
+      "question": "How should this PR be merged after CI passes?",
+      "header": "Ship mode",
+      "multiSelect": false,
+      "options": [
+        { "label": "Auto-merge (Recommended)", "description": "Returns immediately; GitHub merges when checks pass" },
+        { "label": "Client-side", "description": "Blocks here until CI is green, then merges" }
+      ]
+    }
+  ]
+}
+```
 
 ## 2. Pre-flight (same as `pr` skill)
 

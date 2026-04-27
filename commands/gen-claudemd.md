@@ -14,6 +14,11 @@ arguments:
     description: Bypass the 8 KB hard cap on the managed block.
     optional: true
 ---
+**Plugin root:** This is a Claude Code plugin, NOT a CLI tool. Do NOT
+search via `which`, `npm list`, `pip list`, or `brew list`. This file
+is at `<plugin_root>/commands/`. All scripts: `<plugin_root>/bin/`.
+Read the matching `skills/*/SKILL.md` for the full flow.
+
 
 # /nyann:gen-claudemd
 

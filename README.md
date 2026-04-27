@@ -273,6 +273,13 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] Nightly eval regression fix (plan integrity binding)
 - [x] CI stability improvements (flaky timing tests, duplicate run prevention)
 
+### Shipped in v1.1.1
+
+- [x] Plugin hook path resolution (`${CLAUDE_PLUGIN_ROOT}`) — hooks work from any cwd
+- [x] AskUserQuestion reliability — exact JSON structures, no plain-text fallback
+- [x] Setup fast path — quick-setup in 1 picker, categorized prereqs tables
+- [x] Plugin discovery preamble in all 30 command files — no wasted `which`/`npm list` searches
+
 ### Planned
 
 - [ ] **More stacks:** Flutter, Java, C#/.NET, Ruby on Rails, Elixir/Phoenix

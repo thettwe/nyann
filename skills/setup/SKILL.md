@@ -2,8 +2,8 @@
 name: setup
 description: >
   First-run onboarding for nyann. Creates the user config directory,
-  collects preferences through a conversational flow, and writes
-  ~/.claude/nyann/preferences.json.
+  collects preferences through AskUserQuestion interactive pickers, and
+  writes ~/.claude/nyann/preferences.json.
   TRIGGER when the user says "set up nyann", "configure nyann",
   "nyann setup", "onboard me", "first time using nyann", "initialize
   nyann", "nyann first run", "get nyann ready", "/nyann:setup".
@@ -17,133 +17,244 @@ description: >
 
 # setup
 
-Interactive onboarding that configures nyann for the current user.
-Creates directory structure and collects preferences so downstream
-skills (bootstrap, doctor, commit, etc.) have sensible defaults.
+> **CRITICAL**: This skill uses the `AskUserQuestion` tool for ALL user
+> choices. **NEVER ask questions as plain text.** Every user choice goes
+> through `AskUserQuestion` with the exact JSON shown below.
+
+**Script paths:** nyann is a Claude Code plugin, NOT a CLI tool. Do NOT
+search for it via `which`, `npm list`, `pip list`, or `brew list`. All
+scripts are at the plugin root. Determine the plugin root from this
+SKILL.md's path (`<plugin_root>/skills/setup/SKILL.md`) — the scripts
+are at `<plugin_root>/bin/`. Use `bash <plugin_root>/bin/<script>` for
+all commands below.
 
 Re-runnable: if preferences already exist, show current values and
 offer to update them.
 
-## Phase 1: Welcome and status check
+## Step 1: Status + prereqs (parallel, one turn)
 
-1. Run `bin/setup.sh --check --json` to see if preferences already exist.
-   The script always exits 0; branch on the `status` field in the JSON.
-2. If `status == "configured"`:
-   - Show the current preferences as a readable summary.
-   - Ask: "Want to update any of these, or are you good?"
-   - If they want to update, continue to Phase 3 but pre-fill current
-     values as defaults (user just presses enter to keep).
-   - If they're good, skip to Phase 5.
-3. If `status == "not_configured"`:
-   - **Never dump the raw JSON to the user.** Instead, greet them:
+Run both commands **in parallel** (single tool-call turn):
 
-     > **Welcome to nyann!** It looks like this is your first time.
-     > Let's get you set up — I'll ask a few questions about your
-     > preferences. Takes about a minute.
+- `bash <plugin_root>/bin/setup.sh --check --json`
+- `bash <plugin_root>/bin/check-prereqs.sh --json`
 
-   - Continue to Phase 2.
+**Do NOT show the raw JSON to the user.** Parse the `prereqs` array
+and build **separate small tables by category**. Use pipe-delimited
+markdown (NO box-drawing characters, NO manual padding). Shorten
+version strings (e.g., `git version 2.50.1 (Apple Git-155)` → `2.50.1`).
 
-## Phase 2: Prerequisites check
-
-Run `bin/check-prereqs.sh` and show the output. This is informational —
-don't block setup on soft prereq misses. Only warn if a hard prereq is
-missing (exit code 1); in that case, tell the user what to install but
-still continue setup since preferences don't depend on tools.
-
-## Phase 3: Collect preferences
-
-Use the `AskUserQuestion` tool to present interactive selection menus.
-Batch questions into groups (max 4 per call) to reduce back-and-forth.
-If the user selects "Other" on any question, accept their free-text
-input and map it to the closest valid value.
-
-### 3.1 Default profile (conversational — too many options for a picker)
-
-Ask conversationally:
-
-> What stack do you work with most often? This sets which profile nyann
-> picks when you don't specify one during bootstrap.
-
-List options grouped by language:
-- **auto-detect** (default) — nyann inspects the repo each time
-- JS/TS: `nextjs-prototype`, `react-vite`, `node-api`, `typescript-library`
-- Python: `fastapi-service`, `django-app`, `python-cli`
-- Systems: `go-service`, `rust-cli`
-- Mobile: `swift-ios`, `kotlin-android`
-- Other: `shell-cli`, `default`
-
-If the user says something like "I mostly do Python FastAPI", map to
-`fastapi-service`. If they work across multiple stacks, recommend
-`auto-detect`.
-
-### 3.2–3.4 First picker batch
-
-After collecting the profile answer, use `AskUserQuestion` with these
-three questions in a single call:
-
-**Question 1 — Branching strategy** (header: "Branching"):
-- "Auto-detect (Recommended)" — nyann picks based on project size/type
-- "GitHub Flow" — simple: main + feature branches
-- "GitFlow" — main + develop + feature/release/hotfix branches
-- "Trunk-based" — short-lived branches, frequent merges to main
-
-**Question 2 — Commit format** (header: "Commits"):
-- "Conventional Commits (Recommended)" — enforces feat:, fix:, etc. in hooks
-- "Custom" — no commit format enforcement
-
-**Question 3 — GitHub CLI** (header: "GitHub CLI"):
-- Check `command -v gh` first. If gh is NOT installed, skip this
-  question and default to no.
-- If gh IS installed:
-  - "Yes (Recommended)" — enable branch protection and PR helpers
-  - "No" — skip all gh-dependent features
-
-### 3.5–3.6 Second picker batch
-
-Use `AskUserQuestion` with these two questions in a single call:
-
-**Question 1 — Documentation storage** (header: "Docs"):
-- "Local (Recommended)" — docs/ directory in the repo
-- "Obsidian" — route to an Obsidian vault via MCP
-- "Notion" — route to Notion via MCP
-
-**Question 2 — Team profile auto-sync** (header: "Team sync"):
-- "No (Recommended)" — manual sync only via /nyann:sync-team-profiles
-- "Yes" — auto-sync during bootstrap when interval expires
-
-## Phase 4: Write preferences
-
-Assemble the flags and run `bin/setup.sh`:
+Example output:
 
 ```
-bin/setup.sh \
-  --default-profile <value> \
-  --branching-strategy <value> \
-  --commit-format <value> \
+**Required**
+
+| Tool | Status | Version |
+|---|---|---|
+| git | ok | 2.50.1 |
+| jq | ok | 1.7.1 |
+| bash | ok | 3.2.57 |
+
+**JS / TS**
+
+| Tool | Status | Version |
+|---|---|---|
+| node | ok | v25.9.0 |
+| pnpm | ok | 10.13.1 |
+
+**Python**
+
+| Tool | Status | Version |
+|---|---|---|
+| python3 | ok | 3.14.4 |
+| pre-commit | ok | 4.6.0 |
+| uv | ok | 0.9.15 |
+
+**Other**
+
+| Tool | Status | Version |
+|---|---|---|
+| go | ok | 1.26.2 |
+| cargo | missing | https://rustup.rs |
+| gh | ok | 2.83.1 |
+| gitleaks | ok | 8.30.1 |
+| shellcheck | ok | 0.11.0 |
+
+All hard prerequisites satisfied.
+```
+
+Group tools by: **Required** (kind=hard), **JS / TS** (node, npm,
+pnpm, yarn, bun), **Python** (python3, pre-commit, uv),
+**Other** (everything else). Skip empty groups. For missing tools,
+show the `hint` field instead of a version.
+
+Then display a single combined message:
+
+- If `status == "configured"`: show current preferences as a table,
+  then ask "Want to update any of these?" If no, skip to Step 4.
+- If `status == "not_configured"`: show the welcome greeting, then
+  the prereqs table, then continue to Step 2 immediately:
+
+  > **Welcome to nyann!** Let's get you set up.
+
+Continue to Step 2 — do NOT pause for prereqs.
+
+## Step 2: Quick or custom setup
+
+**Call `AskUserQuestion`** — this is the first and possibly only picker:
+
+```json
+{
+  "questions": [
+    {
+      "question": "How would you like to configure nyann?",
+      "header": "Setup",
+      "multiSelect": false,
+      "options": [
+        { "label": "Quick setup (Recommended)", "description": "Use smart defaults: auto-detect stack & branching, conventional commits, GitHub CLI enabled, local docs" },
+        { "label": "Customize", "description": "Choose each setting individually" }
+      ]
+    }
+  ]
+}
+```
+
+- **Quick setup** → skip to Step 3 with all defaults.
+- **Customize** → continue to Step 2b.
+
+### Step 2b: Custom preferences (only if Customize)
+
+Check `command -v gh` first. If gh is NOT installed, skip the GitHub CLI
+question and default to `--no-gh-integration`.
+
+**Call `AskUserQuestion`** with up to 4 questions:
+
+```json
+{
+  "questions": [
+    {
+      "question": "What stack do you work with most often?",
+      "header": "Stack",
+      "multiSelect": false,
+      "options": [
+        { "label": "Auto-detect (Recommended)", "description": "nyann inspects the repo each time and picks the right profile" },
+        { "label": "Next.js", "description": "nextjs-prototype profile — React + Next.js projects" },
+        { "label": "FastAPI", "description": "fastapi-service profile — Python FastAPI services" },
+        { "label": "Python CLI", "description": "python-cli profile — command-line Python tools" }
+      ]
+    },
+    {
+      "question": "Which branching strategy should nyann default to?",
+      "header": "Branching",
+      "multiSelect": false,
+      "options": [
+        { "label": "Auto-detect (Recommended)", "description": "nyann picks based on project size and type" },
+        { "label": "GitHub Flow", "description": "Simple: main + feature branches" },
+        { "label": "GitFlow", "description": "main + develop + feature/release/hotfix branches" },
+        { "label": "Trunk-based", "description": "Short-lived branches, frequent merges to main" }
+      ]
+    },
+    {
+      "question": "Which commit message format should nyann enforce?",
+      "header": "Commits",
+      "multiSelect": false,
+      "options": [
+        { "label": "Conventional Commits (Recommended)", "description": "Enforces feat:, fix:, chore: etc. in commit hooks" },
+        { "label": "Custom", "description": "No commit format enforcement" }
+      ]
+    },
+    {
+      "question": "Enable GitHub CLI integration for branch protection and PR helpers?",
+      "header": "GitHub CLI",
+      "multiSelect": false,
+      "options": [
+        { "label": "Yes (Recommended)", "description": "Enable branch protection audit and PR helpers via gh" },
+        { "label": "No", "description": "Skip all gh-dependent features" }
+      ]
+    }
+  ]
+}
+```
+
+Docs and team sync use defaults (`local`, `no`). These are rarely
+changed and not worth an extra picker round-trip. Users who need
+non-default values can re-run `/nyann:setup` or use
+`/nyann:route-docs`.
+
+## Step 3: Write preferences
+
+### Value mapping
+
+| Picker label | Flag | Value |
+|---|---|---|
+| Auto-detect (Stack) | `--default-profile` | `auto-detect` |
+| Next.js | `--default-profile` | `nextjs-prototype` |
+| FastAPI | `--default-profile` | `fastapi-service` |
+| Python CLI | `--default-profile` | `python-cli` |
+| Auto-detect (Branching) | `--branching-strategy` | `auto-detect` |
+| GitHub Flow | `--branching-strategy` | `github-flow` |
+| GitFlow | `--branching-strategy` | `gitflow` |
+| Trunk-based | `--branching-strategy` | `trunk-based` |
+| Conventional Commits (Recommended) | `--commit-format` | `conventional-commits` |
+| Custom | `--commit-format` | `custom` |
+| Yes (GitHub CLI) | `--gh-integration` | _(flag only)_ |
+| No (GitHub CLI) | `--no-gh-integration` | _(flag only)_ |
+
+If user picked "Other" for Stack, map to the matching profile name
+(`react-vite`, `node-api`, `typescript-library`, `django-app`,
+`go-service`, `rust-cli`, `swift-ios`, `kotlin-android`, `shell-cli`,
+`default`).
+
+**Use the exact values above.** Never abbreviate (`conventional-commits`
+not `conventional`).
+
+### Quick setup defaults
+
+```
+bash <plugin_root>/bin/setup.sh \
+  --default-profile auto-detect \
+  --branching-strategy auto-detect \
+  --commit-format conventional-commits \
+  --gh-integration \
+  --documentation-storage local \
+  --no-auto-sync-team-profiles
+```
+
+If `gh` is not installed, use `--no-gh-integration` instead.
+
+### Custom setup
+
+```
+bash <plugin_root>/bin/setup.sh \
+  --default-profile <mapped-value> \
+  --branching-strategy <mapped-value> \
+  --commit-format <mapped-value> \
   --gh-integration | --no-gh-integration \
-  --documentation-storage <value> \
-  --auto-sync-team-profiles | --no-auto-sync-team-profiles
+  --documentation-storage local \
+  --no-auto-sync-team-profiles
 ```
 
-Show the result summary from the script output.
+## Step 4: Summary
 
-## Phase 5: Next steps
+Show a rich summary table and a clear next action:
 
-After setup completes, suggest (don't auto-run):
+```
+**nyann configured!**
 
-1. **"Run `/nyann:check-prereqs` to see what tools are available."**
-   — if prereqs weren't checked in Phase 2 (re-run case).
-2. **"Run `/nyann:bootstrap` in a project to set it up."**
-   — the primary next action for first-time users.
-3. **"Run `/nyann:add-team-source` to register shared profiles."**
-   — only mention if they said yes to team profiles or seemed interested.
-4. **"Run `/nyann:setup` again anytime to update preferences."**
-   — so they know it's re-runnable.
+| Setting    | Value                |
+|------------|----------------------|
+| Stack      | auto-detect          |
+| Branching  | auto-detect          |
+| Commits    | conventional-commits |
+| GitHub CLI | enabled              |
+| Docs       | local                |
+| Team sync  | off                  |
+
+**Next:** run `/nyann:bootstrap` in a project to set it up.
+Run `/nyann:setup` anytime to change these.
+```
 
 ## When to hand off
 
 - "Now bootstrap this repo" → `bootstrap-project` skill.
 - "Check my tools" → `check-prereqs` skill.
 - "Add team profiles" → `add-team-source` skill.
-- "What does nyann do?" → explain with a pointer to the README, don't
-  re-explain the full feature set here.

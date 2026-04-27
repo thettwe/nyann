@@ -15,6 +15,11 @@ arguments:
     description: Branch to use as the merge target. Defaults to the profile's primary base branch (auto-resolved through `origin/HEAD`, `main`, or `master`).
     optional: true
 ---
+**Plugin root:** This is a Claude Code plugin, NOT a CLI tool. Do NOT
+search via `which`, `npm list`, `pip list`, or `brew list`. This file
+is at `<plugin_root>/commands/`. All scripts: `<plugin_root>/bin/`.
+Read the matching `skills/*/SKILL.md` for the full flow.
+
 
 # /nyann:cleanup-branches
 
