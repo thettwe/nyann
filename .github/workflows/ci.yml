@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, dev]
   pull_request:
-    branches: [main, dev]
+    branches: [main]
 
 # Only one CI run per branch at a time — no untrusted input in run: commands.
 concurrency:
