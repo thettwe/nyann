@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo-banner.jpg" alt="nyann — bamboo scaffolding for your codebase" width="100%" />
+</p>
+
 # Nyann
 
 > **ငြမ်း** is Burmese for _scaffolding_. Nyann is a Claude Code plugin that sets up and maintains project governance: git workflow, hooks, branching, commits, releases, CI, docs routing, and health monitoring. From first init through every PR after.
