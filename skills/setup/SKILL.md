@@ -27,15 +27,20 @@ offer to update them.
 ## Phase 1: Welcome and status check
 
 1. Run `bin/setup.sh --check --json` to see if preferences already exist.
-2. If **already configured**:
+   The script always exits 0; branch on the `status` field in the JSON.
+2. If `status == "configured"`:
    - Show the current preferences as a readable summary.
    - Ask: "Want to update any of these, or are you good?"
    - If they want to update, continue to Phase 3 but pre-fill current
      values as defaults (user just presses enter to keep).
    - If they're good, skip to Phase 5.
-3. If **not configured**:
-   - Welcome the user briefly: "Let's get nyann configured. I'll ask a
-     few questions about your preferences — takes about a minute."
+3. If `status == "not_configured"`:
+   - **Never dump the raw JSON to the user.** Instead, greet them:
+
+     > **Welcome to nyann!** It looks like this is your first time.
+     > Let's get you set up — I'll ask a few questions about your
+     > preferences. Takes about a minute.
+
    - Continue to Phase 2.
 
 ## Phase 2: Prerequisites check
