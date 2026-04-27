@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-711%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-702%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -262,8 +262,16 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] CLAUDE.md generation, standalone regeneration, and usage-based optimization
 - [x] Team profile sync with drift detection
 - [x] 38 JSON schemas locking every cross-layer contract
-- [x] 711 bats tests, shellcheck, SKILL.md length enforcement
+- [x] 702 bats tests, shellcheck, SKILL.md length enforcement
 - [x] Preview-before-mutate with SHA256 integrity binding
+
+### Shipped in v1.1.0
+
+- [x] Interactive selection menus (`AskUserQuestion`) across 8 skills
+- [x] Inline drift checks at point-of-use (commit, PR, ship, release) instead of session-start monitors
+- [x] Friendly error handling — JSON-emitting scripts exit 0, skill layer presents human-readable messages
+- [x] Nightly eval regression fix (plan integrity binding)
+- [x] CI stability improvements (flaky timing tests, duplicate run prevention)
 
 ### Planned
 
@@ -286,7 +294,7 @@ schemas/               # 38 JSON Schemas for every exchanged shape
 skills/                # 30 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 711 bats tests + fixtures
+tests/                 # 702 bats tests + fixtures
 ```
 
 ---
