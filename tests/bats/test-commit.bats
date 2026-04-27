@@ -30,11 +30,11 @@ make_repo() {
   echo "$output" | grep -Fq "not a git repo"
 }
 
-@test "exits 3 with no staged changes" {
+@test "exits 0 with nothing_staged JSON when no staged changes" {
   repo=$(make_repo)
   run bash "$COMMIT" --target "$repo"
-  [ "$status" -eq 3 ]
-  echo "$output" | grep -Fq "no staged changes"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.nothing_staged')" = "true" ]
 }
 
 @test "rejects unknown argument" {

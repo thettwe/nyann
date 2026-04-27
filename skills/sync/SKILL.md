@@ -25,7 +25,7 @@ onto its base, after a clean-tree + branch-safety check.
 - **Detached HEAD / main / master / develop** (exit 2) → refuse with
   a clear message; suggest switching to a feature branch first
   (`/nyann:branch` creates one).
-- **Dirty working tree** (status=`dirty`, exit 1) → stop and tell the
+- **Dirty working tree** (status=`dirty` in JSON) → stop and tell the
   user to commit or stash first. Don't silently stash on their behalf
   — `git stash` is a footgun when the rebase also conflicts.
 

@@ -86,7 +86,7 @@ if ! git -C "$target" diff --quiet || ! git -C "$target" diff --cached --quiet; 
   conflicts_json='[]'
   ahead=0; behind=0
   emit "dirty"
-  exit 1
+  exit 0
 fi
 
 # --- fetch origin ------------------------------------------------------------
@@ -136,7 +136,7 @@ if ! nyann::valid_git_ref "$base"; then
   ahead=0; behind=0
   nyann::warn "resolved base '$base' is not a valid git ref"
   emit "skipped"
-  exit 2
+  exit 0
 fi
 
 # Prefer the remote-tracking ref if it exists; falls back to the local base
@@ -149,7 +149,7 @@ elif ! git -C "$target" rev-parse --verify "$base" >/dev/null 2>&1; then
   ahead=0; behind=0
   nyann::warn "base branch '$base' not found locally or on origin"
   emit "skipped"
-  exit 2
+  exit 0
 fi
 
 # --- ahead/behind ------------------------------------------------------------
@@ -186,7 +186,7 @@ if [[ "$strategy" == "rebase" ]]; then
       conflicts_json=$(jq --arg p "$p" '. + [$p]' <<<"$conflicts_json")
     done < <(git -C "$target" diff --name-only --diff-filter=U 2>/dev/null || true)
     emit "conflicts"
-    exit 3
+    exit 0
   fi
 else
   if ! git -C "$target" -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
@@ -196,7 +196,7 @@ else
       conflicts_json=$(jq --arg p "$p" '. + [$p]' <<<"$conflicts_json")
     done < <(git -C "$target" diff --name-only --diff-filter=U 2>/dev/null || true)
     emit "conflicts"
-    exit 3
+    exit 0
   fi
 fi
 

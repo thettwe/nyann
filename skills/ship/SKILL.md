@@ -118,9 +118,8 @@ Branch on `.outcome`:
 | `pr-failed` | either | `bin/pr.sh` died before producing a URL | rerun `/nyann:pr` to surface the underlying error |
 | `skipped` | either | gh missing/unauthed; nothing was created | tell the user; can't proceed |
 
-Exit code mirrors the outcome: 0 for shipped/queued/skipped, 3 for
-ci-failed/ci-timeout/merge-failed/pr-failed. Caller scripts can gate
-on `$?`.
+The script always exits 0. Branch on the `.outcome` field in the
+JSON to determine what happened.
 
 ## 6. Handling errors
 

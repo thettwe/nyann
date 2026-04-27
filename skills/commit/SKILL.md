@@ -29,10 +29,11 @@ Run `bin/commit.sh --target <cwd>`. The script emits a JSON context object
 
 Exit code handling:
 
-- `0` → context emitted. Continue.
+- `0` → JSON context emitted. Check the `nothing_staged` field:
+  - `nothing_staged: true` → ask the user what they want to stage
+    (`git add <paths>`, `git add -p`, or "everything"), then re-run.
+  - Otherwise → full context available. Continue.
 - `2` → not a git repo. Tell the user, stop.
-- `3` → nothing staged. Ask the user what they want to stage
-  (`git add <paths>`, `git add -p`, or "everything"), then re-run this phase.
 
 If `on_main: true`, warn the user that the block-main hook will reject
 the commit. Suggest they create a feature branch via the `new-branch`
@@ -136,8 +137,8 @@ On success, end with:
 
 ## When something goes wrong
 
-- `bin/commit.sh` exits 3 → ask what to stage, then re-run §1. Don't
-  assume "everything".
+- `nothing_staged: true` in the JSON → ask what to stage, then re-run
+  §1. Don't assume "everything".
 - User says "abort" → exit cleanly. Nothing to undo.
 - Two retries failed → print the last hook error + the generated message;
   ask the user to rewrite. Don't loop further.
