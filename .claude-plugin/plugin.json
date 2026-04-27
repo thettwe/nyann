@@ -1,6 +1,6 @@
 {
   "name": "nyann",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Project governance for Claude Code. Bootstrap and maintain git workflow, hooks, commits, releases, CI, docs, and repo health.",
   "author": {
     "name": "Thet Twe Aung",

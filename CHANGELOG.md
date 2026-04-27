@@ -5,6 +5,15 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-04-27
+
+### Fixed
+
+- **Plugin hook path resolution** — hooks now use `${CLAUDE_PLUGIN_ROOT}` so `block-main` and `track-claudemd-usage` work from any working directory, not just the plugin root
+- **AskUserQuestion reliability** — all 8 picker skills now use exact JSON tool-call structures with `MUST call` directives; Claude no longer falls back to plain-text questions
+- **Setup UX overhaul** — streamlined from 5 phases to 4 steps with a quick-setup fast path (1 picker for the happy path), categorized prereqs tables, and explicit flag value mapping to prevent mismatches like `conventional` vs `conventional-commits`
+- **Plugin discovery** — all 30 command files include a plugin root preamble so Claude resolves script paths immediately without searching via `which`/`npm list`/`brew list`
+
 ## [1.1.0] - 2026-04-27
 
 ### Added
@@ -117,5 +126,6 @@ Three-tier resolution: user > team > starter. Profiles are data, never code
 - 23 eval specs for trigger discrimination + output quality
 - Public-surface count locks (skills, commands, profiles, schemas)
 
+[1.1.1]: https://github.com/thettwe/nyann/releases/tag/v1.1.1
 [1.1.0]: https://github.com/thettwe/nyann/releases/tag/v1.1.0
 [1.0.0]: https://github.com/thettwe/nyann/releases/tag/v1.0.0
