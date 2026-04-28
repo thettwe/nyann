@@ -33,8 +33,11 @@ right one without pestering the user:
 ## 2. Invoke
 
 ```
-bin/doctor.sh --target <cwd> --profile <resolved-profile> [--json]
+bin/doctor.sh --target <cwd> --profile <name> [--json]
 ```
+
+`--profile` takes a **bare profile name** (e.g. `python-cli`, `nextjs-prototype`),
+not a filesystem path. The script resolves the name to the profile JSON internally.
 
 Pass `--json` when the user says "machine-readable", "as JSON",
 "pipe this", or similar — otherwise emit the human-readable report.

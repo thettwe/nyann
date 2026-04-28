@@ -167,11 +167,15 @@ its summary; surface that verbatim. Do not retry automatically.
 
 After success, ask *only these three* — in order:
 
-1. "Save this as a profile for reuse?" → if yes, call `bin/learn-profile.sh`.
-2. "Run `/nyann:doctor` now to audit?" → invoke the doctor skill. Doctor's
-   `GITHUB PROTECTION` section will surface whether branch / tag
-   protection is in place; tell the user they can re-run doctor anytime
-   to verify protection state.
+1. "Save this as a profile for reuse?" → if yes, ask for a profile name,
+   then call `bin/learn-profile.sh --target <repo> --name <slug>`.
+   Both `--target` and `--name` are required flags — never pass the name
+   as a positional argument.
+2. "Run `/nyann:doctor` now to audit?" → invoke the doctor skill. Pass the
+   **bare profile name** (e.g. `python-cli`), not a filesystem path, as
+   `--profile`. Doctor's `GITHUB PROTECTION` section will surface whether
+   branch / tag protection is in place; tell the user they can re-run
+   doctor anytime to verify protection state.
 3. "Set up GitHub branch protection?" → invoke `bin/gh-integration.sh`
    (apply mode). For audit-only ("is protection drift on this repo?"),
    doctor already covers it via `bin/gh-integration.sh --check` —
