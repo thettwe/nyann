@@ -5,6 +5,13 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - 2026-04-28
+
+### Fixed
+
+- **Post-bootstrap skill invocation** — bootstrap nudges now show exact flag syntax for `learn-profile.sh` (`--name <slug>`, not positional) preventing "unknown argument" errors
+- **Doctor profile resolution** — doctor skill now explicitly documents that `--profile` takes a bare name (e.g. `python-cli`), not a filesystem path, preventing "invalid profile name" errors
+
 ## [1.1.1] - 2026-04-27
 
 ### Fixed
@@ -126,6 +133,7 @@ Three-tier resolution: user > team > starter. Profiles are data, never code
 - 23 eval specs for trigger discrimination + output quality
 - Public-surface count locks (skills, commands, profiles, schemas)
 
+[1.1.2]: https://github.com/thettwe/nyann/releases/tag/v1.1.2
 [1.1.1]: https://github.com/thettwe/nyann/releases/tag/v1.1.1
 [1.1.0]: https://github.com/thettwe/nyann/releases/tag/v1.1.0
 [1.0.0]: https://github.com/thettwe/nyann/releases/tag/v1.0.0
