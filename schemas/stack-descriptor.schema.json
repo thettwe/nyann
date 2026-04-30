@@ -51,7 +51,8 @@
             "spring-boot", "quarkus", "micronaut",
             "aspnet", "blazor", "maui",
             "laravel", "symfony",
-            "flutter"
+            "flutter",
+            "rails", "sinatra"
           ]
         }
       ]
@@ -70,7 +71,8 @@
             "gradle", "maven",
             "dotnet",
             "composer",
-            "pub"
+            "pub",
+            "bundler"
           ]
         }
       ]

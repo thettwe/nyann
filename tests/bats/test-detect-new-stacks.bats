@@ -135,6 +135,44 @@ YAML
   rm -rf "$tmp"
 }
 
+# --- Ruby -------------------------------------------------------------------
+
+@test "ruby-rails fixture → ruby + rails + bundler" {
+  run bash "$DETECT" --path "${REPO_ROOT}/tests/fixtures/ruby-rails"
+  [ "$status" -eq 0 ]
+  lang=$(echo "$output" | jq -r '.primary_language')
+  fw=$(echo "$output" | jq -r '.framework')
+  pm=$(echo "$output" | jq -r '.package_manager')
+  [ "$lang" = "ruby" ]
+  [ "$fw"   = "rails" ]
+  [ "$pm"   = "bundler" ]
+}
+
+@test "ruby sinatra project detects sinatra framework" {
+  tmp=$(mktemp -d)
+  cat > "$tmp/Gemfile" <<'GEM'
+source "https://rubygems.org"
+gem "sinatra"
+GEM
+  run bash "$DETECT" --path "$tmp"
+  [ "$status" -eq 0 ]
+  fw=$(echo "$output" | jq -r '.framework')
+  [ "$fw" = "sinatra" ]
+  rm -rf "$tmp"
+}
+
+@test "ruby Gemfile.lock sets lock signal" {
+  tmp=$(mktemp -d)
+  echo 'source "https://rubygems.org"' > "$tmp/Gemfile"
+  echo 'GEM' > "$tmp/Gemfile.lock"
+  run bash "$DETECT" --path "$tmp"
+  [ "$status" -eq 0 ]
+  conf=$(echo "$output" | jq -r '.confidence')
+  # manifest (0.5) + lock (0.15) = 0.65
+  [ "$conf" = "0.65" ]
+  rm -rf "$tmp"
+}
+
 # --- Extension-count fallback ------------------------------------------------
 
 @test "extension fallback detects .java files" {
@@ -177,6 +215,16 @@ YAML
   rm -rf "$tmp"
 }
 
+@test "extension fallback detects .rb files" {
+  tmp=$(mktemp -d)
+  for i in 1 2 3 4 5; do echo "puts $i" > "$tmp/f$i.rb"; done
+  run bash "$DETECT" --path "$tmp"
+  [ "$status" -eq 0 ]
+  lang=$(echo "$output" | jq -r '.primary_language')
+  [ "$lang" = "ruby" ]
+  rm -rf "$tmp"
+}
+
 # --- Schema validation -------------------------------------------------------
 
 @test "new stack fixtures validate against StackDescriptor schema" {
@@ -186,7 +234,7 @@ YAML
   validator=(uvx --quiet check-jsonschema)
   command -v check-jsonschema >/dev/null && validator=(check-jsonschema)
 
-  for fix in java-spring dotnet-api php-laravel flutter-app; do
+  for fix in java-spring dotnet-api php-laravel flutter-app ruby-rails; do
     tmp=$(mktemp)
     bash "$DETECT" --path "${REPO_ROOT}/tests/fixtures/${fix}" > "$tmp"
     run "${validator[@]}" --schemafile "$SCHEMA" "$tmp"

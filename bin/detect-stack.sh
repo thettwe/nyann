@@ -423,6 +423,10 @@ detect_claudemd_hints() {
       primary_language="dart"
       hit=1
       add_reason "CLAUDE.md references Dart/Flutter → primary_language = dart"
+    elif grep -Eiq '\bruby\b|\brails\b|\bsinatra\b|\bbundler\b|\bgemfile\b' <<<"$body"; then
+      primary_language="ruby"
+      hit=1
+      add_reason "CLAUDE.md references Ruby → primary_language = ruby"
     fi
   fi
 
@@ -445,7 +449,7 @@ detect_claudemd_hints() {
       hit=1
       add_reason "CLAUDE.md references Flask → framework = flask"
     fi
-  elif grep -Eiq '\bnext(\.js)?\b|\bfastapi\b|\bdjango\b|\bflask\b|\bspring.boot\b|\bquarkus\b|\baspnet\b|\bblazor\b|\blaravel\b|\bsymfony\b|\bflutter\b' <<<"$body"; then
+  elif grep -Eiq '\bnext(\.js)?\b|\bfastapi\b|\bdjango\b|\bflask\b|\bspring.boot\b|\bquarkus\b|\baspnet\b|\bblazor\b|\blaravel\b|\bsymfony\b|\bflutter\b|\brails\b|\bsinatra\b' <<<"$body"; then
     # Manifest already matched; CLAUDE.md corroborates — still counts.
     hit=1
     add_reason "CLAUDE.md framework reference corroborates manifest detection"
@@ -733,6 +737,44 @@ detect_dart() {
   return 0
 }
 
+# --- Ruby detection -----------------------------------------------------------
+# Triggered when Gemfile exists. Framework: rails, sinatra from gem declarations.
+# Package manager: bundler.
+
+detect_ruby() {
+  local gemfile="$path/Gemfile"
+  [[ -f "$gemfile" ]] || return 1
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="ruby"
+    add_reason "Found Gemfile → primary_language = ruby"
+  else
+    secondary_languages_json="$(jq '. + ["ruby"]' <<<"$secondary_languages_json")"
+    add_reason "Ruby project detected alongside $primary_language → secondary language"
+  fi
+
+  if [[ "$framework" == "null" ]]; then
+    local gem_blob
+    gem_blob="$(<"$gemfile")"
+    if grep -Eq "gem ['\"]rails['\"]" <<<"$gem_blob"; then
+      framework='"rails"'
+      add_reason "Gemfile declares rails gem → framework = rails"
+    elif grep -Eq "gem ['\"]sinatra['\"]" <<<"$gem_blob"; then
+      framework='"sinatra"'
+      add_reason "Gemfile declares sinatra gem → framework = sinatra"
+    fi
+  fi
+
+  if [[ "$package_manager" == "null" ]]; then
+    package_manager='"bundler"'
+    [[ -f "$path/Gemfile.lock" ]] && signal_lock=1
+    add_reason "Ruby project → package_manager = bundler"
+  fi
+
+  return 0
+}
+
 # --- Shell/Bash detection -----------------------------------------------------
 # Shell projects have no manifest file. Detect by looking for a bin/ or scripts/
 # directory with .sh files, or a shebang-heavy root. Only fires when primary is
@@ -776,7 +818,7 @@ detect_by_extension_counts() {
     -path "$path/target"        -prune -o
   )
 
-  local py ts js go rs sw kt sh jv cs php da
+  local py ts js go rs sw kt sh jv cs php da rb
   py=$(find "$path" "${excludes[@]}" -type f -name '*.py' -print 2>/dev/null | wc -l | tr -d ' ')
   ts=$(find "$path" "${excludes[@]}" -type f \( -name '*.ts' -o -name '*.tsx' \) -print 2>/dev/null | wc -l | tr -d ' ')
   js=$(find "$path" "${excludes[@]}" -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.mjs' \) -print 2>/dev/null | wc -l | tr -d ' ')
@@ -789,9 +831,10 @@ detect_by_extension_counts() {
   cs=$(find "$path" "${excludes[@]}" -type f -name '*.cs' -print 2>/dev/null | wc -l | tr -d ' ')
   php=$(find "$path" "${excludes[@]}" -type f -name '*.php' -print 2>/dev/null | wc -l | tr -d ' ')
   da=$(find "$path" "${excludes[@]}" -type f -name '*.dart' -print 2>/dev/null | wc -l | tr -d ' ')
+  rb=$(find "$path" "${excludes[@]}" -type f -name '*.rb' -print 2>/dev/null | wc -l | tr -d ' ')
 
   local max=0 winner=""
-  for pair in "python:$py" "typescript:$ts" "javascript:$js" "go:$go" "rust:$rs" "swift:$sw" "kotlin:$kt" "shell:$sh" "java:$jv" "csharp:$cs" "php:$php" "dart:$da"; do
+  for pair in "python:$py" "typescript:$ts" "javascript:$js" "go:$go" "rust:$rs" "swift:$sw" "kotlin:$kt" "shell:$sh" "java:$jv" "csharp:$cs" "php:$php" "dart:$da" "ruby:$rb"; do
     local name="${pair%:*}" count="${pair#*:}"
     if (( count > max )); then
       max=$count
@@ -834,6 +877,7 @@ detect_java || true
 detect_dotnet || true
 detect_php || true
 detect_dart || true
+detect_ruby || true
 detect_shell || true
 detect_claudemd_hints || true
 detect_by_extension_counts || true
