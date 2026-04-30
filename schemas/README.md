@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (39)
+## Schemas in this directory (40)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -43,6 +43,7 @@ identifier consumers can pin against.
 | `documentation-plan.schema.json` | `bin/route-docs.sh` | `bin/bootstrap.sh`, `bin/scaffold-docs.sh` |
 | `drift-report.schema.json` | `bin/compute-drift.sh` | `bin/retrofit.sh`, `bin/doctor.sh`, `bin/session-check.sh` |
 | `gh-integration-result.schema.json` | `bin/gh-integration.sh` | `bin/bootstrap.sh`, `bin/retrofit.sh`, skill layer |
+| `governance-ci-result.schema.json` | `bin/doctor-ci.sh` | governance-check workflow, `skills/gen-ci/SKILL.md` |
 | `health-score.schema.json` | `bin/compute-health-score.sh` | `bin/persist-health-score.sh`, `bin/doctor.sh` |
 | `hotfix-result.schema.json` | `bin/hotfix.sh` | `skills/hotfix/SKILL.md` |
 | `link-check-report.schema.json` | `bin/check-links.sh` | `bin/compute-drift.sh` |

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/governance-ci-result/v1.json",
+  "title": "GovernanceCiResult",
+  "description": "Output of bin/doctor-ci.sh — CI governance gate result. Consumed by the governance-check GitHub Actions workflow and skills/gen-ci.",
+  "oneOf": [
+    {
+      "title": "GovernanceCiGateResult",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "score", "raw_score", "threshold", "severity", "annotation_count", "breakdown", "max_deductions", "ignored_categories"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pass", "fail", "warn"],
+          "description": "pass = score >= threshold; fail = score < threshold and severity is block; warn = score < threshold but severity is warn."
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Filtered health score (after excluding ignored categories). This is the score compared against the threshold."
+        },
+        "raw_score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Unfiltered health score from compute-health-score.sh."
+        },
+        "threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["block", "warn"]
+        },
+        "annotation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of GitHub Actions annotations emitted (only when --annotations was passed)."
+        },
+        "breakdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["missing", "misconfigured", "non_compliant", "broken_links", "claude_md", "orphans", "stale", "subsystem_errors"],
+          "properties": {
+            "missing":          { "type": "integer", "maximum": 0 },
+            "misconfigured":    { "type": "integer", "maximum": 0 },
+            "non_compliant":    { "type": "integer", "maximum": 0 },
+            "broken_links":     { "type": "integer", "maximum": 0 },
+            "claude_md":        { "type": "integer", "maximum": 0 },
+            "orphans":          { "type": "integer", "maximum": 0 },
+            "stale":            { "type": "integer", "maximum": 0 },
+            "subsystem_errors": { "type": "integer", "maximum": 0 }
+          }
+        },
+        "max_deductions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["missing", "misconfigured", "non_compliant", "broken_links", "orphans", "stale", "subsystem_errors"],
+          "properties": {
+            "missing":          { "type": "integer", "minimum": 0 },
+            "misconfigured":    { "type": "integer", "minimum": 0 },
+            "non_compliant":    { "type": "integer", "minimum": 0 },
+            "broken_links":     { "type": "integer", "minimum": 0 },
+            "orphans":          { "type": "integer", "minimum": 0 },
+            "stale":            { "type": "integer", "minimum": 0 },
+            "subsystem_errors": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "ignored_categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["missing", "misconfigured", "non_compliant", "broken_links", "claude_md", "orphans", "stale", "subsystem_errors"]
+          }
+        }
+      }
+    },
+    {
+      "title": "GovernanceCiSkipped",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": { "const": "skipped" },
+        "reason": { "type": "string" }
+      }
+    }
+  ]
+}

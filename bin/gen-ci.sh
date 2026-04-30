@@ -3,11 +3,16 @@
 #
 # Usage:
 #   gen-ci.sh --profile <path> --stack <path> --target <repo> [--dry-run]
+#             [--governance]                 # also generate governance-check.yml
+#             [--allow-merge-existing]       # append to existing workflow files
 #
 # Selects a CI template based on primary_language, substitutes package
 # manager / versions / commands from stack + profile, and writes
 # .github/workflows/ci.yml. Regenerates between marker comments only;
 # preserves user content outside the markers.
+#
+# --governance also generates .github/workflows/governance-check.yml
+# from templates/ci/governance-check.yml (drift + health-score gate).
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./_lib.sh
@@ -20,6 +25,7 @@ profile_path=""
 stack_path=""
 dry_run=false
 allow_merge=false
+governance=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,7 +37,8 @@ while [[ $# -gt 0 ]]; do
     --stack=*)              stack_path="${1#--stack=}"; shift ;;
     --dry-run)              dry_run=true; shift ;;
     --allow-merge-existing) allow_merge=true; shift ;;
-    -h|--help)              sed -n '3,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --governance)           governance=true; shift ;;
+    -h|--help)              sed -n '3,14p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
@@ -148,53 +155,91 @@ fi
 
 # --- Write output (marker-idempotent) ----------------------------------------
 
-MARKER_START="# nyann:ci:start"
-MARKER_END="# nyann:ci:end"
+write_workflow() {
+  local out_path="$1" marker_start="$2" marker_end="$3" content="$4"
 
+  [[ -L "$out_path" ]] && nyann::die "refusing to write workflow via symlink: $out_path"
+
+  local marked="${marker_start}
+${content}
+${marker_end}"
+
+  mkdir -p "$(dirname "$out_path")"
+
+  local wtmp
+  wtmp=$(mktemp -t nyann-ci.XXXXXX)
+
+  if [[ -f "$out_path" ]]; then
+    if grep -Fq "$marker_start" "$out_path" && grep -Fq "$marker_end" "$out_path"; then
+      local before after
+      before=$(sed -n "1,/^${marker_start}/{ /^${marker_start}/d; p; }" "$out_path")
+      after=$(sed -n "/^${marker_end}/,\${ /^${marker_end}/d; p; }" "$out_path")
+      {
+        [[ -n "$before" ]] && printf '%s\n' "$before"
+        printf '%s\n' "$marked"
+        [[ -n "$after" ]] && printf '%s\n' "$after"
+      } > "$wtmp"
+      mv "$wtmp" "$out_path"
+      nyann::log "regenerated workflow (markers preserved): $out_path"
+    elif $allow_merge; then
+      printf '\n%s\n' "$marked" >> "$out_path"
+      nyann::warn "appended marked block to existing file (user content above preserved): $out_path"
+    else
+      nyann::warn "skip $out_path (file exists without nyann markers)"
+      nyann::warn "  pass --allow-merge-existing to append a marked block (preserves your workflow)"
+      rm -f "$wtmp"
+      return 0
+    fi
+  else
+    printf '%s\n' "$marked" > "$out_path"
+    nyann::log "created workflow: $out_path"
+  fi
+  rm -f "$wtmp" 2>/dev/null || true
+}
+
+CI_MARKER_START="# nyann:ci:start"
+CI_MARKER_END="# nyann:ci:end"
 ci_path="$target/.github/workflows/ci.yml"
 
-[[ -L "$ci_path" ]] && nyann::die "refusing to write CI workflow via symlink: $ci_path"
-
-marked_content="${MARKER_START}
-${workflow}
-${MARKER_END}"
-
 if [[ "$dry_run" == "true" ]]; then
-  printf '%s\n' "$marked_content"
+  printf '%s\n' "${CI_MARKER_START}"
+  printf '%s\n' "$workflow"
+  printf '%s\n' "${CI_MARKER_END}"
+  if $governance; then
+    gov_template_file="${templates_dir}/governance-check.yml"
+    if [[ -f "$gov_template_file" ]]; then
+      gov_workflow=$(cat "$gov_template_file")
+      gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
+      if [[ -n "$path_filters" ]]; then
+        gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
+      else
+        gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/}"
+      fi
+      printf '\n---\n'
+      printf '# nyann:governance:start\n'
+      printf '%s\n' "$gov_workflow"
+      printf '# nyann:governance:end\n'
+    fi
+  fi
   exit 0
 fi
 
-ci_tmp=$(mktemp -t nyann-ci.XXXXXX)
-trap 'rm -f "$ci_tmp"' EXIT
+write_workflow "$ci_path" "$CI_MARKER_START" "$CI_MARKER_END" "$workflow"
 
-mkdir -p "$(dirname "$ci_path")"
+# --- Governance workflow (--governance) --------------------------------------
 
-if [[ -f "$ci_path" ]]; then
-  if grep -Fq "$MARKER_START" "$ci_path" && grep -Fq "$MARKER_END" "$ci_path"; then
-    # Replace between markers
-    before=$(sed -n "1,/^${MARKER_START}/{ /^${MARKER_START}/d; p; }" "$ci_path")
-    after=$(sed -n "/^${MARKER_END}/,\${ /^${MARKER_END}/d; p; }" "$ci_path")
-    {
-      [[ -n "$before" ]] && printf '%s\n' "$before"
-      printf '%s\n' "$marked_content"
-      [[ -n "$after" ]] && printf '%s\n' "$after"
-    } > "$ci_tmp"
-    mv "$ci_tmp" "$ci_path"
-    nyann::log "regenerated CI workflow (markers preserved): $ci_path"
-  elif $allow_merge; then
-    # Existing ci.yml without nyann markers: explicit opt-in to append.
-    # The user just confirmed they want their hand-written workflow
-    # merged with a generated nyann block at the bottom.
-    printf '\n%s\n' "$marked_content" >> "$ci_path"
-    nyann::warn "appended marked block to existing ci.yml (user content above preserved): $ci_path"
+if $governance; then
+  gov_template_file="${templates_dir}/governance-check.yml"
+  [[ -f "$gov_template_file" ]] || nyann::die "governance template not found: $gov_template_file"
+
+  gov_workflow=$(cat "$gov_template_file")
+  gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
+  if [[ -n "$path_filters" ]]; then
+    gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
   else
-    # Refuse silent append. The user has hand-written CI and never saw
-    # the nyann block in preview — adding to it without confirmation
-    # violates preview-before-mutate.
-    nyann::warn "skip ci.yml (file exists without nyann markers): $ci_path"
-    nyann::warn "  pass --allow-merge-existing to append a marked block (preserves your workflow)"
+    gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/}"
   fi
-else
-  printf '%s\n' "$marked_content" > "$ci_path"
-  nyann::log "created CI workflow: $ci_path"
+
+  gov_path="$target/.github/workflows/governance-check.yml"
+  write_workflow "$gov_path" "# nyann:governance:start" "# nyann:governance:end" "$gov_workflow"
 fi
