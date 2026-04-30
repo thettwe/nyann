@@ -62,6 +62,12 @@ hook_blurb() {
     mypy)                 echo "mypy type-checks Python" ;;
     black)                echo "Black formats Python" ;;
     trailing-whitespace)  echo "strip trailing whitespace" ;;
+    checkstyle)           echo "enforce Java code style rules" ;;
+    dotnet-format)        echo "format C#/.NET code with dotnet format" ;;
+    pint)                 echo "Laravel Pint formats PHP code" ;;
+    dart-format)          echo "dart format on staged Dart files" ;;
+    dart-analyze)         echo "dart analyze for static analysis" ;;
+    rubocop)              echo "RuboCop lints and formats Ruby code" ;;
     *)                    echo "custom hook" ;;
   esac
 }

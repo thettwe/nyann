@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-702%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-726%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -274,7 +274,7 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] CLAUDE.md generation, standalone regeneration, and usage-based optimization
 - [x] Team profile sync with drift detection
 - [x] 38 JSON schemas locking every cross-layer contract
-- [x] 702 bats tests, shellcheck, SKILL.md length enforcement
+- [x] 726 bats tests, shellcheck, SKILL.md length enforcement
 - [x] Preview-before-mutate with SHA256 integrity binding
 
 ### Shipped in v1.1.0
@@ -298,6 +298,10 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] Framework inference for Spring Boot, Quarkus, Micronaut, ASP.NET, Blazor, MAUI, Laravel, Symfony, Flutter, Rails, Sinatra
 - [x] Extension-count fallback and CLAUDE.md hint parser for all new languages
 
+### Shipped in v1.2.1
+
+- [x] Missing hook blurbs for v1.2.0 profiles (`checkstyle`, `dotnet-format`, `pint`, `dart-format`, `dart-analyze`, `rubocop`)
+
 ### Planned
 
 - [ ] **More stacks:** Elixir/Phoenix, Scala/Play
@@ -314,12 +318,12 @@ bin/                   # 58 shell scripts (orchestrators + subsystems)
 commands/              # 30 Claude Code slash-command registrations
 evals/                 # 23 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse block-main hook
-profiles/              # 13 starter profiles (+ _schema.json)
+profiles/              # 20 starter profiles (+ _schema.json)
 schemas/               # 38 JSON Schemas for every exchanged shape
 skills/                # 30 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 702 bats tests + fixtures
+tests/                 # 726 bats tests + fixtures
 ```
 
 ---
