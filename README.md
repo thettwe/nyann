@@ -44,6 +44,11 @@ Nyann detects your stack automatically and applies the right profile. Every prof
 | Swift / iOS | `swift-ios` | SwiftLint | SwiftFormat | SPM |
 | Kotlin / Android | `kotlin-android` | detekt | ktlint | Gradle |
 | Shell / Bash | `shell-cli` | ShellCheck | shfmt | - |
+| Java / Spring Boot | `java-spring-boot` | Checkstyle | - | Maven / Gradle |
+| C# / .NET | `dotnet-api` | dotnet format | dotnet format | dotnet |
+| PHP / Laravel | `php-laravel` | Pint | Pint | Composer |
+| Dart / Flutter | `flutter-app` | dart analyze | dart format | pub |
+| Ruby / Rails | `ruby-rails` | RuboCop | RuboCop | Bundler |
 | Any / Unknown | `default` | - | - | - |
 
 All profiles also include `block-main` (prevent direct commits to main) and `gitleaks` (secret scanning) hooks.
@@ -54,14 +59,21 @@ Don't see your stack? You can [create a custom profile](#customizing-profiles) o
 
 **1. Install nyann as a Claude Code plugin.**
 
-The repo ships a `.claude-plugin/marketplace.json` so the plugin can be installed through Claude Code's marketplace flow:
+Install from the community marketplace:
+
+```text
+claude plugin marketplace add anthropics/claude-plugins-community
+claude plugin install nyann@claude-community
+```
+
+Or install from the nyann repo directly:
 
 ```text
 /plugin marketplace add thettwe/nyann
 /plugin install nyann@nyann
 ```
 
-Or, for development / hacking on nyann itself, clone directly:
+For development / hacking on nyann itself, clone directly:
 
 ```sh
 git clone https://github.com/thettwe/nyann ~/.claude/plugins/nyann
@@ -251,7 +263,7 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 ### Shipped in v1.0.0
 
 - [x] 30 skills with natural-language triggers and slash commands
-- [x] 13 starter profiles covering JS/TS, Python, Go, Rust, Swift, Kotlin, Shell
+- [x] 18 starter profiles covering JS/TS, Python, Go, Rust, Swift, Kotlin, Shell, Java, C#, PHP, Dart, Ruby
 - [x] Stack detection (frameworks, monorepos, polyglot)
 - [x] Hook installation (core + per-stack + pre-push)
 - [x] Branching strategy recommender (GitHub Flow / GitFlow / trunk-based)
@@ -280,9 +292,15 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] Setup fast path — quick-setup in 1 picker, categorized prereqs tables
 - [x] Plugin discovery preamble in all 30 command files — no wasted `which`/`npm list` searches
 
+### Shipped in v1.2.0
+
+- [x] 5 new stack detections and profiles: Java/Spring Boot, C#/.NET, PHP/Laravel, Dart/Flutter, Ruby/Rails
+- [x] Framework inference for Spring Boot, Quarkus, Micronaut, ASP.NET, Blazor, MAUI, Laravel, Symfony, Flutter, Rails, Sinatra
+- [x] Extension-count fallback and CLAUDE.md hint parser for all new languages
+
 ### Planned
 
-- [ ] **More stacks:** Flutter, Java, C#/.NET, Ruby on Rails, Elixir/Phoenix
+- [ ] **More stacks:** Elixir/Phoenix, Scala/Play
 - [ ] **GitLab and Bitbucket** support for remote integration (currently GitHub only)
 - [ ] **Windows support:** `.ps1` hook variants for native Windows workflows
 - [ ] **ActionPlan `remote[]` dispatcher** for server-side automation beyond branch protection

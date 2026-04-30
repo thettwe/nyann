@@ -5,6 +5,23 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-04-30
+
+### Added
+
+- **Java stack detection and profile** — `detect_java()` recognizes `pom.xml` and Gradle projects with `.java` files; framework inference for Spring Boot, Quarkus, Micronaut; `java-spring-boot` starter profile with Checkstyle hooks
+- **C# / .NET stack detection and profile** — `detect_dotnet()` recognizes `.csproj`, `.sln`, `.fsproj`; framework inference for ASP.NET, Blazor, MAUI; `dotnet-api` starter profile with dotnet format hooks
+- **PHP stack detection and profile** — `detect_php()` recognizes `composer.json`; framework inference for Laravel, Symfony; `php-laravel` starter profile with Pint hooks
+- **Dart / Flutter stack detection and profile** — `detect_dart()` recognizes `pubspec.yaml`; Flutter SDK detection; `flutter-app` starter profile with dart format and dart analyze hooks
+- **Ruby stack detection and profile** — `detect_ruby()` recognizes `Gemfile`; framework inference for Rails, Sinatra; `ruby-rails` starter profile with RuboCop hooks
+- **Extension-count fallback** expanded to detect `.java`, `.cs`, `.php`, `.dart`, `.rb` files
+- **CLAUDE.md hint parser** expanded to recognize Java, C#/.NET, PHP, Dart/Flutter, Ruby references
+
+### Changed
+
+- Starter profile count increased from 13 to 18
+- StackDescriptor and Profile schemas updated with new language, framework, and package manager enum values
+
 ## [1.1.2] - 2026-04-28
 
 ### Fixed

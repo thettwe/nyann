@@ -56,6 +56,31 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "starter: java-spring-boot.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/java-spring-boot.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: dotnet-api.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/dotnet-api.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: php-laravel.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/php-laravel.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: flutter-app.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/flutter-app.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: ruby-rails.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/ruby-rails.json"
+  [ "$status" -eq 0 ]
+}
+
 @test "fixture: valid-minimal → exit 0" {
   run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/valid-minimal.json"
   [ "$status" -eq 0 ]

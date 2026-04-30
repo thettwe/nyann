@@ -27,13 +27,13 @@
   "properties": {
     "primary_language": {
       "type": "string",
-      "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby", "unknown"]
+      "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "unknown"]
     },
     "secondary_languages": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby"]
+        "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby"]
       },
       "uniqueItems": true
     },
@@ -47,7 +47,12 @@
             "express", "fastify",
             "django", "flask", "fastapi",
             "gin", "echo",
-            "actix", "axum", "rocket"
+            "actix", "axum", "rocket",
+            "spring-boot", "quarkus", "micronaut",
+            "aspnet", "blazor", "maui",
+            "laravel", "symfony",
+            "flutter",
+            "rails", "sinatra"
           ]
         }
       ]
@@ -63,7 +68,11 @@
             "cargo",
             "go",
             "spm",
-            "gradle"
+            "gradle", "maven",
+            "dotnet",
+            "composer",
+            "pub",
+            "bundler"
           ]
         }
       ]
@@ -113,7 +122,7 @@
           "path":             { "type": "string", "minLength": 1 },
           "primary_language": {
             "type": "string",
-            "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby", "unknown"]
+            "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "unknown"]
           },
           "framework": {
             "oneOf": [
