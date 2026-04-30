@@ -407,6 +407,22 @@ detect_claudemd_hints() {
       primary_language="shell"
       hit=1
       add_reason "CLAUDE.md references shell/bash → primary_language = shell"
+    elif grep -Eiq '\bjava\b|\bspring.boot\b|\bmaven\b|\bgradle\b' <<<"$body"; then
+      primary_language="java"
+      hit=1
+      add_reason "CLAUDE.md references Java → primary_language = java"
+    elif grep -Eiq '\bc#\b|\bcsharp\b|\b\.net\b|\baspnet\b|\bdotnet\b' <<<"$body"; then
+      primary_language="csharp"
+      hit=1
+      add_reason "CLAUDE.md references C#/.NET → primary_language = csharp"
+    elif grep -Eiq '\bphp\b|\blaravel\b|\bsymfony\b|\bcomposer\b' <<<"$body"; then
+      primary_language="php"
+      hit=1
+      add_reason "CLAUDE.md references PHP → primary_language = php"
+    elif grep -Eiq '\bdart\b|\bflutter\b|\bpubspec\b' <<<"$body"; then
+      primary_language="dart"
+      hit=1
+      add_reason "CLAUDE.md references Dart/Flutter → primary_language = dart"
     fi
   fi
 
@@ -429,7 +445,7 @@ detect_claudemd_hints() {
       hit=1
       add_reason "CLAUDE.md references Flask → framework = flask"
     fi
-  elif grep -Eiq '\bnext(\.js)?\b|\bfastapi\b|\bdjango\b|\bflask\b' <<<"$body"; then
+  elif grep -Eiq '\bnext(\.js)?\b|\bfastapi\b|\bdjango\b|\bflask\b|\bspring.boot\b|\bquarkus\b|\baspnet\b|\bblazor\b|\blaravel\b|\bsymfony\b|\bflutter\b' <<<"$body"; then
     # Manifest already matched; CLAUDE.md corroborates — still counts.
     hit=1
     add_reason "CLAUDE.md framework reference corroborates manifest detection"
@@ -511,6 +527,212 @@ detect_kotlin() {
   return 0
 }
 
+# --- Java detection -----------------------------------------------------------
+# Triggered when pom.xml exists, or build.gradle[.kts] exists with .java files
+# (and Kotlin didn't already claim primary). Framework: spring-boot, quarkus,
+# micronaut from dependency declarations. Package manager: maven or gradle.
+
+detect_java() {
+  local has_pom=false has_gradle=false
+  [[ -f "$path/pom.xml" ]] && has_pom=true
+  [[ -f "$path/build.gradle" || -f "$path/build.gradle.kts" ]] && has_gradle=true
+
+  if ! $has_pom && ! $has_gradle; then
+    return 1
+  fi
+
+  # When Gradle is present but no pom.xml, require .java files to distinguish
+  # from a pure-Kotlin project (which detect_kotlin already handled).
+  if ! $has_pom && $has_gradle; then
+    local java_count
+    java_count=$(find "$path" \
+      -path "$path/node_modules" -prune -o \
+      -path "$path/.gradle"      -prune -o \
+      -path "$path/build"        -prune -o \
+      -path "$path/.git"          -prune -o \
+      -type f -name '*.java' -print 2>/dev/null | wc -l | tr -d ' ')
+    (( java_count > 0 )) || return 1
+  fi
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="java"
+    if $has_pom; then
+      add_reason "Found pom.xml → primary_language = java"
+    else
+      add_reason "Found Gradle build + .java files → primary_language = java"
+    fi
+  else
+    secondary_languages_json="$(jq '. + ["java"]' <<<"$secondary_languages_json")"
+    add_reason "Java project detected alongside $primary_language → secondary language"
+  fi
+
+  # Framework detection from dependency declarations.
+  local dep_blob=""
+  [[ -f "$path/pom.xml" ]] && dep_blob+="$(<"$path/pom.xml")"$'\n'
+  [[ -f "$path/build.gradle" ]] && dep_blob+="$(<"$path/build.gradle")"$'\n'
+  [[ -f "$path/build.gradle.kts" ]] && dep_blob+="$(<"$path/build.gradle.kts")"$'\n'
+
+  if [[ "$framework" == "null" ]]; then
+    if grep -Eq 'spring-boot|org\.springframework\.boot' <<<"$dep_blob"; then
+      framework='"spring-boot"'
+      add_reason "Dependencies reference Spring Boot → framework = spring-boot"
+    elif grep -Eq 'io\.quarkus' <<<"$dep_blob"; then
+      framework='"quarkus"'
+      add_reason "Dependencies reference Quarkus → framework = quarkus"
+    elif grep -Eq 'io\.micronaut' <<<"$dep_blob"; then
+      framework='"micronaut"'
+      add_reason "Dependencies reference Micronaut → framework = micronaut"
+    fi
+  fi
+
+  # Package manager: pom.xml → maven, else gradle.
+  if [[ "$package_manager" == "null" ]]; then
+    if $has_pom; then
+      package_manager='"maven"'
+      add_reason "pom.xml present → package_manager = maven"
+    else
+      package_manager='"gradle"'
+      add_reason "Gradle build → package_manager = gradle"
+    fi
+    signal_lock=1
+  fi
+
+  return 0
+}
+
+# --- C# / .NET detection -----------------------------------------------------
+# Triggered when *.csproj, *.sln, or *.fsproj exists at the repo root (or one
+# level deep for *.csproj). Framework: aspnet, blazor, maui from SDK/package
+# references. Package manager: dotnet.
+
+detect_dotnet() {
+  local has_sln=false has_csproj=false has_fsproj=false
+
+  compgen -G "$path/*.sln" >/dev/null 2>&1 && has_sln=true
+  if compgen -G "$path/*.csproj" >/dev/null 2>&1 || compgen -G "$path/*/*.csproj" >/dev/null 2>&1; then
+    has_csproj=true
+  fi
+  compgen -G "$path/*.fsproj" >/dev/null 2>&1 && has_fsproj=true
+
+  $has_sln || $has_csproj || $has_fsproj || return 1
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="csharp"
+    if $has_sln; then
+      add_reason "Found .sln file → primary_language = csharp"
+    elif $has_csproj; then
+      add_reason "Found .csproj file → primary_language = csharp"
+    else
+      add_reason "Found .fsproj file → primary_language = csharp"
+    fi
+  else
+    secondary_languages_json="$(jq '. + ["csharp"]' <<<"$secondary_languages_json")"
+    add_reason ".NET project detected alongside $primary_language → secondary language"
+  fi
+
+  # Framework from SDK attribute or package references in csproj files.
+  if [[ "$framework" == "null" ]]; then
+    local csproj_blob=""
+    for f in "$path"/*.csproj "$path"/*/*.csproj; do
+      [[ -f "$f" ]] && csproj_blob+="$(<"$f")"$'\n'
+    done
+
+    if grep -Eq 'Microsoft\.NET\.Sdk\.Web|Microsoft\.AspNetCore' <<<"$csproj_blob"; then
+      if grep -Eq 'Microsoft\.AspNetCore\.Components|Blazor' <<<"$csproj_blob"; then
+        framework='"blazor"'
+        add_reason "csproj references Blazor components → framework = blazor"
+      else
+        framework='"aspnet"'
+        add_reason "csproj uses Web SDK or AspNetCore → framework = aspnet"
+      fi
+    elif grep -Eq 'Microsoft\.Maui|UseMaui' <<<"$csproj_blob"; then
+      framework='"maui"'
+      add_reason "csproj references MAUI → framework = maui"
+    fi
+  fi
+
+  if [[ "$package_manager" == "null" ]]; then
+    package_manager='"dotnet"'
+    add_reason ".NET project → package_manager = dotnet"
+  fi
+
+  return 0
+}
+
+# --- PHP detection ------------------------------------------------------------
+# Triggered when composer.json exists. Framework: laravel, symfony from require.
+# Package manager: composer.
+
+detect_php() {
+  local composer="$path/composer.json"
+  [[ -f "$composer" ]] || return 1
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="php"
+    add_reason "Found composer.json → primary_language = php"
+  else
+    secondary_languages_json="$(jq '. + ["php"]' <<<"$secondary_languages_json")"
+    add_reason "PHP project detected alongside $primary_language → secondary language"
+  fi
+
+  # Framework from require block.
+  if [[ "$framework" == "null" ]]; then
+    local require
+    require="$(jq -r '(.require // {}) | keys[]' "$composer" 2>/dev/null)" || true
+    if grep -Fxq 'laravel/framework' <<<"$require"; then
+      framework='"laravel"'
+      add_reason "composer.json requires laravel/framework → framework = laravel"
+    elif grep -Fxq 'symfony/framework-bundle' <<<"$require"; then
+      framework='"symfony"'
+      add_reason "composer.json requires symfony/framework-bundle → framework = symfony"
+    fi
+  fi
+
+  if [[ "$package_manager" == "null" ]]; then
+    package_manager='"composer"'
+    [[ -f "$path/composer.lock" ]] && signal_lock=1
+    add_reason "PHP project → package_manager = composer"
+  fi
+
+  return 0
+}
+
+# --- Dart / Flutter detection -------------------------------------------------
+# Triggered when pubspec.yaml exists. Framework: flutter when flutter SDK is
+# declared. Package manager: pub.
+
+detect_dart() {
+  local pubspec="$path/pubspec.yaml"
+  [[ -f "$pubspec" ]] || return 1
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="dart"
+    add_reason "Found pubspec.yaml → primary_language = dart"
+  else
+    secondary_languages_json="$(jq '. + ["dart"]' <<<"$secondary_languages_json")"
+    add_reason "Dart project detected alongside $primary_language → secondary language"
+  fi
+
+  if [[ "$framework" == "null" ]]; then
+    if grep -Eq '^\s+flutter:' "$pubspec" || grep -Eq 'flutter:$' "$pubspec"; then
+      framework='"flutter"'
+      add_reason "pubspec.yaml declares flutter SDK → framework = flutter"
+    fi
+  fi
+
+  if [[ "$package_manager" == "null" ]]; then
+    package_manager='"pub"'
+    [[ -f "$path/pubspec.lock" ]] && signal_lock=1
+    add_reason "Dart project → package_manager = pub"
+  fi
+
+  return 0
+}
+
 # --- Shell/Bash detection -----------------------------------------------------
 # Shell projects have no manifest file. Detect by looking for a bin/ or scripts/
 # directory with .sh files, or a shebang-heavy root. Only fires when primary is
@@ -554,7 +776,7 @@ detect_by_extension_counts() {
     -path "$path/target"        -prune -o
   )
 
-  local py ts js go rs sw kt sh
+  local py ts js go rs sw kt sh jv cs php da
   py=$(find "$path" "${excludes[@]}" -type f -name '*.py' -print 2>/dev/null | wc -l | tr -d ' ')
   ts=$(find "$path" "${excludes[@]}" -type f \( -name '*.ts' -o -name '*.tsx' \) -print 2>/dev/null | wc -l | tr -d ' ')
   js=$(find "$path" "${excludes[@]}" -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.mjs' \) -print 2>/dev/null | wc -l | tr -d ' ')
@@ -563,9 +785,13 @@ detect_by_extension_counts() {
   sw=$(find "$path" "${excludes[@]}" -type f -name '*.swift' -print 2>/dev/null | wc -l | tr -d ' ')
   kt=$(find "$path" "${excludes[@]}" -type f -name '*.kt' -print 2>/dev/null | wc -l | tr -d ' ')
   sh=$(find "$path" "${excludes[@]}" -type f -name '*.sh' -print 2>/dev/null | wc -l | tr -d ' ')
+  jv=$(find "$path" "${excludes[@]}" -type f -name '*.java' -print 2>/dev/null | wc -l | tr -d ' ')
+  cs=$(find "$path" "${excludes[@]}" -type f -name '*.cs' -print 2>/dev/null | wc -l | tr -d ' ')
+  php=$(find "$path" "${excludes[@]}" -type f -name '*.php' -print 2>/dev/null | wc -l | tr -d ' ')
+  da=$(find "$path" "${excludes[@]}" -type f -name '*.dart' -print 2>/dev/null | wc -l | tr -d ' ')
 
   local max=0 winner=""
-  for pair in "python:$py" "typescript:$ts" "javascript:$js" "go:$go" "rust:$rs" "swift:$sw" "kotlin:$kt" "shell:$sh"; do
+  for pair in "python:$py" "typescript:$ts" "javascript:$js" "go:$go" "rust:$rs" "swift:$sw" "kotlin:$kt" "shell:$sh" "java:$jv" "csharp:$cs" "php:$php" "dart:$da"; do
     local name="${pair%:*}" count="${pair#*:}"
     if (( count > max )); then
       max=$count
@@ -604,6 +830,10 @@ detect_go || true
 detect_rust || true
 detect_swift || true
 detect_kotlin || true
+detect_java || true
+detect_dotnet || true
+detect_php || true
+detect_dart || true
 detect_shell || true
 detect_claudemd_hints || true
 detect_by_extension_counts || true

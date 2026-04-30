@@ -50,7 +50,7 @@
       "properties": {
         "primary_language": {
           "type": "string",
-          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "ruby", "unknown"]
+          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "unknown"]
         },
         "framework": {
           "oneOf": [
@@ -61,7 +61,7 @@
         "package_manager": {
           "oneOf": [
             { "type": "null" },
-            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle"] }
+            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub"] }
           ]
         }
       }
