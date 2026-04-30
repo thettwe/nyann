@@ -29,9 +29,9 @@ setup() {
   [ "$count" = "18" ]
 }
 
-@test "schema count matches the documented number (38)" {
+@test "schema count matches the documented number (39)" {
   count=$(find "$REPO_ROOT/schemas" -maxdepth 1 -name '*.schema.json' -type f | wc -l | tr -d ' ')
-  [ "$count" = "38" ]
+  [ "$count" = "39" ]
 }
 
 @test "every schema is documented in schemas/README.md" {

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/version-recommendation/v1.json",
+  "title": "VersionRecommendation",
+  "description": "Output of bin/recommend-version.sh — suggest the next semver version from commit history. Consumed by skills/release/SKILL.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "current", "recommended", "bump", "reason", "from", "counts"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ok", "no-commits", "no-tags"],
+      "description": "ok = commits found and version computed; no-commits = no commits since the last tag; no-tags = no prior tags found (first release)."
+    },
+    "current": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?$" },
+        { "type": "null" }
+      ],
+      "description": "The current version derived from the latest tag. Null when no prior tags exist."
+    },
+    "recommended": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The recommended next version."
+    },
+    "bump": {
+      "type": "string",
+      "enum": ["major", "minor", "patch", "first"],
+      "description": "The type of semver bump applied. 'first' when no prior tags exist."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Human-readable explanation of why this bump was chosen."
+    },
+    "from": {
+      "type": "string",
+      "description": "The git ref (tag or SHA) the commit range was measured from."
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["breaking", "feat", "fix", "other", "total"],
+      "properties": {
+        "breaking": { "type": "integer", "minimum": 0 },
+        "feat": { "type": "integer", "minimum": 0 },
+        "fix": { "type": "integer", "minimum": 0 },
+        "other": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
