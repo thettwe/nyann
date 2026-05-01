@@ -34,6 +34,13 @@ add_commit() {
   git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "$msg"
 }
 
+add_commit_with_body() {
+  local repo="$1" subject="$2" body="$3"
+  echo "$subject" >> "$repo/changes.txt"
+  git -C "$repo" add changes.txt
+  git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "$subject" -m "$body"
+}
+
 # --- basic functionality ---
 
 @test "no prior tags suggests 0.1.0 first release" {
@@ -45,11 +52,12 @@ add_commit() {
   [ "$(echo "$out" | jq '.current')" = "null" ]
 }
 
-@test "no commits since tag reports no-commits" {
+@test "no commits since tag reports no-commits with bump none" {
   repo=$(make_tagged_repo)
   out=$(bash "$RV" --target "$repo")
   [ "$(echo "$out" | jq -r '.status')" = "no-commits" ]
   [ "$(echo "$out" | jq -r '.current')" = "1.2.3" ]
+  [ "$(echo "$out" | jq -r '.bump')" = "none" ]
   [ "$(echo "$out" | jq '.counts.total')" -eq 0 ]
 }
 
@@ -162,6 +170,35 @@ add_commit() {
 
 # --- first release with commits ---
 
+@test "BREAKING CHANGE footer in body triggers major bump" {
+  repo=$(make_tagged_repo)
+  add_commit_with_body "$repo" "feat: add api" "BREAKING CHANGE: remove old route"
+  out=$(bash "$RV" --target "$repo")
+  [ "$(echo "$out" | jq -r '.recommended')" = "2.0.0" ]
+  [ "$(echo "$out" | jq -r '.bump')" = "major" ]
+  [ "$(echo "$out" | jq '.counts.breaking')" -eq 1 ]
+}
+
+@test "BREAKING-CHANGE footer (hyphen variant) triggers major bump" {
+  repo=$(make_tagged_repo)
+  add_commit_with_body "$repo" "fix: update handler" "BREAKING-CHANGE: new required parameter"
+  out=$(bash "$RV" --target "$repo")
+  [ "$(echo "$out" | jq -r '.bump')" = "major" ]
+  [ "$(echo "$out" | jq '.counts.breaking')" -eq 1 ]
+}
+
+@test "--from overrides log range but still resolves current version from tags" {
+  repo=$(make_tagged_repo)
+  add_commit "$repo" "feat: feature one"
+  add_commit "$repo" "feat: feature two"
+  from_sha=$(git -C "$repo" rev-parse HEAD~1)
+  out=$(bash "$RV" --target "$repo" --from "$from_sha")
+  [ "$(echo "$out" | jq -r '.current')" = "1.2.3" ]
+  [ "$(echo "$out" | jq -r '.status')" = "ok" ]
+  [ "$(echo "$out" | jq '.counts.total')" -eq 1 ]
+  [ "$(echo "$out" | jq -r '.recommended')" = "1.3.0" ]
+}
+
 @test "first release with commits suggests 0.1.0" {
   repo=$(make_repo)
   add_commit "$repo" "feat: initial feature"
@@ -187,6 +224,21 @@ add_commit() {
 
   repo=$(make_tagged_repo)
   add_commit "$repo" "feat: something"
+  bash "$RV" --target "$repo" > "$TMP/out.json"
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/version-recommendation.schema.json" "$TMP/out.json"
+}
+
+@test "no-commits output validates against schema" {
+  if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
+    skip "no schema validator"
+  fi
+  if command -v check-jsonschema >/dev/null 2>&1; then
+    VALIDATE=(check-jsonschema)
+  else
+    VALIDATE=(uvx --quiet check-jsonschema)
+  fi
+
+  repo=$(make_tagged_repo)
   bash "$RV" --target "$repo" > "$TMP/out.json"
   "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/version-recommendation.schema.json" "$TMP/out.json"
 }

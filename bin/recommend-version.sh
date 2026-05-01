@@ -8,9 +8,9 @@
 #
 # Walks commits since the last matching tag and applies Conventional Commits
 # semver rules:
-#   - Any breaking change (type!: or BREAKING CHANGE footer) → major
-#   - Any `feat` commit                                      → minor
-#   - Everything else (fix, docs, chore, …)                  → patch
+#   - Any breaking change (type!: subject OR BREAKING CHANGE footer) → major
+#   - Any `feat` commit                                              → minor
+#   - Everything else (fix, docs, chore, …)                          → patch
 #
 # Special case: when the current major is 0 (pre-1.0), breaking changes
 # bump minor instead of major — standard semver §4 semantics.
@@ -28,7 +28,7 @@
 #
 # Exit codes:
 #   0 — recommendation emitted (including no-commits / no-tags)
-#   2 — hard error (not a git repo, bad arguments)
+#   1 — hard error (not a git repo, bad arguments)
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./_lib.sh
@@ -72,14 +72,18 @@ fi
 current_version=""
 log_range=""
 
+# Always resolve current version from tags, regardless of --from.
+latest_tag=$(git -C "$target" tag --list "${tag_prefix}*" --sort=-v:refname | head -n1)
+if [[ -n "$latest_tag" ]]; then
+  current_version="${latest_tag#"$tag_prefix"}"
+fi
+
 if [[ -n "$from_ref" ]]; then
   log_range="${from_ref}..HEAD"
 else
-  latest_tag=$(git -C "$target" tag --list "${tag_prefix}*" --sort=-v:refname | head -n1)
   if [[ -n "$latest_tag" ]]; then
     from_ref="$latest_tag"
     log_range="${from_ref}..HEAD"
-    current_version="${latest_tag#"$tag_prefix"}"
   else
     from_ref="$(git -C "$target" rev-list --max-parents=0 HEAD 2>/dev/null | head -n1)"
     if [[ -z "$from_ref" ]]; then
@@ -98,8 +102,17 @@ count_other=0
 count_total=0
 
 cc_regex='^([a-z]+)(\([^)]+\))?(!?):[[:space:]](.*)$'
-while IFS= read -r sha && IFS= read -r subject; do
-  [[ -z "$sha" ]] && continue
+breaking_footer_regex='^BREAKING[ -]CHANGE:[[:space:]]'
+
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  # Separator between commits.
+  if [[ "$line" == "---COMMIT---" ]]; then
+    continue
+  fi
+
+  # Parse "SHA SUBJECT" on first line, then body lines follow.
+  subject="${line#* }"
   count_total=$((count_total + 1))
 
   ctype=""
@@ -108,6 +121,14 @@ while IFS= read -r sha && IFS= read -r subject; do
     ctype="${BASH_REMATCH[1]}"
     [[ "${BASH_REMATCH[3]}" == "!" ]] && breaking=true
   fi
+
+  # Read body lines until next commit separator.
+  while IFS= read -r bline; do
+    [[ "$bline" == "---COMMIT---" ]] && break
+    if ! $breaking && [[ "$bline" =~ $breaking_footer_regex ]]; then
+      breaking=true
+    fi
+  done
 
   if $breaking; then
     count_breaking=$((count_breaking + 1))
@@ -118,7 +139,7 @@ while IFS= read -r sha && IFS= read -r subject; do
   else
     count_other=$((count_other + 1))
   fi
-done < <(git -C "$target" log --pretty=tformat:'%H%n%s' "$log_range" 2>/dev/null || true)
+done < <(git -C "$target" log --pretty=tformat:'%H %s%n%b%n---COMMIT---' "$log_range" 2>/dev/null || true)
 
 # --- determine bump ----------------------------------------------------------
 
@@ -142,7 +163,7 @@ if [[ -z "$current_version" ]]; then
 fi
 
 if (( count_total == 0 )); then
-  emit "no-commits" "$current_version" "$current_version" "patch" "no commits since $from_ref"
+  emit "no-commits" "$current_version" "$current_version" "none" "no commits since $from_ref"
   exit 0
 fi
 

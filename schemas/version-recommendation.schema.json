@@ -26,8 +26,8 @@
     },
     "bump": {
       "type": "string",
-      "enum": ["major", "minor", "patch", "first"],
-      "description": "The type of semver bump applied. 'first' when no prior tags exist."
+      "enum": ["major", "minor", "patch", "first", "none"],
+      "description": "The type of semver bump applied. 'first' when no prior tags exist. 'none' when no commits since last tag."
     },
     "reason": {
       "type": "string",

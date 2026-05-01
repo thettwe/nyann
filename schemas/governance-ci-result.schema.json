@@ -59,12 +59,13 @@
         "max_deductions": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["missing", "misconfigured", "non_compliant", "broken_links", "orphans", "stale", "subsystem_errors"],
+          "required": ["missing", "misconfigured", "non_compliant", "broken_links", "claude_md", "orphans", "stale", "subsystem_errors"],
           "properties": {
             "missing":          { "type": "integer", "minimum": 0 },
             "misconfigured":    { "type": "integer", "minimum": 0 },
             "non_compliant":    { "type": "integer", "minimum": 0 },
             "broken_links":     { "type": "integer", "minimum": 0 },
+            "claude_md":        { "type": "integer", "minimum": 0 },
             "orphans":          { "type": "integer", "minimum": 0 },
             "stale":            { "type": "integer", "minimum": 0 },
             "subsystem_errors": { "type": "integer", "minimum": 0 }

@@ -21,7 +21,7 @@ jobs:
 
       - name: Install nyann
         run: |
-          git clone --depth 1 https://github.com/thettweaung/nyann.git /tmp/nyann
+          git clone --depth 1 --branch v${NYANN_VERSION:-1.3.0} https://github.com/thettweaung/nyann.git /tmp/nyann
 
       - name: Install jq
         run: |
@@ -36,6 +36,10 @@ jobs:
           PROFILE_NAME="default"
           if [ -f .nyann/profile ]; then
             PROFILE_NAME=$(cat .nyann/profile | tr -d '[:space:]')
+            if ! echo "$PROFILE_NAME" | grep -qE '^[a-z0-9][a-z0-9-]*$'; then
+              echo "::warning::Invalid profile name '${PROFILE_NAME}', falling back to default"
+              PROFILE_NAME="default"
+            fi
           fi
           PROFILE_PATH="${NYANN}/profiles/${PROFILE_NAME}.json"
           if [ ! -f "$PROFILE_PATH" ]; then
@@ -54,7 +58,7 @@ jobs:
             --profile "${{ steps.profile.outputs.path }}" \
             --annotations \
             --comment-file /tmp/governance-comment.md \
-            > /tmp/governance-result.json 2>&1 || GATE_EXIT=$?
+            > /tmp/governance-result.json 2>/tmp/governance-stderr.log || GATE_EXIT=$?
           echo "exit_code=${GATE_EXIT:-0}" >> "$GITHUB_OUTPUT"
           cat /tmp/governance-result.json
 

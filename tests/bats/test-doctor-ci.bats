@@ -83,6 +83,12 @@ teardown() { rm -rf "$TMP"; }
   jq -r '.ignored_categories[]' "$TMP/out.json" | grep -Fxq "stale"
 }
 
+@test "ignored categories with spaces are trimmed" {
+  bash "$DOCTOR_CI" --target "$REPO" --profile "$PROFILE" --threshold 0 --ignore "orphans, stale" > "$TMP/out.json" 2>/dev/null
+  [ "$(jq '.ignored_categories | length' "$TMP/out.json")" -eq 2 ]
+  jq -r '.ignored_categories[]' "$TMP/out.json" | grep -Fxq "stale"
+}
+
 # --- annotations ---
 
 @test "annotations flag emits GitHub Actions workflow commands to stderr" {
@@ -130,6 +136,12 @@ teardown() { rm -rf "$TMP"; }
   jq '. + {governance: {threshold: 90}}' "$PROFILE" > "$TMP/gov-profile.json"
   bash "$DOCTOR_CI" --target "$REPO" --profile "$TMP/gov-profile.json" --threshold 0 > "$TMP/out.json" 2>/dev/null
   [ "$(jq '.threshold' "$TMP/out.json")" -eq 0 ]
+}
+
+@test "explicit CLI threshold=70 is not overridden by profile" {
+  jq '. + {governance: {threshold: 40}}' "$PROFILE" > "$TMP/gov-profile.json"
+  run bash "$DOCTOR_CI" --target "$REPO" --profile "$TMP/gov-profile.json" --threshold 70
+  echo "$output" | jq -e '.threshold == 70' >/dev/null
 }
 
 @test "profile governance severity is respected" {

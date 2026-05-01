@@ -68,7 +68,9 @@ esac
 
 # --- Resolve substitution variables -------------------------------------------
 
-base_branches=$(jq -r '.branching.base_branches | join(", ")' <<<"$profile_json")
+base_branches=$(jq -r '
+  [.branching.base_branches[] | select(test("^[a-zA-Z0-9][a-zA-Z0-9._/-]*$"))] | join(", ")
+' <<<"$profile_json")
 pkg_mgr=$(jq -r '.stack.package_manager // "npm"' <<<"$profile_json")
 
 # CI section from profile (optional)
@@ -123,14 +125,18 @@ workspaces_json=$(jq -r '.workspaces // {}' <<<"$profile_json")
 if [[ "$workspaces_json" != "{}" ]]; then
   workspace_paths=$(jq -r 'keys[]' <<<"$workspaces_json" 2>/dev/null || true)
   if [[ -n "$workspace_paths" ]]; then
-    path_filters="    paths:"$'\n'
+    _pf_lines=""
     while IFS= read -r wp; do
+      [[ "$wp" == "*" ]] && continue
       if ! [[ "$wp" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$ ]]; then
         nyann::warn "skipping workspace path with unsafe characters: $wp"
         continue
       fi
-      path_filters="${path_filters}      - '${wp}/**'"$'\n'
+      _pf_lines="${_pf_lines}      - '${wp}/**'"$'\n'
     done <<<"$workspace_paths"
+    if [[ -n "$_pf_lines" ]]; then
+      path_filters="    paths:"$'\n'"${_pf_lines}"
+    fi
   fi
 fi
 

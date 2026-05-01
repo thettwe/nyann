@@ -34,6 +34,8 @@ severity="block"
 ignore_csv=""
 comment_file=""
 annotations=false
+threshold_set=false
+severity_set=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,10 +43,10 @@ while [[ $# -gt 0 ]]; do
     --target=*)      target="${1#--target=}"; shift ;;
     --profile)       profile_path="${2:-}"; shift 2 ;;
     --profile=*)     profile_path="${1#--profile=}"; shift ;;
-    --threshold)     threshold="${2:-70}"; shift 2 ;;
-    --threshold=*)   threshold="${1#--threshold=}"; shift ;;
-    --severity)      severity="${2:-block}"; shift 2 ;;
-    --severity=*)    severity="${1#--severity=}"; shift ;;
+    --threshold)     threshold="${2:-70}"; threshold_set=true; shift 2 ;;
+    --threshold=*)   threshold="${1#--threshold=}"; threshold_set=true; shift ;;
+    --severity)      severity="${2:-block}"; severity_set=true; shift 2 ;;
+    --severity=*)    severity="${1#--severity=}"; severity_set=true; shift ;;
     --ignore)        ignore_csv="${2:-}"; shift 2 ;;
     --ignore=*)      ignore_csv="${1#--ignore=}"; shift ;;
     --comment-file)  comment_file="${2:-}"; shift 2 ;;
@@ -78,9 +80,19 @@ if [[ "$gov_json" != "{}" ]]; then
   prof_severity=$(jq -r '.severity // empty' <<<"$gov_json" 2>/dev/null || true)
   prof_ignore=$(jq -r '.ignore // [] | join(",")' <<<"$gov_json" 2>/dev/null || true)
   # CLI flags override profile values (explicit > config).
-  # Only apply profile values when CLI used defaults.
-  [[ -n "$prof_threshold" && "$threshold" -eq 70 ]] && threshold="$prof_threshold"
-  [[ -n "$prof_severity" && "$severity" == "block" ]] && severity="$prof_severity"
+  if [[ -n "$prof_threshold" ]] && ! $threshold_set; then
+    if [[ "$prof_threshold" =~ ^[0-9]+$ ]] && (( prof_threshold >= 0 && prof_threshold <= 100 )); then
+      threshold="$prof_threshold"
+    else
+      nyann::warn "profile governance.threshold invalid ($prof_threshold), using CLI default"
+    fi
+  fi
+  if [[ -n "$prof_severity" ]] && ! $severity_set; then
+    case "$prof_severity" in
+      block|warn|off) severity="$prof_severity" ;;
+      *) nyann::warn "profile governance.severity invalid ($prof_severity), using CLI default" ;;
+    esac
+  fi
   [[ -n "$prof_ignore" && -z "$ignore_csv" ]] && ignore_csv="$prof_ignore"
 fi
 
@@ -122,20 +134,15 @@ fi
 
 # --- determine gate outcome --------------------------------------------------
 
+status="pass"
 gate_passed=true
 if (( filtered_score < threshold )); then
-  gate_passed=false
-fi
-
-if [[ "$severity" == "warn" ]]; then
-  gate_passed=true
-fi
-
-status="pass"
-if ! $gate_passed; then
-  status="fail"
-elif (( filtered_score < threshold )); then
-  status="warn"
+  if [[ "$severity" == "warn" ]]; then
+    status="warn"
+  else
+    status="fail"
+    gate_passed=false
+  fi
 fi
 
 # --- GitHub Actions annotations ----------------------------------------------
@@ -243,6 +250,7 @@ COMMENT
 comment_body=$(generate_comment)
 
 if [[ -n "$comment_file" ]]; then
+  [[ -L "$comment_file" ]] && nyann::die "refusing to write comment via symlink: $comment_file"
   printf '%s\n' "$comment_body" > "$comment_file"
 fi
 
@@ -262,7 +270,7 @@ jq -n \
     threshold:$threshold, severity:$severity,
     annotation_count:$annotation_count,
     breakdown:$breakdown, max_deductions:$max_deductions,
-    ignored_categories:(if $ignore == "" then [] else ($ignore | split(",")) end)}'
+    ignored_categories:(if $ignore == "" then [] else ($ignore | split(",") | map(gsub("^\\s+|\\s+$"; ""))) end)}'
 
 if ! $gate_passed; then
   exit 1
