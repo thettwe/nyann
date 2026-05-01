@@ -5,6 +5,37 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-05-01
+
+### Added
+
+- **Semver version recommendation** — `recommend-version.sh` walks Conventional Commits since the last tag and suggests the next semver bump (major/minor/patch); pre-1.0 semantics supported; `BREAKING CHANGE` / `BREAKING-CHANGE` footers parsed from commit bodies
+- **CI governance gate** — `doctor-ci.sh` runs drift-aware PR health checks inside GitHub Actions; configurable threshold, severity, ignore list; optional inline PR comment with score breakdown
+- **Health trending** — `health-trend.sh` reads `memory/health.json` history and computes sparkline, trajectory (improving/stable/declining), and per-category deltas
+- **Profile suggestion** — `suggest-profile.sh` scores all starter profiles against a detected stack descriptor; returns ranked primary and secondary suggestions with confidence scores
+- **Profile diff** — `diff-profile.sh` produces a structured 10-section diff between any two profiles (hooks, branching, conventions, extras, documentation, etc.)
+- **`/nyann:diff-profile` skill and command** — compare two profiles side-by-side from a slash command or natural language
+- 3 new JSON schemas: `health-trend.schema.json`, `profile-suggestion.schema.json`, `profile-diff.schema.json`
+- Governance CI workflow template (`templates/ci/governance-check.yml`)
+
+### Changed
+
+- **Bootstrap profile selection** — replaced static profile lookup with `suggest-profile.sh` scoring; multi-stack repos surface secondary suggestions
+- **Doctor skill** — added §5 health trend surface when history is available
+- Schema count increased from 40 to 43
+- Skill and command count increased from 30 to 31
+
+### Fixed
+
+- **`recommend-version.sh`** — no-commits bump is now `"none"` (was incorrectly `"patch"`); `BREAKING CHANGE` footers in commit bodies are now detected
+- **`doctor-ci.sh`** — fixed dead-code warn status logic; added explicit flag tracking for threshold/severity CLI overrides; profile name regex validation; ignore entries trimmed in JSON output; symlink check on `--comment-file`
+- **`health-trend.sh`** — `--last` now validates as positive integer (rejects 0, negative, non-numeric)
+- **`diff-profile.sh`** — added `commit_scopes` to conventions diff; fixed unbound variable crash with empty temp file array; added cleanup trap
+- **`gen-ci.sh`** — branch names validated via jq regex filter; wildcard workspace `*` filtered from paths stanza; fixed `IFS` join that produced `main,develop` instead of `main, develop`
+- **`inspect-profile.sh`** — added 6 missing hook blurbs for v1.2.0 profiles: `dotnet-format`, `checkstyle`, `dart-analyze`, `dart-format`, `pint`, `rubocop`
+- **`compute-health-score.sh`** — `claude_md` now included in `max_deductions` output (required by governance schema)
+- **Governance CI template** — stderr no longer pollutes health-score JSON; profile name regex validation; pinned nyann git clone to tagged version
+
 ## [1.2.1] - 2026-05-01
 
 ### Fixed
@@ -156,6 +187,9 @@ Three-tier resolution: user > team > starter. Profiles are data, never code
 - 23 eval specs for trigger discrimination + output quality
 - Public-surface count locks (skills, commands, profiles, schemas)
 
+[1.3.0]: https://github.com/thettwe/nyann/releases/tag/v1.3.0
+[1.2.1]: https://github.com/thettwe/nyann/releases/tag/v1.2.1
+[1.2.0]: https://github.com/thettwe/nyann/releases/tag/v1.2.0
 [1.1.2]: https://github.com/thettwe/nyann/releases/tag/v1.1.2
 [1.1.1]: https://github.com/thettwe/nyann/releases/tag/v1.1.1
 [1.1.0]: https://github.com/thettwe/nyann/releases/tag/v1.1.0

@@ -29,7 +29,7 @@ Steps to reproduce the behavior:
 ## Environment
 
 - OS: [e.g. macOS 14.5, Ubuntu 22.04]
-- Version: [e.g. v1.2.0]
+- Version: [e.g. v1.3.0]
 
 ## Additional context
 
