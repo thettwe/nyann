@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/profile-diff/v1.json",
+  "title": "ProfileDiff",
+  "description": "Structured diff between two nyann profiles, produced by bin/diff-profile.sh.",
+  "type": "object",
+  "required": ["from", "to", "identical", "total_changes", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "from": { "type": "string" },
+    "to": { "type": "string" },
+    "identical": { "type": "boolean" },
+    "total_changes": { "type": "integer", "minimum": 0 },
+    "sections": {
+      "type": "object",
+      "required": ["stack", "branching", "hooks", "conventions", "documentation", "extras", "ci", "governance", "github", "release"],
+      "additionalProperties": false,
+      "properties": {
+        "stack": { "$ref": "#/$defs/scalarChanges" },
+        "branching": { "$ref": "#/$defs/scalarChanges" },
+        "hooks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slot", "added", "removed"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": { "type": "string" },
+              "added": { "type": "array", "items": { "type": "string" } },
+              "removed": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "conventions": { "$ref": "#/$defs/scalarChanges" },
+        "documentation": { "$ref": "#/$defs/scalarChanges" },
+        "extras": { "$ref": "#/$defs/scalarChanges" },
+        "ci": { "$ref": "#/$defs/scalarChanges" },
+        "governance": { "$ref": "#/$defs/scalarChanges" },
+        "github": { "$ref": "#/$defs/scalarChanges" },
+        "release": { "$ref": "#/$defs/scalarChanges" }
+      }
+    }
+  },
+  "$defs": {
+    "scalarChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field", "from", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "field": { "type": "string" },
+          "from": {},
+          "to": {}
+        }
+      }
+    }
+  }
+}

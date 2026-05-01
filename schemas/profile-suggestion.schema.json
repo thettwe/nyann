@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/profile-suggestion/v1.json",
+  "title": "ProfileSuggestion",
+  "description": "Ranked profile suggestions based on detected stack, produced by bin/suggest-profile.sh. Includes secondary_suggestions for multi-stack repos.",
+  "type": "object",
+  "required": ["detected", "suggestions", "secondary_suggestions"],
+  "additionalProperties": false,
+  "properties": {
+    "detected": {
+      "type": "object",
+      "required": ["language", "confidence", "is_monorepo", "secondary_languages"],
+      "additionalProperties": false,
+      "properties": {
+        "language": { "type": "string" },
+        "framework": { "type": ["string", "null"] },
+        "package_manager": { "type": ["string", "null"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "is_monorepo": { "type": "boolean" },
+        "secondary_languages": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "suggestions": {
+      "$ref": "#/$defs/suggestionList"
+    },
+    "secondary_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["language", "suggestions"],
+        "additionalProperties": false,
+        "properties": {
+          "language": { "type": "string" },
+          "suggestions": { "$ref": "#/$defs/suggestionList" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "suggestionList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "confidence", "reasons"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

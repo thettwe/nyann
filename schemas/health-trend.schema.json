@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/health-trend/v1.json",
+  "title": "HealthTrend",
+  "description": "Trend report over persisted health scores, produced by bin/health-trend.sh.",
+  "type": "object",
+  "required": ["current", "min", "max", "avg", "direction", "delta", "window_size", "total_entries", "sparkline", "category_deltas", "timeline"],
+  "additionalProperties": false,
+  "properties": {
+    "current": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "min": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "max": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "avg": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "direction": { "type": "string", "enum": ["up", "down", "stable"] },
+    "delta": { "type": "integer" },
+    "window_size": { "type": "integer", "minimum": 1 },
+    "total_entries": { "type": "integer", "minimum": 1 },
+    "sparkline": { "type": "string" },
+    "category_deltas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["category", "first", "latest", "delta"],
+        "additionalProperties": false,
+        "properties": {
+          "category": { "type": "string" },
+          "first": { "type": "integer" },
+          "latest": { "type": "integer" },
+          "delta": { "type": "integer" }
+        }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "score"],
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": { "type": "string" },
+          "score": { "type": "integer", "minimum": 0, "maximum": 100 }
+        }
+      }
+    }
+  }
+}
