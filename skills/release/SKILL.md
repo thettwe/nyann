@@ -7,7 +7,9 @@ description: >
   TRIGGER when the user says "cut a release", "tag a release",
   "release v1.2.0", "ship version 1.2.0", "create a release for
   1.2.0", "bump the version to 1.2.0", "make a release",
-  "generate a changelog and tag", "/nyann:release".
+  "generate a changelog and tag", "what version should I release",
+  "what's the next version", "bump minor", "bump major",
+  "bump patch", "suggest a version", "/nyann:release".
   Do NOT trigger on "release branch" / "cut a release branch" — that
   is the `new-branch` skill with `--purpose release`. Do NOT trigger
   on "publish to npm" / "push to pypi" — those are package-manager
@@ -29,12 +31,37 @@ show the one-line drift summary to the user as an informational note
 `/nyann:retrofit` when you get a chance."). Do not block the release
 flow — this is a nudge, not a gate.
 
-## 1. Collect inputs
+## 1. Suggest version (when not explicitly provided)
 
-- **`--version <x.y.z>`** — required. Must be semver (or
-  `x.y.z-prerelease`). If the user says "cut 1.2" or "bump minor",
-  ask for the full semver — nyann doesn't auto-infer next version
-  from commit types (that's a release-please concern).
+When the user does **not** supply an explicit `--version`, run
+`bin/recommend-version.sh` to suggest one:
+
+```
+bin/recommend-version.sh --target <cwd> [--tag-prefix <p>]
+```
+
+Show the recommendation to the user:
+
+> Based on commits since `<current>`, I'd suggest **`<recommended>`**
+> (`<bump>` bump — `<reason>`). Shall I proceed with `<recommended>`,
+> or would you prefer a different version?
+
+Wait for confirmation before proceeding. The user can accept, override
+with a different version, or abort.
+
+When the user **does** supply an explicit version (e.g. "release v2.0.0"),
+skip this step entirely — don't second-guess them.
+
+When the user says "bump minor" / "bump major" / "bump patch", run
+`recommend-version.sh` to get the current version, then apply the
+requested bump type (ignore the script's own recommendation). Confirm
+the computed version with the user before proceeding.
+
+## 2. Collect inputs
+
+- **`--version <x.y.z>`** — required for `release.sh`. Must be semver
+  (or `x.y.z-prerelease`). Populated from step 1 when the user
+  accepted the suggestion, or from their explicit input.
 - **`--strategy`** — defaults to `conventional-changelog`. Override to
   `manual` when the user says "just tag it, skip the changelog".
   `changesets` / `release-please` are soft-skip values: the script
@@ -51,7 +78,7 @@ When the repo's active profile has a `release` block, prefer its
 values over the defaults. Ask before overriding what the profile
 declares.
 
-## 2. Pre-flight
+## 3. Pre-flight
 
 - Current tag `<prefix><version>` must not already exist. If it does,
   `release.sh` dies with a clear message; relay it.
@@ -62,14 +89,14 @@ declares.
   the common case, but patch releases from `release/*` or
   `hotfix/*` are legitimate).
 
-## 3. Dry-run first if uncertain
+## 4. Dry-run first if uncertain
 
 When the user says "what would a release look like" or the commit
 range is large (>20 commits), run `--dry-run` first and show the
 rendered changelog block back to them. Ask for confirmation before
 the real run.
 
-## 4. Invoke
+## 5. Invoke
 
 ```
 bin/release.sh --target <cwd> --version <x.y.z> \
@@ -115,7 +142,7 @@ without it the release exits 2 and points the user at the flag.
 Skipped silently on `--dry-run` so a "show me the plan" call never
 burns 30 minutes polling.
 
-## 5. Interpret the output
+## 6. Interpret the output
 
 | status | what happened |
 |---|---|
@@ -126,7 +153,7 @@ burns 30 minutes polling.
 The JSON includes the rendered `changelog` block — read it back to
 the user so they know what landed in CHANGELOG.md before pushing.
 
-## 6. Breaking changes
+## 7. Breaking changes
 
 Commits with `!` after the type/scope (e.g. `feat(api)!: remove X`)
 and commits whose body contains `BREAKING CHANGE:` are currently

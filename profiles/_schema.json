@@ -205,6 +205,37 @@
         }
       }
     },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional CI governance gate configuration. Controls doctor-ci.sh behavior when run as a PR check.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, gen-ci --governance generates the governance-check workflow. Default true when the block is present."
+        },
+        "threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Minimum health score (0-100) to pass the CI gate. Default 70."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["block", "warn", "off"],
+          "description": "block = fail the check when score < threshold; warn = annotate but pass; off = skip entirely. Default 'block'."
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["missing", "misconfigured", "non_compliant", "broken_links", "claude_md", "orphans", "stale", "subsystem_errors"]
+          },
+          "uniqueItems": true,
+          "description": "Health-score categories to exclude from the CI gate score. Useful for suppressing noisy checks (e.g. orphans, stale) in early adoption."
+        }
+      }
+    },
     "release": {
       "type": "object",
       "additionalProperties": false,

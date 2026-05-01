@@ -1,6 +1,6 @@
 ---
 name: gen-ci
-description: "Generate a GitHub Actions CI workflow for this repository. TRIGGER ON: 'generate CI', 'add GitHub Actions', 'create CI workflow', 'set up CI', 'add CI/CD', 'create a CI pipeline', 'generate CI/CD', 'add continuous integration', 'set up GitHub Actions', 'add a lint+test workflow'. Generates .github/workflows/ci.yml with lint, typecheck, and test jobs matching the project's stack and hook configuration."
+description: "Generate GitHub Actions CI workflows for this repository. TRIGGER ON: 'generate CI', 'add GitHub Actions', 'create CI workflow', 'set up CI', 'add CI/CD', 'create a CI pipeline', 'generate CI/CD', 'add continuous integration', 'set up GitHub Actions', 'add a lint+test workflow', 'add governance check', 'add PR health check', 'add drift check to CI', 'set up governance gate', 'enforce governance in CI'. Generates .github/workflows/ci.yml with lint, typecheck, and test jobs, and optionally .github/workflows/governance-check.yml with drift + health-score PR gating."
 ---
 
 # gen-ci — Generate GitHub Actions CI Workflow
@@ -11,6 +11,7 @@ You are the gen-ci skill. You generate a GitHub Actions CI workflow that mirrors
 
 - User asks to generate CI, add GitHub Actions, create a CI workflow, or set up CI/CD
 - User asks to add continuous integration, create a pipeline, or add a lint+test workflow
+- User asks to add a governance check, PR health check, drift check to CI, or governance gate
 - User is bootstrapping a new project and wants CI
 
 **DO NOT trigger on:** general questions about CI/CD concepts, debugging existing workflows not managed by nyann, or requests to modify workflows outside nyann markers.
@@ -35,17 +36,34 @@ You are the gen-ci skill. You generate a GitHub Actions CI workflow that mirrors
    - Package manager and version matrix
    - Path filters (if monorepo)
 
+### Phase 2.5: Offer governance check
+
+If the profile has a `governance` block, or if the user mentioned
+"governance", "health check", or "drift check", offer to also
+generate the governance-check workflow:
+
+> "Also generate a governance check that runs doctor on every PR
+> and posts a health report comment? (adds `governance-check.yml`)"
+
+If the user accepts (or originally asked for it), add `--governance`
+to the gen-ci.sh invocation.
+
 ### Phase 3: Confirm and write
 
 6. Ask the user: "Write this CI workflow to `.github/workflows/ci.yml`?"
-7. On confirmation, run `bin/gen-ci.sh --profile <profile> --stack <stack> --target .` (without `--dry-run`).
-8. Report what was written.
+7. On confirmation, run:
+   ```
+   bin/gen-ci.sh --profile <profile> --stack <stack> --target . [--governance]
+   ```
+8. Report what was written (ci.yml, and governance-check.yml if `--governance`).
 
 ### Phase 4: Suggest next steps
 
 9. Suggest:
    - "Run `/nyann:gen-templates` to add PR and issue templates"
    - "Run `/nyann:doctor` to check overall repo health"
+   - If governance was generated: "Add a `governance` block to your
+     profile to customize threshold and severity"
    - "Commit and push to see the workflow run"
 
 ## Key constraints
@@ -61,9 +79,37 @@ You are the gen-ci skill. You generate a GitHub Actions CI workflow that mirrors
 - No profile found → use `default` profile (CI disabled by default — offer to enable)
 - Template file missing → die with error pointing to `templates/ci/` directory
 
+## Governance check details
+
+The `--governance` flag generates `.github/workflows/governance-check.yml`:
+- Runs `bin/doctor-ci.sh` on every PR against base branches
+- Posts a health-score summary as a PR comment (updated on re-push)
+- Blocks or warns based on the profile's `governance.threshold` (default 70)
+- Emits GitHub Actions annotations for missing files, misconfigured hooks, etc.
+
+Profile governance configuration (optional — all fields have defaults):
+```json
+{
+  "governance": {
+    "enabled": true,
+    "threshold": 70,
+    "severity": "block",
+    "ignore": ["orphans", "stale"]
+  }
+}
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `enabled` | `true` | Set `false` to disable governance check generation |
+| `threshold` | `70` | Minimum health score (0-100) to pass the gate |
+| `severity` | `"block"` | `block` = fail check; `warn` = annotate only; `off` = skip |
+| `ignore` | `[]` | Categories excluded from score (e.g. `orphans`, `stale`) |
+
 ## When to hand off
 
 - "Add PR and issue templates too" → `gen-templates` skill.
 - "Check repo health" → `doctor` skill.
 - "Apply branch protection" → `gh-protect` skill.
+- "Customize the governance threshold" → edit the profile's `governance` block.
 - "Commit and ship" → `commit` skill, then `ship` skill.

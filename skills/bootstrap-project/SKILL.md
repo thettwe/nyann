@@ -54,30 +54,27 @@ Three branches:
 
 - **User named a profile.** Load it with `bin/load-profile.sh <name>`. If the loader exits 2
   (profile not found), list the available profiles it reported and ask the user to pick one.
-- **No profile named.** Map the detection result to a starter profile using this table. Walk
-  top-to-bottom; first match wins. Only fall through to `default` when nothing above matches —
-  **warn the user** when you do, because `default` means "skip all stack-specific hooks".
+- **No profile named.** Run `bin/suggest-profile.sh --target <repo>` to get a ranked
+  list of matching profiles with confidence scores. The script runs detect-stack internally
+  and scores every starter profile against the detected stack.
 
-  | Detected stack | Starter profile |
-  |---|---|
-  | TypeScript + `next` | `nextjs-prototype` |
-  | TypeScript + `react` (not Next) | `react-vite` |
-  | TypeScript + `express` or `fastify` | `node-api` |
-  | TypeScript, no framework (library) | `typescript-library` |
-  | JavaScript (any framework) | pick the TS equivalent above; confirm with user |
-  | Python + `fastapi` | `fastapi-service` |
-  | Python + `django` | `django-app` |
-  | Python (CLI, flask, or other) | `python-cli` |
-  | Go (any framework) | `go-service` |
-  | Rust (any framework) | `rust-cli` |
-  | Swift (iOS / SPM) | `swift-ios` |
-  | Kotlin (Android / Gradle) | `kotlin-android` |
-  | Shell (3+ .sh files, no other stack) | `shell-cli` |
-  | Unknown / nothing matched | `default` — **warn** this skips stack hooks |
+  Show the user the top suggestion (or top 2-3 if scores are close):
+  > "Detected: TypeScript + Next.js. Suggested profile: `nextjs-prototype` (confidence: 90).
+  > Use this profile?"
 
-  When the StackDescriptor's `primary_language` is clearly one of the above but detection
-  `confidence < 0.5`, propose the matching profile **and** ask the user to confirm, rather
-  than silently applying it. When confidence ≥ 0.5, proceed with the match.
+  Rules:
+  - If the top suggestion has confidence ≥ 70, propose it directly.
+  - If the top suggestion has confidence 40-69, propose it but ask the user to confirm.
+  - If no suggestion has confidence ≥ 40, fall back to `default` — **warn the user**
+    because `default` means "skip all stack-specific hooks".
+  - If suggestions is empty (no matches at all), use `default` with the same warning.
+
+  **Multi-stack repos:** If `secondary_suggestions` is non-empty, the repo has
+  secondary languages (e.g., a Python backend + React frontend). After applying
+  the primary profile, mention the secondary stacks:
+  > "This repo also has TypeScript code. For that portion, `nextjs-prototype`
+  > would be the best match. Per-workspace profiles aren't supported yet, but
+  > you can run `/nyann:diff-profile` to compare."
 - **Audit mode** ("check hygiene", "is this healthy"). Invoke the `doctor` skill instead.
 - **Retrofit mode** ("fix what's drifted", "bring into compliance"). Invoke the `retrofit`
   skill instead — it handles audit + remediation for existing repos.

@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (38)
+## Schemas in this directory (43)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -43,7 +43,9 @@ identifier consumers can pin against.
 | `documentation-plan.schema.json` | `bin/route-docs.sh` | `bin/bootstrap.sh`, `bin/scaffold-docs.sh` |
 | `drift-report.schema.json` | `bin/compute-drift.sh` | `bin/retrofit.sh`, `bin/doctor.sh`, `bin/session-check.sh` |
 | `gh-integration-result.schema.json` | `bin/gh-integration.sh` | `bin/bootstrap.sh`, `bin/retrofit.sh`, skill layer |
+| `governance-ci-result.schema.json` | `bin/doctor-ci.sh` | governance-check workflow, `skills/gen-ci/SKILL.md` |
 | `health-score.schema.json` | `bin/compute-health-score.sh` | `bin/persist-health-score.sh`, `bin/doctor.sh` |
+| `health-trend.schema.json` | `bin/health-trend.sh` | `skills/doctor/SKILL.md` |
 | `hotfix-result.schema.json` | `bin/hotfix.sh` | `skills/hotfix/SKILL.md` |
 | `link-check-report.schema.json` | `bin/check-links.sh` | `bin/compute-drift.sh` |
 | `mcp-doc-targets.schema.json` | `bin/detect-mcp-docs.sh` | `bin/route-docs.sh` |
@@ -54,6 +56,8 @@ identifier consumers can pin against.
 | `preferences.schema.json` | written by `bin/setup.sh` | `bin/session-check.sh`, etc. |
 | `pr-checks-result.schema.json` | `bin/wait-for-pr-checks.sh` | `skills/wait-for-pr-checks/SKILL.md`, `bin/release.sh --wait-for-checks`, `bin/ship.sh` |
 | `prereqs-report.schema.json` | `bin/check-prereqs.sh --json` | `skills/check-prereqs/SKILL.md`, `bin/setup.sh` |
+| `profile-diff.schema.json` | `bin/diff-profile.sh` | `skills/diff-profile/SKILL.md` |
+| `profile-suggestion.schema.json` | `bin/suggest-profile.sh` | `skills/bootstrap-project/SKILL.md` |
 | `protection-audit.schema.json` | `bin/gh-integration.sh --check` | `bin/doctor.sh`, `skills/doctor/SKILL.md` |
 | `release-result.schema.json` | `bin/release.sh` | `skills/release/SKILL.md` |
 | `setup-status.schema.json` | `bin/setup.sh --json` (and `--check --json`) | `skills/setup/SKILL.md`, `skills/bootstrap-project/SKILL.md` |
@@ -67,6 +71,7 @@ identifier consumers can pin against.
 | `team-drift-report.schema.json` | `bin/check-team-drift.sh` | `bin/check-team-staleness.sh`, `skills/sync-team-profiles/SKILL.md` |
 | `team-sync-result.schema.json` | `bin/sync-team-profiles.sh` | `skills/sync-team-profiles/SKILL.md` |
 | `undo-result.schema.json` | `bin/undo.sh` | `skills/undo/SKILL.md` |
+| `version-recommendation.schema.json` | `bin/recommend-version.sh` | `skills/release/SKILL.md` |
 | `workspace-configs.schema.json` | `bin/resolve-workspace-configs.sh` | `bin/bootstrap.sh`, `bin/gen-codeowners.sh` |
 
 ### Cross-referenced schemas (live elsewhere)

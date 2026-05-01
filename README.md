@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-726%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-820%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -164,6 +164,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:record-decision <title>` | Create a numbered ADR. |
 | `/nyann:explain-state` | Summarize repo state for handoff. |
 | `/nyann:suggest [--profile <name>]` | Suggest profile updates from repo state. |
+| `/nyann:diff-profile --left <a> --right <b>` | Structured diff between two profiles. |
 | `/nyann:inspect-profile <name>` | Pretty-print a profile. |
 | `/nyann:migrate-profile --to <name>` | Switch profile with diff + re-bootstrap. |
 | `/nyann:learn-profile [--target <path>] [--name <kebab>]` | Extract a reusable profile from an existing repo. |
@@ -172,7 +173,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:check-prereqs [--json]` | Survey hard + soft prereqs. |
 | `/nyann:diagnose [--json]` | Bundle a redacted support snapshot. |
 
-All 30 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
+All 31 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
 
 ## Profiles
 
@@ -262,7 +263,7 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 
 ### Shipped in v1.0.0
 
-- [x] 30 skills with natural-language triggers and slash commands
+- [x] 31 skills with natural-language triggers and slash commands
 - [x] 18 starter profiles covering JS/TS, Python, Go, Rust, Swift, Kotlin, Shell, Java, C#, PHP, Dart, Ruby
 - [x] Stack detection (frameworks, monorepos, polyglot)
 - [x] Hook installation (core + per-stack + pre-push)
@@ -273,8 +274,8 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] Doc routing (local / Obsidian / Notion / split)
 - [x] CLAUDE.md generation, standalone regeneration, and usage-based optimization
 - [x] Team profile sync with drift detection
-- [x] 38 JSON schemas locking every cross-layer contract
-- [x] 726 bats tests, shellcheck, SKILL.md length enforcement
+- [x] 43 JSON schemas locking every cross-layer contract
+- [x] 820 bats tests, shellcheck, SKILL.md length enforcement
 - [x] Preview-before-mutate with SHA256 integrity binding
 
 ### Shipped in v1.1.0
@@ -302,6 +303,16 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 
 - [x] Missing hook blurbs for v1.2.0 profiles (`checkstyle`, `dotnet-format`, `pint`, `dart-format`, `dart-analyze`, `rubocop`)
 
+### Shipped in v1.3.0
+
+- [x] Semver version recommendation from Conventional Commits history (`recommend-version.sh`)
+- [x] CI governance gate with drift-aware PR health checks (`doctor-ci.sh`)
+- [x] Health trending with sparkline, trajectory, and per-category deltas
+- [x] Profile suggestion scoring against detected stack (primary + secondary)
+- [x] Structured profile diff (10-section comparison)
+- [x] 43 JSON schemas (was 38)
+- [x] 820 bats tests (was 702)
+
 ### Planned
 
 - [ ] **More stacks:** Elixir/Phoenix, Scala/Play
@@ -314,16 +325,16 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 ## Repository layout
 
 ```
-bin/                   # 58 shell scripts (orchestrators + subsystems)
-commands/              # 30 Claude Code slash-command registrations
-evals/                 # 23 skill-level trigger + output-quality specs
+bin/                   # 65 shell scripts (orchestrators + subsystems)
+commands/              # 31 Claude Code slash-command registrations
+evals/                 # 25 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse block-main hook
-profiles/              # 20 starter profiles (+ _schema.json)
-schemas/               # 38 JSON Schemas for every exchanged shape
-skills/                # 30 skills (SKILL.md, optionally with references/ and scripts/)
-templates/             # gitignore, pre-commit configs, husky, docs, memory
+profiles/              # 18 starter profiles (+ _schema.json)
+schemas/               # 43 JSON Schemas for every exchanged shape
+skills/                # 31 skills (SKILL.md, optionally with references/ and scripts/)
+templates/             # gitignore, pre-commit configs, husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 726 bats tests + fixtures
+tests/                 # 820 bats tests + fixtures
 ```
 
 ---

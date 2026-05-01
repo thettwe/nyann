@@ -78,7 +78,23 @@ never prompts for credentials and never blocks the audit. When `gh`
 isn't reachable, the section reports `skipped` and contributes no
 drift to the exit code.
 
-## 5. What to do after
+## 5. Surface health trend (when available)
+
+After showing the audit report, check whether `memory/health.json`
+exists in the target repo. If it does:
+
+1. Run `bin/health-trend.sh --target <cwd> --last 10`.
+2. Show the sparkline and summary: "Health trend: ▃▄▅▆▇ — 72→85 over
+   last 10 checks (↑ improving)."
+3. If any `category_deltas` show worsening (delta < 0 in the breakdown),
+   call them out: "⚠ `missing` got worse (−3 over the window)."
+4. If the trend direction is `down`, suggest: "Score is declining — run
+   `/nyann:retrofit` to address the drift."
+
+If `memory/health.json` doesn't exist, skip silently — don't suggest
+creating it. The persist step happens automatically via `doctor.sh`.
+
+## 6. What to do after
 
 - **User asks to fix drift** → hand off to `retrofit` ("fix this repo's
   drift"). Do not attempt to fix anything from inside the doctor skill.

@@ -98,6 +98,7 @@ jq '
       misconfigured: ($misconfigured_count),
       non_compliant: ($noncompliant_count),
       broken_links: ($broken_links),
+      claude_md: (if $claude_md_deduction < 0 then 1 else 0 end),
       orphans: ($orphans),
       stale: ($stale),
       subsystem_errors: ($subsystem_errors)
