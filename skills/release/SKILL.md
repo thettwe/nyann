@@ -105,7 +105,8 @@ bin/release.sh --target <cwd> --version <x.y.z> \
   [--from <ref>] [--push] [--dry-run] [--yes] \
   [--wait-for-checks] [--allow-no-pr] \
   [--wait-for-checks-timeout <sec>] \
-  [--wait-for-checks-interval <sec>]
+  [--wait-for-checks-interval <sec>] \
+  [--bump-manifests] [--gh-release] [--profile <path>]
 ```
 
 **Preview-before-mutate:** when `--strategy conventional-changelog` and
@@ -142,6 +143,35 @@ without it the release exits 2 and points the user at the flag.
 Skipped silently on `--dry-run` so a "show me the plan" call never
 burns 30 minutes polling.
 
+### 5.1 Manifest bumps + GitHub release (`--bump-manifests`, `--gh-release`)
+
+When the resolved profile declares `release.bump_files[]`, default the
+invocation to `--bump-manifests` so manifest version strings (`plugin.json`,
+`marketplace.json`, `package.json`, `pyproject.toml`, etc.) get rewritten
+to `--version` and land in the same release commit as `CHANGELOG.md`.
+The dry-run output's `bumped_files[]` array previews each file's
+`from_version` and `action` (`bumped` vs `unchanged`); show that to the
+user before the real run.
+
+When the user says "publish the release on GitHub" / "create the GH
+release too", also pass `--gh-release`. The flag requires `--push`
+(the GH release attaches to the just-pushed tag) and runs
+`gh release create <tag> --notes-file <rendered-changelog>` after
+the push succeeds. For pre-release versions (`-rc.N`, `-beta.N`), the
+script auto-passes `--prerelease` to gh. There is no profile-level
+auto-toggle for `--gh-release` in v1.5.0 — gate on explicit user
+intent only.
+
+Both flags are opt-in. On profiles WITHOUT `release.bump_files`, do not
+auto-pass `--bump-manifests` — it would be a no-op but the skill should
+stay quiet about flags the profile doesn't declare. On `--strategy
+manual`, `--bump-manifests` is rejected up-front (no commit for the
+bumps to land in).
+
+When passing `--bump-manifests`, also pass `--profile <path>` if the
+caller already has the resolved profile snapshot in hand (otherwise
+`release.sh` re-resolves the default profile via `load-profile.sh`).
+
 ## 6. Interpret the output
 
 | status | what happened |
@@ -152,6 +182,18 @@ burns 30 minutes polling.
 
 The JSON includes the rendered `changelog` block — read it back to
 the user so they know what landed in CHANGELOG.md before pushing.
+
+When `--bump-manifests` was used, the JSON includes `bumped_files[]`
+with one record per declared file (`bumped` vs `unchanged`). Read this
+back too — especially the `unchanged` entries, which surface as a quiet
+"the file was already at the target version" rather than a silent
+no-op.
+
+When `--gh-release` was used, the JSON includes `gh_release` with one
+of three outcomes: `created` (URL), `skipped` (gh missing/unauthed,
+with a recovery command in `next_steps[]`), or `failed` (with the
+redacted error string and a manual recovery command). The tag stays on
+origin in every case — nyann never undoes a successful tag push.
 
 ## 7. Breaking changes
 

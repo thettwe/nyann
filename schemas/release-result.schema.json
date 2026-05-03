@@ -65,6 +65,56 @@
               "description": "PR number that was polled. Absent when outcome is 'no-pr-found'."
             }
           }
+        },
+        "bumped_files": {
+          "type": "array",
+          "description": "Present only when --bump-manifests was passed AND profile.release.bump_files was non-empty. One entry per file actually mutated; idempotent runs (file already at target version) emit a record with action='unchanged'. Absent on --strategy manual (combination is rejected up-front).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "format", "action"],
+            "properties": {
+              "path": { "type": "string", "description": "Relative path from repo root, as declared in profile.release.bump_files[].path." },
+              "format": { "type": "string", "enum": ["json-version-key", "toml-version-key", "script"] },
+              "action": {
+                "type": "string",
+                "enum": ["bumped", "unchanged"],
+                "description": "bumped = file's version string was rewritten to --version. unchanged = file already carried --version (idempotent re-run)."
+              },
+              "from_version": { "type": ["string", "null"], "description": "Version string read out of the file BEFORE mutation. Null when the format/key didn't expose a readable previous value (script format)." }
+            }
+          }
+        },
+        "gh_release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "description": "Present only when --gh-release was passed. The release process never undoes a tag push on gh-release failure — the tag stays on origin and the user is told what to run manually via next_steps[].",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "enum": ["created", "skipped", "failed"],
+              "description": "created = `gh release create` succeeded; skipped = gh missing or unauthed (soft-skip per nyann gh integration convention); failed = gh was reachable but the create call returned non-zero."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Public URL of the created release. Present only when outcome=='created'."
+            },
+            "prerelease": {
+              "type": "boolean",
+              "description": "Whether the release was marked as a prerelease (mirrors the top-level prerelease field — emitted here for symmetry with how the gh CLI consumes it)."
+            },
+            "error": {
+              "type": "string",
+              "description": "Stderr excerpt from `gh release create` when outcome=='failed'. Sensitive tokens are redacted before this lands in the JSON."
+            },
+            "skipped_reason": {
+              "type": "string",
+              "enum": ["gh-not-installed", "gh-not-authenticated", "tag-not-pushed"],
+              "description": "Present only when outcome=='skipped'. tag-not-pushed surfaces when --gh-release was requested but the upstream tag push failed (gh release create would 404)."
+            }
+          }
         }
       }
     },

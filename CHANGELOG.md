@@ -5,6 +5,22 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-05-03
+
+### Added
+
+- **`bin/release.sh --bump-manifests`** — profile-driven manifest version bumps. When the active profile declares `release.bump_files[]`, every listed file is rewritten to `--version` in the same release commit as `CHANGELOG.md`. Three formats supported: `json-version-key` (uses `jq` against a configured key path, e.g. `.version` or `.plugins[0].version`), `toml-version-key` (sed-rewrites a single-line `version = "..."` within a named section like `[project]` or `[package]`), and `script` (escape hatch — runs a user-provided shell command with `$NEW_VERSION` exported, cwd is the repo root). Idempotent: a re-run against an already-bumped file emits `action:"unchanged"` instead of mutating again. Mutually exclusive with `--strategy manual` (no commit for the bumps to land in).
+- **`bin/release.sh --gh-release`** — creates a GitHub release attached to the just-pushed tag with the rendered CHANGELOG block as `--notes-file`. Auto-passes `--prerelease` when the version has a SemVer suffix (`-rc.N`, `-beta.N`). Soft-skips when `gh` is missing or unauthenticated (per nyann's gh-integration convention) and surfaces a manual recovery command in `next_steps[]`. Requires `--push` (the GH release attaches to the pushed tag); without `--push` the script dies up-front with a clear error.
+- **`profile.release.bump_files[]`** — new schema field. Each entry is `{path, format, key|section|command}`. Path is repo-relative and validated against `path_under_target` at runtime. Schema regex permits leading `.` so dotfile-prefixed paths like `.claude-plugin/plugin.json` work; `..` traversal is blocked at runtime, not in the regex.
+- **`ReleaseSuccess.bumped_files[]`** + **`ReleaseSuccess.gh_release`** — output schema additions emitted only when the corresponding flag was active. `bumped_files[]` records each declared file with `from_version` + `action`. `gh_release` carries `outcome` (`created`/`skipped`/`failed`), `url` on success, `prerelease`, and `error`/`skipped_reason` on the unhappy paths.
+- **`profiles/default.json`** — declares `release.bump_files[]` for `.claude-plugin/plugin.json` (`.version` key) and `.claude-plugin/marketplace.json` (`.plugins[0].version` key), so nyann itself dogfoods the new flags.
+- **`skills/release/SKILL.md`** — new section 5.1 documenting when to default `--bump-manifests` and `--gh-release` based on profile + user signals. Output interpretation in section 6 covers the new fields.
+- **`docs/proposals/v1.5.0-release-automation.md`** — design doc captured before implementation. Documents the problem (six manual release steps, marketplace.json staleness empirical proof), goals/non-goals, schema additions, three-phase rollout, four open questions resolved during the cut, and the acceptance-criteria checklist.
+
+### Changed
+
+- **`bin/release.sh` accepts `--profile <path>`** so callers (skills, CI) that already have the resolved profile snapshot can skip the `load-profile.sh` round-trip during `--bump-manifests`.
+
 ## [1.4.0] - 2026-05-03
 
 ### Changed

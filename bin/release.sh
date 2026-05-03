@@ -61,6 +61,9 @@ wait_interval=30
 allow_no_pr=false
 allow_no_checks=false
 gh_bin="gh"
+bump_manifests=false
+gh_release=false
+profile_path=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +91,10 @@ while [[ $# -gt 0 ]]; do
     --allow-no-checks) allow_no_checks=true; shift ;;
     --gh)             gh_bin="${2:-}"; shift 2 ;;
     --gh=*)           gh_bin="${1#--gh=}"; shift ;;
+    --bump-manifests) bump_manifests=true; shift ;;
+    --gh-release)     gh_release=true; shift ;;
+    --profile)        profile_path="${2:-}"; shift 2 ;;
+    --profile=*)      profile_path="${1#--profile=}"; shift ;;
     -h|--help)        sed -n '3,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
@@ -126,6 +133,31 @@ case "$strategy" in
   *) nyann::die "--strategy must be conventional-changelog|manual|changesets|release-please" ;;
 esac
 
+# --bump-manifests requires a release commit to land the bumps in.
+# `manual` strategy skips the commit entirely (just tags HEAD) so the
+# combination is meaningless. Refuse it up-front rather than silently
+# dropping the bumps on the floor.
+if $bump_manifests && [[ "$strategy" == "manual" ]]; then
+  nyann::die "--bump-manifests requires --strategy conventional-changelog (manual strategy creates no commit for the bumps to land in)"
+fi
+
+# Prereleases (1.5.0-rc.1 etc.) intentionally skip the CHANGELOG prepend
+# AND the release commit (see the conventional-changelog branch below).
+# That means there's no commit for --bump-manifests output to land in
+# either — silently dropping the bumps would make dry-run lie about
+# what real-run actually does. Refuse up-front; users who want a
+# pre-release that DOES carry version-bumped manifests can stage their
+# own commit before tagging or open an issue with the use case so we
+# can scope a third strategy (`prerelease-with-bumps`) in v1.6.
+if $bump_manifests && [[ "$version" == *-* ]]; then
+  nyann::die "--bump-manifests is not supported on prerelease versions ($version): the prerelease path skips the release commit, so the bumps would be silently dropped. Cut the stable version with --bump-manifests, or run release.sh on a prerelease without --bump-manifests."
+fi
+
+# --gh-release needs the tag visible on origin.
+if $gh_release && ! $push; then
+  nyann::die "--gh-release requires --push (the GitHub release attaches to the pushed tag)"
+fi
+
 if [[ -n "$tag_prefix" ]] && ! [[ "$tag_prefix" =~ ^[A-Za-z0-9._/-]*$ ]]; then
   nyann::die "--tag-prefix must contain only [A-Za-z0-9._/-]: got '$tag_prefix'"
 fi
@@ -147,7 +179,49 @@ tag="${tag_prefix}${version}"
 tmp_changelog=""
 push_err=""
 commits_tsv=""
-trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"}' EXIT
+# `_bumps_profile_owned_tmp` is the ONLY path that should ever be
+# rm -f'd — it's set ONLY when this script mktempted its own copy of
+# the resolved profile. The user-supplied `--profile <path>` lives in
+# `_resolved_bumps_profile` (read-only path) and must NEVER appear in
+# the trap. Earlier versions conflated the two and deleted the user's
+# profile file via trap on every --profile run.
+_resolved_bumps_profile=""
+_bumps_profile_owned_tmp=""
+
+# Signal-rollback state. _rollback_dir holds before-snapshots of every
+# file touched during the mutation phase (CHANGELOG + manifest bumps).
+# _mutation_in_progress flips true between the snapshot and the release
+# commit; if a SIGINT/SIGTERM/SIGHUP arrives while it's true, the
+# handler restores files from snapshots so the user never observes a
+# half-bumped working tree. After the commit lands, the flag flips
+# back to false (mutations are persisted via git; recovery is now via
+# git revert/reset, not file copy-back).
+_rollback_dir=""
+_mutation_in_progress=false
+_rollback_files=()
+
+_rollback_on_signal() {
+  trap - INT TERM HUP   # disarm so the handler doesn't recurse
+  if $_mutation_in_progress && [[ -n "$_rollback_dir" && -d "$_rollback_dir" ]]; then
+    nyann::warn "release: signal received mid-mutation; restoring working tree from snapshot ($_rollback_dir)"
+    local _f _full _snap
+    for _f in "${_rollback_files[@]}"; do
+      _full="$target/$_f"
+      _snap="$_rollback_dir/$_f"
+      if [[ -f "$_snap.existed" ]]; then
+        # File existed at snapshot time → restore byte-for-byte.
+        cp "$_snap" "$_full" 2>/dev/null || true
+      else
+        # File was created during mutation → remove it. We never delete
+        # files we didn't create (the .existed sentinel disambiguates).
+        rm -f "$_full" 2>/dev/null || true
+      fi
+    done
+  fi
+  exit 130
+}
+
+trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"} ${_bumps_profile_owned_tmp:+"$_bumps_profile_owned_tmp"}; rm -rf ${_rollback_dir:+"$_rollback_dir"}' EXIT
 
 # --- soft-skip paths ---------------------------------------------------------
 
@@ -295,6 +369,281 @@ if [[ "$strategy" == "conventional-changelog" ]]; then
   changelog_block=$(render_changelog_block)
 fi
 
+# --- manifest bumps (--bump-manifests) ---------------------------------------
+# Driven by `release.bump_files[]` in the resolved profile. We split into
+# two phases:
+#   compute_bump_plan — reads each file, decides bumped vs unchanged,
+#                       populates bumped_files_json AND parallel arrays
+#                       describing the pending mutations. NEVER writes.
+#   apply_bump_plan   — replays the parallel arrays, writing each file
+#                       in place. Called only on the real-mutation path,
+#                       so --dry-run can preview what would happen
+#                       without touching the working tree.
+
+bumped_files_json='[]'
+# Parallel arrays describing pending file mutations (bash 3.2 — no
+# associative arrays). Index N across all four describes one mutation:
+#   _bp_paths[N]   — repo-relative path
+#   _bp_formats[N] — json-version-key | toml-version-key | script
+#   _bp_payload[N] — format-specific arg (jq key / toml section / shell
+#                    command).
+#   _bp_digests[N] — digest of the file at compute time. apply_bump_plan
+#                    re-computes and aborts if anything changed between
+#                    phases (TOCTOU defense — relevant when --wait-for-checks
+#                    leaves minutes between compute and apply).
+_bp_paths=()
+_bp_formats=()
+_bp_payload=()
+_bp_digests=()
+# _resolved_bumps_profile already declared and trapped above (line ~182).
+
+# Portable file-digest helper. Mirrors load-profile.sh's pattern:
+# prefer shasum -a 256, fall back to sha256sum, then cksum. Returns
+# empty string when none of the three are available — caller treats
+# that as "TOCTOU check disabled" (logs a warning) rather than an
+# error, so the bumper still works on minimal containers.
+_file_digest() {
+  local f="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$f" 2>/dev/null | awk '{print $1}'
+  elif command -v cksum >/dev/null 2>&1; then
+    cksum "$f" 2>/dev/null | awk '{print $1"-"$2}'
+  fi
+}
+
+resolve_bumps_profile() {
+  if [[ -n "$profile_path" ]]; then
+    [[ -f "$profile_path" ]] || nyann::die "--profile file not found: $profile_path"
+    _resolved_bumps_profile="$profile_path"
+    # Caller-supplied path — we do NOT own it; do NOT register it for
+    # cleanup. _bumps_profile_owned_tmp stays empty.
+    return 0
+  fi
+  # Resolve the ACTIVE profile name, not a hardcoded "default".
+  # Resolution order matches session-check.sh and the rest of the
+  # nyann skill layer:
+  #   1. ~/.claude/nyann/preferences.json's .default_profile
+  #   2. CLAUDE.md's nyann-managed Profile marker (if present)
+  #   3. literal "default"
+  # Hardcoding "default" silently bumped the wrong manifests for any
+  # user whose active profile carried a different release.bump_files[].
+  local active_name="default"
+  local _prefs="${HOME}/.claude/nyann/preferences.json"
+  if [[ -f "$_prefs" ]] && command -v jq >/dev/null 2>&1; then
+    local _pref_name
+    _pref_name=$(jq -r '.default_profile // "auto-detect"' "$_prefs" 2>/dev/null || echo "auto-detect")
+    if [[ "$_pref_name" != "auto-detect" && -n "$_pref_name" && "$_pref_name" != "null" ]]; then
+      active_name="$_pref_name"
+    fi
+  fi
+  if [[ "$active_name" == "default" && -f "$target/CLAUDE.md" ]]; then
+    local _marker_name
+    _marker_name=$(sed -n 's/.*Profile *| *\([a-z0-9][a-z0-9-]*\).*/\1/p' "$target/CLAUDE.md" 2>/dev/null | head -1)
+    [[ -n "$_marker_name" ]] && active_name="$_marker_name"
+  fi
+
+  local tmp
+  tmp=$(mktemp -t nyann-release-prof.XXXXXX)
+  # load-profile.sh resolves user > team > starter from $user_root and
+  # the plugin-root profiles dir. It does not take --target — the
+  # active profile is the one configured for the user, not for the
+  # repo we're releasing.
+  if "${_script_dir}/load-profile.sh" "$active_name" >"$tmp" 2>/dev/null; then
+    _resolved_bumps_profile="$tmp"
+    # We own this tmpfile — register it for cleanup via the EXIT trap.
+    _bumps_profile_owned_tmp="$tmp"
+    nyann::log "--bump-manifests: resolved active profile '$active_name'"
+  else
+    rm -f "$tmp"
+    nyann::warn "--bump-manifests: could not load active profile '$active_name' (preferences/CLAUDE.md marker or default fallback); skipping bumps"
+    return 1
+  fi
+}
+
+compute_bump_plan() {
+  $bump_manifests || return 0
+
+  if ! resolve_bumps_profile; then
+    nyann::log "no profile resolvable; --bump-manifests is a no-op"
+    return 0
+  fi
+
+  local n
+  n=$(jq '.release.bump_files // [] | length' "$_resolved_bumps_profile")
+  if (( n == 0 )); then
+    nyann::log "profile has no release.bump_files; --bump-manifests is a no-op"
+    return 0
+  fi
+
+  local i entry path format key section command full current
+  for ((i=0; i<n; i++)); do
+    entry=$(jq -c ".release.bump_files[$i]" "$_resolved_bumps_profile")
+    path=$(jq -r '.path' <<<"$entry")
+    format=$(jq -r '.format' <<<"$entry")
+
+    # Runtime path-traversal guard. Match the schema's `not.pattern`
+    # clause exactly: any SEGMENT that is `.` or `..` is rejected, but
+    # legitimate names that contain `..` as a substring (e.g.
+    # `foo..bar.json`) are allowed. Earlier versions used `*".."*` which
+    # over-rejected. validate-profile.sh falls back to `jq empty` when
+    # no JSON-schema validator is on PATH, so this runtime is the last
+    # line of defense for unvalidated profiles.
+    if [[ "$path" == /* ]] || [[ "$path" =~ (^|/)\.\.?(/|$) ]]; then
+      nyann::die "release.bump_files[$i].path must be repo-relative without './' or '..' segments: $path"
+    fi
+    nyann::assert_path_under_target "$target" "$target/$path" "release.bump_files[$i].path" >/dev/null
+
+    full="$target/$path"
+    [[ -L "$full" ]] && nyann::die "release.bump_files[$i]: refusing to bump via symlink: $full"
+    [[ -f "$full" ]] || nyann::die "release.bump_files[$i]: file not found: $full"
+
+    case "$format" in
+      json-version-key)
+        key=$(jq -r '.key // empty' <<<"$entry")
+        [[ -n "$key" ]] || nyann::die "release.bump_files[$i]: json-version-key requires .key"
+        # Defence-in-depth: even when the schema validator isn't on
+        # PATH (compute-drift falls back to `jq empty`), reject keys
+        # that aren't simple `.field` / `.field[0]` / `.a.b` paths.
+        # Without this guard, a profile shipping `key: ". | env"` would
+        # exfiltrate env vars during the bump.
+        if ! [[ "$key" =~ ^\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*$ ]]; then
+          nyann::die "release.bump_files[$i]: json-version-key .key must be a simple jq path (e.g. .version, .plugins[0].version) — got '$key'"
+        fi
+        # Require the key to actually exist BEFORE we'd otherwise
+        # silently insert a fresh field at the typo'd path during
+        # apply_bump_plan. toml-version-key already dies on missing
+        # `version = ...`; symmetric handling here saves the user from
+        # shipping a release with a phantom .versionn field months later.
+        if ! jq -e "$key" "$full" >/dev/null 2>&1; then
+          nyann::die "release.bump_files[$i]: json-version-key .key '$key' not present in $path (refusing to silently insert a new field)"
+        fi
+        current=$(jq -r "$key // empty" "$full" 2>/dev/null) \
+          || nyann::die "release.bump_files[$i]: jq failed reading $key from $path"
+        if [[ "$current" == "$version" ]]; then
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"unchanged", from_version:$from}]' <<<"$bumped_files_json")
+        else
+          _bp_paths+=("$path")
+          _bp_formats+=("$format")
+          _bp_payload+=("$key")
+          _bp_digests+=("$(_file_digest "$full")")
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
+        fi
+        ;;
+      toml-version-key)
+        section=$(jq -r '.section // empty' <<<"$entry")
+        [[ -n "$section" ]] || nyann::die "release.bump_files[$i]: toml-version-key requires .section"
+        current=$(awk -v sec="[$section]" '
+          /^\[/ { if ($0 == sec) in_sec=1; else if (in_sec) exit; next }
+          in_sec && /^[[:space:]]*version[[:space:]]*=[[:space:]]*"[^"]*"/ {
+            match($0, /"[^"]*"/); print substr($0, RSTART+1, RLENGTH-2); exit
+          }' "$full")
+        [[ -n "$current" ]] \
+          || nyann::die "release.bump_files[$i]: could not find single-line \`version = \"...\"\` in [$section] of $path"
+        if [[ "$current" == "$version" ]]; then
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"unchanged", from_version:$from}]' <<<"$bumped_files_json")
+        else
+          _bp_paths+=("$path")
+          _bp_formats+=("$format")
+          _bp_payload+=("$section")
+          _bp_digests+=("$(_file_digest "$full")")
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
+        fi
+        ;;
+      script)
+        command=$(jq -r '.command // empty' <<<"$entry")
+        [[ -n "$command" ]] || nyann::die "release.bump_files[$i]: script requires .command"
+        # script format has no idempotency check — the command owns
+        # whatever before/after read it needs. from_version stays null.
+        _bp_paths+=("$path")
+        _bp_formats+=("$format")
+        _bp_payload+=("$command")
+        _bp_digests+=("$(_file_digest "$full")")
+        bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" \
+          '. + [{path:$p, format:$fmt, action:"bumped", from_version:null}]' <<<"$bumped_files_json")
+        ;;
+      *)
+        nyann::die "release.bump_files[$i]: unknown format: $format"
+        ;;
+    esac
+  done
+}
+
+apply_bump_plan() {
+  local i path format payload digest_at_compute digest_now full tmp
+  for ((i=0; i<${#_bp_paths[@]}; i++)); do
+    path="${_bp_paths[$i]}"
+    format="${_bp_formats[$i]}"
+    payload="${_bp_payload[$i]}"
+    digest_at_compute="${_bp_digests[$i]}"
+    full="$target/$path"
+    # TOCTOU defense: re-digest the file just before mutating. If it
+    # changed between compute_bump_plan and now (another process,
+    # editor save, --wait-for-checks gating that took minutes), abort
+    # rather than ship a release commit whose dry-run preview no
+    # longer matches reality. When no digest tool is on PATH the
+    # check degrades to "skipped" — log a warning so the operator
+    # knows the TOCTOU window isn't being verified.
+    if [[ -n "$digest_at_compute" ]]; then
+      digest_now=$(_file_digest "$full")
+      if [[ "$digest_now" != "$digest_at_compute" ]]; then
+        nyann::die "bump-manifests: $path changed between compute and apply (digest mismatch); refusing to mutate stale plan. Re-run release.sh."
+      fi
+    else
+      nyann::warn "bump-manifests: no shasum/sha256sum/cksum on PATH; TOCTOU re-check disabled for $path"
+    fi
+    case "$format" in
+      json-version-key)
+        tmp=$(mktemp -t nyann-bump-json.XXXXXX)
+        if jq --arg v "$version" "$payload = \$v" "$full" > "$tmp"; then
+          mv "$tmp" "$full"
+        else
+          rm -f "$tmp"
+          nyann::die "bump-manifests: jq failed setting $payload in $path"
+        fi
+        ;;
+      toml-version-key)
+        tmp=$(mktemp -t nyann-bump-toml.XXXXXX)
+        # NB: gsub on `"[^"]*"` replaces all double-quoted strings on the
+        # line. On a single-line `version = "x.y.z"` (with optional
+        # trailing comment) there's only one such string, so the rewrite
+        # is precise. The pre-line filter (in_section + the regex anchor)
+        # is what stops us from matching `description = "..."`.
+        awk -v sec="[$payload]" -v new="$version" '
+          /^\[/ {
+            if ($0 == sec) in_sec=1
+            else if (in_sec) in_sec=0
+            print; next
+          }
+          in_sec && !done && /^[[:space:]]*version[[:space:]]*=[[:space:]]*"[^"]*"/ {
+            sub(/"[^"]*"/, "\"" new "\"")
+            done = 1
+          }
+          { print }
+        ' "$full" > "$tmp"
+        mv "$tmp" "$full"
+        ;;
+      script)
+        # Run the user-provided command with cwd=$target so relative
+        # paths (the common case: `echo $NEW_VERSION > VERSION`) resolve
+        # against the repo root regardless of where release.sh was
+        # invoked from.
+        if ! ( cd "$target" && NEW_VERSION="$version" bash -c "$payload" ); then
+          nyann::die "bump-manifests: script command failed for $path: $payload"
+        fi
+        ;;
+    esac
+  done
+}
+
+# Compute up-front so --dry-run output can preview the bump plan.
+compute_bump_plan
+
 # --- mutation phase ----------------------------------------------------------
 
 pushed=false
@@ -316,9 +665,12 @@ if $dry_run; then
     --argjson commits "$commits_json" \
     --argjson pushed "$pushed" \
     --argjson prerelease "$is_prerelease" \
+    --argjson bumped "$bumped_files_json" \
+    --argjson bump_on "$($bump_manifests && echo true || echo false)" \
     '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
       commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:[],
-      prerelease:$prerelease, dry_run:true}'
+      prerelease:$prerelease, dry_run:true}
+     + (if $bump_on then {bumped_files:$bumped} else {} end)'
   exit 0
 fi
 
@@ -422,6 +774,30 @@ case "$strategy" in
       # section stays queued for the stable cut.
       :
     else
+      # Snapshot every file we're about to touch so a SIGINT/SIGTERM/SIGHUP
+      # mid-mutation can be rolled back instead of leaving a partially-
+      # mutated working tree. CHANGELOG.md (existing or about-to-be-created)
+      # is always in the rollback set; bump_files[] paths join only when
+      # --bump-manifests is active.
+      _rollback_dir=$(mktemp -d -t nyann-release-rollback.XXXXXX)
+      _rollback_files=("$changelog_path")
+      if (( ${#_bp_paths[@]} > 0 )); then
+        _rollback_files+=("${_bp_paths[@]}")
+      fi
+      for _rb_f in "${_rollback_files[@]}"; do
+        _rb_full="$target/$_rb_f"
+        if [[ -f "$_rb_full" ]]; then
+          mkdir -p "$_rollback_dir/$(dirname "$_rb_f")" 2>/dev/null || true
+          cp "$_rb_full" "$_rollback_dir/$_rb_f" 2>/dev/null || true
+          # Sentinel marks "this file existed at snapshot time" — distinct
+          # from "was created during mutation and should be rm'd on
+          # rollback".
+          : > "$_rollback_dir/$_rb_f.existed"
+        fi
+      done
+      _mutation_in_progress=true
+      trap _rollback_on_signal INT TERM HUP
+
       # Prepend changelog_block to CHANGELOG. Atomic: assemble into tmp,
       # then `mv` into place so a mid-write crash can't lose user content.
       full_changelog="$target/$changelog_path"
@@ -439,13 +815,35 @@ case "$strategy" in
       fi
       mv "$tmp_changelog" "$full_changelog"
 
+      # Apply pending manifest bumps so they land in the same release
+      # commit as CHANGELOG.md. compute_bump_plan ran earlier and
+      # populated _bp_paths/_bp_formats/_bp_payload — this just replays
+      # them. apply_bump_plan is a no-op when --bump-manifests wasn't
+      # passed (the arrays are empty).
+      apply_bump_plan
+
       # Release commit runs under the repo's configured identity when
       # available; nyann@local is only the fallback.
       nyann::resolve_identity "$target"
       git -C "$target" add -- "$changelog_path"
+      # Stage every file the bump plan touched. Each path was
+      # path_under_target-validated during compute_bump_plan, so it's
+      # safe to feed to `git add`.
+      if (( ${#_bp_paths[@]} > 0 )); then
+        git -C "$target" add -- "${_bp_paths[@]}"
+      fi
       git -C "$target" \
         -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
         commit -q -m "chore(release): $tag" >/dev/null
+
+      # Commit succeeded — mutations are persisted via git, rollback
+      # via working-tree restore is no longer the right recovery
+      # (use `git revert` / `git reset` from here on). Clear the
+      # signal trap and the snapshot dir.
+      _mutation_in_progress=false
+      trap - INT TERM HUP
+      rm -rf "$_rollback_dir"
+      _rollback_dir=""
     fi
     ;;
   manual)
@@ -521,38 +919,100 @@ if $push && $tag_pushed && $branch_pushed; then
   pushed=true
 fi
 
-if [[ -n "$ci_gate_json" ]]; then
-  jq -n \
-    --arg status "released" \
-    --arg strategy "$strategy" \
-    --arg version "$version" \
-    --arg tag "$tag" \
-    --arg from "$from_ref" \
-    --arg changelog "$changelog_block" \
-    --argjson commits "$commits_json" \
-    --argjson pushed "$pushed" \
-    --argjson next_steps "$next_steps_json" \
-    --argjson prerelease "$is_prerelease" \
-    --argjson ci_gate "$ci_gate_json" \
-    '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
-      commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:$next_steps,
-      prerelease:$prerelease, ci_gate:$ci_gate}'
-else
-  jq -n \
-    --arg status "released" \
-    --arg strategy "$strategy" \
-    --arg version "$version" \
-    --arg tag "$tag" \
-    --arg from "$from_ref" \
-    --arg changelog "$changelog_block" \
-    --argjson commits "$commits_json" \
-    --argjson pushed "$pushed" \
-    --argjson next_steps "$next_steps_json" \
-    --argjson prerelease "$is_prerelease" \
-    '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
-      commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:$next_steps,
-      prerelease:$prerelease}'
+# --- GitHub release (--gh-release) ------------------------------------------
+# Create the GH release attached to the just-pushed tag with the rendered
+# CHANGELOG block as notes. nyann's gh-integration convention: soft-skip
+# when gh is missing/unauthed (don't fail the release), surface the
+# manual recovery command in next_steps[]. Tag stays on origin either
+# way — we never undo a successful tag push.
+gh_release_json=""
+if $gh_release; then
+  if ! command -v "$gh_bin" >/dev/null 2>&1; then
+    gh_release_json='{"outcome":"skipped","skipped_reason":"gh-not-installed"}'
+    add_next_step "gh release create $tag --title \"$tag\" --notes-file <CHANGELOG-block>   # gh missing; install gh, then re-create the release manually"
+  elif ! "$gh_bin" auth status >/dev/null 2>&1; then
+    gh_release_json='{"outcome":"skipped","skipped_reason":"gh-not-authenticated"}'
+    add_next_step "gh auth login && gh release create $tag --title \"$tag\" --notes-file <CHANGELOG-block>"
+  elif ! $tag_pushed; then
+    # Tag never made it to origin — `gh release create` would 404 on the
+    # tag. Skip with a clear next step rather than emitting a misleading
+    # error. The skipped_reason MUST honestly reflect the cause; gh might
+    # be installed and authed in this branch.
+    gh_release_json='{"outcome":"skipped","skipped_reason":"tag-not-pushed"}'
+    nyann::warn "gh-release: tag $tag wasn't pushed; skipping GitHub release creation"
+    add_next_step "git push origin $tag && gh release create $tag --title \"$tag\"   # push the tag first, then re-create the release"
+  else
+    # Materialise the rendered CHANGELOG block to a tmp file so
+    # `gh release create --notes-file` reads it byte-exactly (no shell
+    # interpolation, no embedded-newline gotchas).
+    notes_file=$(mktemp -t nyann-release-notes.XXXXXX)
+    if [[ -n "$changelog_block" ]]; then
+      printf '%s' "$changelog_block" > "$notes_file"
+    else
+      printf '%s\n' "Release $tag." > "$notes_file"
+    fi
+    gh_args=(release create "$tag" --title "$tag" --notes-file "$notes_file")
+    if $is_prerelease; then
+      gh_args+=(--prerelease)
+    fi
+    gh_create_err=$(mktemp -t nyann-gh-rel.XXXXXX)
+    if gh_url=$("$gh_bin" "${gh_args[@]}" 2>"$gh_create_err"); then
+      # gh prints the release URL on success. When --notes-file is large
+      # or assets are attached, gh may also print upload progress on
+      # stdout; pick the first http(s) line rather than blindly
+      # `head -1` the buffer.
+      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | grep -m1 -E '^https?://' || true)
+      # Schema marks `url` as optional under outcome:created — when the
+      # extraction yielded nothing (a future gh version that prints
+      # decoration before the URL, or no URL at all), emit the success
+      # outcome WITHOUT the field rather than shipping `"url": ""`. The
+      # tag is on origin either way; consumers can construct the URL
+      # from the tag.
+      if [[ -n "$gh_url" ]]; then
+        gh_release_json=$(jq -n --arg url "$gh_url" --argjson pre "$is_prerelease" \
+          '{outcome:"created", url:$url, prerelease:$pre}')
+      else
+        gh_release_json=$(jq -n --argjson pre "$is_prerelease" \
+          '{outcome:"created", prerelease:$pre}')
+      fi
+    else
+      err=$(nyann::redact_url "$(head -c 1000 "$gh_create_err" | tr '\n' ' ')")
+      gh_release_json=$(jq -n --arg err "$err" --argjson pre "$is_prerelease" \
+        '{outcome:"failed", error:$err, prerelease:$pre}')
+      nyann::warn "gh-release: gh release create failed: $err"
+      add_next_step "gh release create $tag --title \"$tag\" --notes-file <changelog-block>   # gh release create failed; re-run after fixing the cause above"
+    fi
+    rm -f "$gh_create_err" "$notes_file"
+  fi
 fi
+
+# Build the final ReleaseSuccess JSON in one jq call. ci_gate,
+# bumped_files, and gh_release are all optional — emit each only when
+# the corresponding flag was active, so the schema's
+# additionalProperties:false stays clean.
+ci_gate_arg=${ci_gate_json:-null}
+gh_release_arg=${gh_release_json:-null}
+jq -n \
+  --arg status "released" \
+  --arg strategy "$strategy" \
+  --arg version "$version" \
+  --arg tag "$tag" \
+  --arg from "$from_ref" \
+  --arg changelog "$changelog_block" \
+  --argjson commits "$commits_json" \
+  --argjson pushed "$pushed" \
+  --argjson next_steps "$next_steps_json" \
+  --argjson prerelease "$is_prerelease" \
+  --argjson ci_gate "$ci_gate_arg" \
+  --argjson bumped "$bumped_files_json" \
+  --argjson bump_on "$($bump_manifests && echo true || echo false)" \
+  --argjson gh_release "$gh_release_arg" \
+  '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
+    commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:$next_steps,
+    prerelease:$prerelease}
+   + (if $ci_gate    != null then {ci_gate:    $ci_gate}    else {} end)
+   + (if $bump_on             then {bumped_files: $bumped}  else {} end)
+   + (if $gh_release != null then {gh_release: $gh_release} else {} end)'
 
 # Exit non-zero when --push was requested but at least one push step
 # failed. Lets CI / skill-layer wrappers detect the half-state without
