@@ -100,19 +100,25 @@ ws_table_rows=""
 max_ws_rows=10
 
 if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
-  ws_json=$(cat "$workspace_configs_path")
-  ws_total=$(jq 'length' <<<"$ws_json")
+  # Guard the arithmetic against an unparseable / truncated workspace file:
+  # jq emits nothing on parse error and bash arithmetic on an empty string
+  # would otherwise silently render an empty table.
+  ws_total=$(jq 'length' "$workspace_configs_path" 2>/dev/null) || ws_total=0
+  [[ "$ws_total" =~ ^[0-9]+$ ]] || ws_total=0
   ws_show=$(( ws_total < max_ws_rows ? ws_total : max_ws_rows ))
 
-  for (( wi=0; wi<ws_show; wi++ )); do
-    ws=$(jq -c ".[$wi]" <<<"$ws_json")
-    ws_path=$(nyann::safe_md_cell "$(jq -r '.path' <<<"$ws")")
-    ws_lang=$(nyann::safe_md_cell "$(jq -r '.primary_language // "unknown"' <<<"$ws")")
-    ws_fw=$(jq -r '.framework // ""' <<<"$ws")
+  # Single jq pass emits one TSV row per workspace with all four fields,
+  # then bash reads + decorates. Replaces the previous per-iteration
+  # 5-jq fork pattern (5 forks × up to 10 workspaces = up to 50 jq forks
+  # to render one table). Workspace `path`/`primary_language`/`framework`/
+  # `package_manager` are detect-stack outputs — none can contain tabs.
+  while IFS=$'\t' read -r ws_path ws_lang ws_fw ws_pm; do
+    [[ -z "$ws_path" ]] && continue
+    ws_path=$(nyann::safe_md_cell "$ws_path")
+    ws_lang=$(nyann::safe_md_cell "$ws_lang")
     [[ "$ws_fw" == "null" || -z "$ws_fw" ]] && ws_fw="—"
     ws_fw=$(nyann::safe_md_cell "$ws_fw")
 
-    ws_pm=$(jq -r '.package_manager // ""' <<<"$ws")
     ws_cmds=""
     case "$ws_pm" in
       pnpm) ws_cmds="pnpm dev, pnpm test, pnpm lint" ;;
@@ -129,7 +135,19 @@ if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
     ws_cmds=$(nyann::safe_md_cell "$ws_cmds")
 
     ws_table_rows+="| ${ws_path} | ${ws_lang} | ${ws_fw} | ${ws_cmds} |"$'\n'
-  done
+  done < <(jq -r --argjson n "$ws_show" '
+    # @tsv escapes \t/\r/\n/\\ as literal two-char sequences in the
+    # output stream, which would then leak through `IFS=$'\''\t'\'' read`
+    # as backslash-prefixed escapes (e.g. a workspace path containing a
+    # tab would render as `foo\tbar` in the CLAUDE.md table). Strip the
+    # offending bytes inside jq before @tsv runs. Workspace path is the
+    # only realistically untrusted field here — the others are from
+    # detect-stack and constrained to known enums.
+    def safe: gsub("[\t\r\n]"; " ");
+    .[0:$n][]
+    | [(.path | safe), (.primary_language // "unknown"), (.framework // ""), (.package_manager // "")]
+    | @tsv
+  ' "$workspace_configs_path")
 
   if (( ws_total > max_ws_rows )); then
     ws_remaining=$(( ws_total - max_ws_rows ))

@@ -313,6 +313,25 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] 43 JSON schemas (was 38)
 - [x] 820 bats tests (was 702)
 
+### Shipped in v1.4.0
+
+Performance + reliability hardening pass. No new user-facing features; existing
+flows are noticeably faster and more robust.
+
+- [x] Doctor text mode loads the profile once and calls `compute-drift` directly (~50% faster)
+- [x] Documentation subsystems (`check-claude-md-size`, `check-links`, `find-orphans`, `check-staleness`) run in parallel
+- [x] `detect-stack` collapsed 13 per-language `find` calls + 14 `grep` calls into single awk passes
+- [x] `suggest-profile` scores all profiles in one `jq -n inputs` pass (~108 forks → 1 for 18 profiles)
+- [x] `check-stale-branches` uses one `git branch --merged` pass; bash 3.2 compatible
+- [x] `session-check` caches stale-branch results, HEAD + `refs/heads` keyed, 60s TTL, atomic write
+- [x] Workspace `lint-staged` config built in one `jq` reduce instead of per-workspace loops
+- [x] `path_under_target` is bash-native (no python3 fork per path validation)
+- [x] Per-profile sentinel keyed on `(plugin_version, sha256)` — survives downgrades and detects mid-version edits
+- [x] `check-links` extracts links via one python3 call (vs N) with NUL-delimited source records (path-safe)
+- [x] `find-orphans` + `check-staleness` accumulate via TSV reduced in a single trailing `jq`
+- [x] `release.sh` renders the entire CHANGELOG block in one `jq` program instead of 12 separate calls
+- [x] Five rounds of independent code review caught and fixed 1 P0, 4 P1, and 13 P2 latent bugs along the way
+
 ### Planned
 
 - [ ] **More stacks:** Elixir/Phoenix, Scala/Play
@@ -325,7 +344,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 ## Repository layout
 
 ```
-bin/                   # 65 shell scripts (orchestrators + subsystems)
+bin/                   # 65 shell scripts + 1 python helper (orchestrators + subsystems)
 commands/              # 31 Claude Code slash-command registrations
 evals/                 # 25 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse block-main hook

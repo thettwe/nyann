@@ -188,67 +188,36 @@ install_core_phase() {
 
 # --- workspace-aware lint-staged config builder -------------------------------
 
-hook_to_lint_staged_cmd() {
-  case "$1" in
-    eslint)      echo "eslint --fix" ;;
-    prettier)    echo "prettier --write" ;;
-    stylelint)   echo "stylelint --fix" ;;
-    ruff)        echo "ruff check --fix" ;;
-    ruff-format) echo "ruff format" ;;
-    *)           return 1 ;;
-  esac
-}
-
-lang_to_glob() {
-  case "$1" in
-    typescript|javascript) echo "*.{js,jsx,ts,tsx,mjs,cjs}" ;;
-    python)                echo "*.py" ;;
-    go)                    echo "*.go" ;;
-    rust)                  echo "*.rs" ;;
-    *)                     return 1 ;;
-  esac
-}
-
 build_workspace_lint_staged() {
   local ws_configs="$1"
-  local ws_count
-  ws_count=$(jq 'length' <<<"$ws_configs")
 
-  local result='{}'
-  for (( i=0; i<ws_count; i++ )); do
-    local ws
-    ws=$(jq -c ".[$i]" <<<"$ws_configs")
-    local ws_path ws_lang
-    ws_path=$(jq -r '.path' <<<"$ws")
-    ws_lang=$(jq -r '.primary_language // "unknown"' <<<"$ws")
+  # Single jq invocation replaces per-workspace/per-hook subprocess loop.
+  # Maps hook IDs → lint-staged commands and languages → file globs inline.
+  jq '
+    def hook_cmd:
+      {"eslint": "eslint --fix", "prettier": "prettier --write",
+       "stylelint": "stylelint --fix", "ruff": "ruff check --fix",
+       "ruff-format": "ruff format"};
+    def lang_glob:
+      {"typescript": "*.{js,jsx,ts,tsx,mjs,cjs}",
+       "javascript": "*.{js,jsx,ts,tsx,mjs,cjs}",
+       "python": "*.py", "go": "*.go", "rust": "*.rs"};
 
-    local glob
-    glob=$(lang_to_glob "$ws_lang") || continue
-
-    local pre_commit_hooks
-    pre_commit_hooks=$(jq -c '.hooks.pre_commit // []' <<<"$ws")
-    local cmds='[]'
-    local hook_count
-    hook_count=$(jq 'length' <<<"$pre_commit_hooks")
-    for (( j=0; j<hook_count; j++ )); do
-      local hook_name cmd
-      hook_name=$(jq -r ".[$j]" <<<"$pre_commit_hooks")
-      cmd=$(hook_to_lint_staged_cmd "$hook_name") || continue
-      cmds=$(jq --arg c "$cmd" '. + [$c]' <<<"$cmds")
-    done
-
-    local cmd_count
-    cmd_count=$(jq 'length' <<<"$cmds")
-    if (( cmd_count > 0 )); then
-      local key="${ws_path}/**/${glob}"
-      result=$(jq --arg k "$key" --argjson v "$cmds" '. + {($k): $v}' <<<"$result")
-    fi
-  done
-
-  # Always include a generic formatting glob for non-code files at root.
-  result=$(jq '. + {"*.{json,md,yml,yaml,css,scss}": ["prettier --write"]}' <<<"$result")
-
-  echo "$result"
+    reduce .[] as $ws ({}; . as $acc |
+      ($ws.primary_language // "unknown") as $lang |
+      (lang_glob[$lang] // null) as $glob |
+      if $glob == null then $acc
+      else
+        ([$ws.hooks.pre_commit // [] | .[] |
+          hook_cmd[.] // empty]) as $cmds |
+        if ($cmds | length) == 0 then $acc
+        else
+          (($ws.path) + "/**/" + $glob) as $key |
+          $acc + {($key): $cmds}
+        end
+      end
+    ) + {"*.{json,md,yml,yaml,css,scss}": ["prettier --write"]}
+  ' <<<"$ws_configs"
 }
 
 # --- JS/TS phase (husky + commitlint + lint-staged) --------------------------
@@ -462,9 +431,8 @@ COMMITLINT_EOF
 
   # Phase B: publish the staged hooks. Iterate in the same order so the
   # log lines mirror the assembly order.
-  local entry hook_name hook_tmp hook_dst
+  local entry hook_tmp hook_dst
   for entry in "${_staged_hooks[@]}"; do
-    hook_name="${entry%%|*}"
     hook_tmp="${entry#*|}"; hook_tmp="${hook_tmp%%|*}"
     hook_dst="${entry##*|}"
     mv "$hook_tmp" "$hook_dst"
@@ -507,57 +475,13 @@ install_python_phase() {
   fi
 
   # Merge hook repos by URL. If the target config is absent, copy template.
-  # If present, run a small Python merger that keeps existing entries
+  # If present, run the shared Python merger that keeps existing entries
   # verbatim and appends any of our repos whose URL isn't already listed.
   if [[ ! -f "$dst" ]]; then
     cp "$tmpl" "$dst"
     nyann::log "wrote $dst"
   else
-    python3 - "$dst" "$tmpl" <<'PY'
-import sys
-try:
-    import yaml
-except ImportError:
-    sys.stderr.write("[nyann] PyYAML missing; skipping merge (template copy only)\n")
-    sys.exit(0)
-
-dst_path, tmpl_path = sys.argv[1], sys.argv[2]
-
-def load(p):
-    with open(p) as f:
-        d = yaml.safe_load(f) or {}
-    if not isinstance(d, dict):
-        sys.stderr.write(f"[nyann] unexpected YAML shape in {p}: root is {type(d).__name__}\n")
-        sys.exit(1)
-    d.setdefault('repos', [])
-    return d
-
-dst = load(dst_path)
-tmpl = load(tmpl_path)
-
-def repo_key(r):
-    if r.get('repo') == 'local':
-        ids = tuple(sorted((h.get('id') for h in r.get('hooks', []) if h.get('id'))))
-        return ('local', ids)
-    return ('remote', r.get('repo'))
-
-existing = {repo_key(r): r for r in dst['repos']}
-added = 0
-for r in tmpl['repos']:
-    k = repo_key(r)
-    if k in existing:
-        continue
-    dst['repos'].append(r)
-    existing[k] = r
-    added += 1
-
-if added:
-    with open(dst_path, 'w') as f:
-        yaml.safe_dump(dst, f, sort_keys=False)
-    print(f"[nyann] merged {added} nyann repo(s) into .pre-commit-config.yaml")
-else:
-    print("[nyann] .pre-commit-config.yaml already has all nyann repos; no change")
-PY
+    python3 "${_script_dir}/_precommit-merge.py" "$dst" "$tmpl"
     nyann::log "merged nyann hooks into $dst"
   fi
 
@@ -624,53 +548,11 @@ install_precommit_from_template() {
   fi
 
   # python3 is the only hard requirement for the merge path. If missing,
-  # fall back to "copy template if no existing config" and warn.
+  # fall back to "copy template if no existing config" and warn. The merger
+  # itself lives in bin/_precommit-merge.py — same logic shared with the
+  # Python phase above.
   if command -v python3 >/dev/null 2>&1 && [[ -f "$dst" ]]; then
-    python3 - "$dst" "$tmpl" <<'PY'
-import sys
-try:
-    import yaml
-except ImportError:
-    sys.stderr.write("[nyann] PyYAML missing; skipping merge (template copy only)\n")
-    sys.exit(0)
-
-dst_path, tmpl_path = sys.argv[1], sys.argv[2]
-
-def load(p):
-    with open(p) as f:
-        d = yaml.safe_load(f) or {}
-    if not isinstance(d, dict):
-        sys.stderr.write(f"[nyann] unexpected YAML shape in {p}: root is {type(d).__name__}\n")
-        sys.exit(1)
-    d.setdefault('repos', [])
-    return d
-
-dst = load(dst_path)
-tmpl = load(tmpl_path)
-
-def repo_key(r):
-    if r.get('repo') == 'local':
-        ids = tuple(sorted((h.get('id') for h in r.get('hooks', []) if h.get('id'))))
-        return ('local', ids)
-    return ('remote', r.get('repo'))
-
-existing = {repo_key(r): r for r in dst['repos']}
-added = 0
-for r in tmpl['repos']:
-    k = repo_key(r)
-    if k in existing:
-        continue
-    dst['repos'].append(r)
-    existing[k] = r
-    added += 1
-
-if added:
-    with open(dst_path, 'w') as f:
-        yaml.safe_dump(dst, f, sort_keys=False)
-    print(f"[nyann] merged {added} nyann repo(s) into .pre-commit-config.yaml")
-else:
-    print("[nyann] .pre-commit-config.yaml already has all nyann repos; no change")
-PY
+    python3 "${_script_dir}/_precommit-merge.py" "$dst" "$tmpl"
     nyann::log "merged nyann hooks into $dst"
   elif [[ ! -f "$dst" ]]; then
     cp "$tmpl" "$dst"

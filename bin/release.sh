@@ -146,7 +146,8 @@ fi
 tag="${tag_prefix}${version}"
 tmp_changelog=""
 push_err=""
-trap 'rm -f "$tmp_changelog" "$push_err"' EXIT
+commits_tsv=""
+trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"}' EXIT
 
 # --- soft-skip paths ---------------------------------------------------------
 
@@ -205,7 +206,10 @@ fi
 
 # --- collect commits in range ------------------------------------------------
 
-commits_json='[]'
+# Accumulate parsed commits as TSV; one trailing jq turns it into the
+# commits_json array. This replaces the per-commit `jq '. + [{...}]'`
+# fork (one per commit on the release range — 50 commits = 50 forks).
+commits_tsv=$(mktemp -t nyann-release-commits.XXXXXX)
 # Assign the regex to a variable — bash's parser gets confused by embedded
 # parens when the pattern is inlined on the `=~` RHS.
 cc_regex='^([a-z]+)(\([^)]+\))?(!?):[[:space:]](.*)$'
@@ -221,12 +225,26 @@ while IFS= read -r sha && IFS= read -r subject; do
     [[ "${BASH_REMATCH[3]}" == "!" ]] && breaking=true
     csubject="${BASH_REMATCH[4]}"
   fi
-  commits_json=$(jq \
-    --arg sha "$sha" --arg type "$ctype" --arg scope "$cscope" \
-    --arg subject "$csubject" --argjson breaking "$breaking" \
-    '. + [{sha:$sha, type:$type, scope:$scope, subject:$subject, breaking:$breaking}]' \
-    <<<"$commits_json")
+  # Sanitise subject AND scope before serialising:
+  #   tab — splits the TSV row;
+  #   CR  — sneaks in via CRLF commit messages and renders as a literal
+  #         carriage return inside the changelog bullet;
+  #   LF  — Conventional Commit subjects are single-line by spec, but
+  #         tooling that pipes raw `%B` through `--subject` filters can
+  #         leak one. Splitting the TSV across lines is unrecoverable.
+  # Scope likewise: the cc_regex `\([^)]+\)` permits any non-`)` byte —
+  # `feat(a<TAB>b): msg` is a syntactically valid CC scope and would
+  # otherwise shift columns and corrupt commits_json + the changelog.
+  csubject_safe="${csubject//[$'\t\r\n']/ }"
+  cscope_safe="${cscope//[$'\t\r\n']/ }"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$sha" "$ctype" "$cscope_safe" "$csubject_safe" "$breaking" >> "$commits_tsv"
 done < <(git -C "$target" log --pretty=tformat:'%H%n%s' "$log_range" 2>/dev/null || true)
+
+commits_json=$(jq -R -s '
+  split("\n")
+  | map(select(. != "") | split("\t"))
+  | map({sha:.[0], type:.[1], scope:.[2], subject:.[3], breaking:(.[4] == "true")})
+' < "$commits_tsv")
 
 n_commits=$(jq 'length' <<<"$commits_json")
 if (( n_commits == 0 )) && [[ "$strategy" == "conventional-changelog" ]]; then
@@ -240,60 +258,36 @@ fi
 render_changelog_block() {
   local date_str
   date_str=$(date +%Y-%m-%d)
-  printf '## [%s] — %s\n\n' "$version" "$date_str"
-
-  # Breaking changes first.
-  local breaking_block
-  breaking_block=$(jq -r '
-    [ .[] | select(.breaking == true) ]
-    | if length == 0 then "" else
-        "### ⚠️ Breaking changes\n\n" +
-        ( [ .[] | "- " + (if .scope != "" then "**" + .scope + "**: " else "" end) + .subject + " (" + (.sha[0:7]) + ")" ] | join("\n") ) +
-        "\n\n"
-      end
-  ' <<<"$commits_json")
-  if [[ -n "$breaking_block" ]]; then
-    printf '%s' "$breaking_block"
-  fi
-
-  # Grouped by type, in a stable order.
-  local types=(feat fix perf refactor docs test build ci chore)
-  local headings=("Features" "Fixes" "Performance" "Refactors" "Docs" "Tests" "Build" "CI" "Chores")
-
-  local i
-  for i in "${!types[@]}"; do
-    local t="${types[$i]}" heading="${headings[$i]}"
-    local block
-    block=$(jq -r --arg t "$t" '
-      [ .[] | select(.breaking == false) | select(.type == $t) ]
-      | if length == 0 then "" else
-          "### " + $ARGS.positional[0] + "\n\n" +
-          ( [ .[] | "- " + (if .scope != "" then "**" + .scope + "**: " else "" end) + .subject + " (" + (.sha[0:7]) + ")" ] | join("\n") ) +
-          "\n\n"
-        end
-    ' --args "$heading" <<<"$commits_json")
-    if [[ -n "$block" ]]; then
-      printf '%s' "$block"
-    fi
-  done
-
-  # Anything with a type that isn't in the canonical list, plus uncategorized
-  # (empty type) — land under "Other".
-  local known_csv
-  known_csv=$(printf '%s\n' "${types[@]}" | jq -R . | jq -s . | jq -c .)
-  local other_block
-  other_block=$(jq -r --argjson known "$known_csv" '
-    [ .[] | select(.breaking == false) | select(.type == "" or (.type as $t | $known | index($t) == null)) ]
-    | if length == 0 then "" else
-        "### Other\n\n" +
-        ( [ .[] | "- " + (if .scope != "" then "**" + .scope + "**: " else "" end) + .subject + " (" + (.sha[0:7]) + ")" ] | join("\n") ) +
-        "\n\n"
-      end
-  ' <<<"$commits_json")
-  if [[ -n "$other_block" ]]; then
-    printf '%s' "$other_block"
-  fi
-  return 0
+  # Single jq program renders the whole block: header, breaking section,
+  # nine canonical type sections in stable order, then "Other" for the
+  # leftovers. Replaces ~12 separate jq invocations (one per section
+  # + a `jq -R | jq -s | jq -c` chain to build the canonical list) and
+  # ~12 reparses of $commits_json over the same input.
+  jq -r --arg version "$version" --arg date "$date_str" '
+    def fmt_entry: "- " + (if .scope != "" then "**" + .scope + "**: " else "" end) + .subject + " (" + (.sha[0:7]) + ")";
+    def section($heading; $entries):
+      if ($entries | length) == 0 then ""
+      else "### " + $heading + "\n\n" + ([$entries[] | fmt_entry] | join("\n")) + "\n\n"
+      end;
+    ["feat","fix","perf","refactor","docs","test","build","ci","chore"] as $known |
+    "## [" + $version + "] — " + $date + "\n\n" +
+    section("⚠️ Breaking changes"; [.[] | select(.breaking == true)]) +
+    section("Features";    [.[] | select(.breaking == false and .type == "feat")]) +
+    section("Fixes";       [.[] | select(.breaking == false and .type == "fix")]) +
+    section("Performance"; [.[] | select(.breaking == false and .type == "perf")]) +
+    section("Refactors";   [.[] | select(.breaking == false and .type == "refactor")]) +
+    section("Docs";        [.[] | select(.breaking == false and .type == "docs")]) +
+    section("Tests";       [.[] | select(.breaking == false and .type == "test")]) +
+    section("Build";       [.[] | select(.breaking == false and .type == "build")]) +
+    section("CI";          [.[] | select(.breaking == false and .type == "ci")]) +
+    section("Chores";      [.[] | select(.breaking == false and .type == "chore")]) +
+    # NB: explicit `index(.type) == null` (equality) — not `[.type] | inside($known)`,
+    # which uses jq array-contains semantics that fall back to substring matching for
+    # strings: `[""] | inside(["feat"])` is TRUE (empty string is a substring of every
+    # string) and `["fea"] | inside(["feat"])` is also TRUE. Both would silently drop
+    # the commit from the changelog instead of landing it in Other.
+    section("Other"; [.[] | select(.breaking == false) | select(.type as $t | $t == "" or ($known | index($t) == null))])
+  ' <<<"$commits_json"
 }
 
 changelog_block=""

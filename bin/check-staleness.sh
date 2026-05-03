@@ -46,6 +46,17 @@ if [[ -z "$threshold" || "$threshold" == "null" ]]; then
   jq -n '{ enabled: false, threshold_days: null, scanned: 0, stale: [] }'
   exit 0
 fi
+# Schema validation upstream is best-effort (compute-drift falls back to
+# `jq empty` when no JSON schema validator is installed). A profile that
+# slipped through with `staleness_days: "abc"` would otherwise crash the
+# trailing `--argjson threshold` jq call AFTER the per-file walk has
+# already run, wasting work and emitting no structured report. Guard
+# the threshold against non-positive-integer values up-front.
+if ! [[ "$threshold" =~ ^[0-9]+$ ]] || (( threshold < 1 )); then
+  nyann::warn "documentation.staleness_days must be a positive integer; got '$threshold' — staleness check disabled"
+  jq -n '{ enabled: false, threshold_days: null, scanned: 0, stale: [] }'
+  exit 0
+fi
 
 # --- exclusions --------------------------------------------------------------
 
@@ -60,8 +71,12 @@ scan_dirs=()
 [[ -d "$target/docs" ]]   && scan_dirs+=("$target/docs")
 [[ -d "$target/memory" ]] && scan_dirs+=("$target/memory")
 
-stale='[]'
 scanned=0
+# Accumulate stale entries as TSV; collapses N per-file jq forks into 1
+# at the end. On a profile with staleness enabled and many old docs,
+# this is the dominant fork cost in the parallel doc subsystem dispatch.
+stale_tsv=$(mktemp -t nyann-stale.XXXXXX)
+trap 'rm -f "$stale_tsv"' EXIT
 
 if [[ ${#scan_dirs[@]} -gt 0 ]]; then
   now=$(date +%s)
@@ -78,11 +93,19 @@ if [[ ${#scan_dirs[@]} -gt 0 ]]; then
     fi
     days=$(( (now - mtime) / 86400 ))
     if (( days >= threshold )); then
-      stale=$(jq --arg p "$rel" --argjson d "$days" \
-        '. + [{ path: $p, last_modified_days_ago: $d }]' <<<"$stale")
+      # Unix filenames may legally contain tab/CR/LF. Sanitise before
+      # serialising so a single weirdly-named doc can't corrupt the TSV
+      # and abort the trailing jq reduce for the whole audit.
+      rel_safe="${rel//[$'\t\r\n']/ }"
+      printf '%s\t%s\n' "$rel_safe" "$days" >> "$stale_tsv"
     fi
   done < <(find "${scan_dirs[@]}" -type f -print0)
 fi
+
+stale=$(jq -R -s '
+  split("\n")
+  | map(select(. != "") | split("\t"))
+  | map({path:.[0], last_modified_days_ago:(.[1]|tonumber)})' < "$stale_tsv")
 
 jq -n \
   --argjson enabled true \

@@ -36,6 +36,13 @@ done
 [[ -n "$profile_path" && -f "$profile_path" ]] || nyann::die "--profile <path> is required"
 target="$(cd "$target" && pwd)"
 
+# Install the cleanup trap up-front. _drift_tmpdir (parallel doc
+# subsystems) is created mid-script; a SIGINT/SIGTERM between creation
+# and the trap install would leak the tmpdir. Initialising to "" and
+# guarding with ${var:+} keeps the trap safe at any point in the run.
+_drift_tmpdir=""
+trap 'rm -rf ${_drift_tmpdir:+"$_drift_tmpdir"}' EXIT
+
 # Validate the profile against the schema before consuming any field.
 # bootstrap.sh and retrofit.sh already validate via load-profile.sh,
 # but compute-drift can be invoked directly (tests, future skills,
@@ -165,24 +172,40 @@ if [[ -f "$target/.gitignore" ]]; then
   fi
 
   if [[ ${#expected_entries[@]} -gt 0 ]]; then
-    # Normalize gitignore contents so `coverage` and `coverage/` count as
-    # matching. Strip trailing slashes and blank/comment lines.
-    norm_file=$(mktemp -t nyann-gi-norm.XXXXXX)
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      trimmed="${line#"${line%%[![:space:]]*}"}"
-      [[ -z "$trimmed" || "$trimmed" == \#* ]] && continue
-      stripped="${trimmed%/}"
-      printf '%s\n' "$stripped" >> "$norm_file"
-    done < "$target/.gitignore"
-
+    # Normalize gitignore + diff against expected entries in one pass:
+    # awk reads .gitignore (lstrip, drop blanks/comments, strip trailing
+    # `/`) into a hash; expected entries are also stripped and compared.
+    # Replaces the previous read-loop + per-entry `grep -Fxq` (~8 grep
+    # forks for 8 expected entries) with a single awk fork.
     missing_entries=()
-    for e in "${expected_entries[@]}"; do
-      stripped="${e%/}"
-      if ! grep -Fxq "$stripped" "$norm_file" 2>/dev/null; then
-        missing_entries+=("$e")
-      fi
-    done
-    rm -f "$norm_file"
+    while IFS= read -r e; do
+      [[ -z "$e" ]] && continue
+      missing_entries+=("$e")
+    done < <(awk -v want_csv="$(IFS=,; printf '%s' "${expected_entries[*]}")" '
+      # NB: variable names avoid `exp` because BSD awk on macOS treats it
+      # as a reserved (math) builtin and refuses array indexing into it.
+      BEGIN {
+        n = split(want_csv, raw, ",")
+        for (i = 1; i <= n; i++) {
+          w = raw[i]
+          sub(/\/$/, "", w)
+          if (w != "") { want[i] = w; orig[i] = raw[i] }
+        }
+      }
+      {
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        if (line == "" || substr(line, 1, 1) == "#") next
+        sub(/\/$/, "", line)
+        seen[line] = 1
+      }
+      END {
+        for (i = 1; i <= n; i++) {
+          if (want[i] == "") continue
+          if (!(want[i] in seen)) print orig[i]
+        }
+      }
+    ' "$target/.gitignore")
 
     if [[ ${#missing_entries[@]} -gt 0 ]]; then
       csv=$(IFS=','; echo "${missing_entries[*]}")
@@ -234,73 +257,61 @@ n_off=$(jq 'length' <<<"$offenders_json")
 
 # --- DOCUMENTATION tier: CLAUDE.md size + link check + orphans --------------
 
-# Previously each subsystem call was `cmd 2>/dev/null || echo
-# '<clean-looking fallback>'`, which hid real failures (corrupted
-# CLAUDE.md, permissions errors, jq failures) as `status:"absent"` or
-# empty arrays. That masked broken links, orphans, and staleness from
-# the user. Now stderr is captured, fallbacks are only used when the
-# subsystem would naturally produce them, and any real failure is
-# surfaced in `documentation.subsystem_errors[]` so the consumer can
-# warn rather than mistake it for clean state.
-#
-# Error records are written to a side file (not a bash variable)
-# because `out=$(run_subsystem ...)` is a subshell — variable updates
-# inside wouldn't survive. The file is slurped + parsed at the end.
-norm_file=""
-subsys_err=$(mktemp -t nyann-driftsub.XXXXXX)
-subsys_errors_file=$(mktemp -t nyann-driftsub-errs.XXXXXX)
-trap 'rm -f ${norm_file:+"$norm_file"} "$subsys_err" "$subsys_errors_file"' EXIT
+# Each doc subsystem writes to its own pair of output files (stdout +
+# stderr), solving the macOS APFS append-atomicity concern that
+# previously forced serial execution. All four subsystems now run in
+# parallel via background jobs + wait. Cleanup trap is installed at
+# top-of-script so partial state is cleaned up on SIGINT.
+_drift_tmpdir=$(mktemp -d -t nyann-driftsubs.XXXXXX)
 
-run_subsystem() {
-  # Usage: run_subsystem <name> <fallback-json> <cmd> [args...]
-  # Emits the subsystem's stdout on success. On non-zero, emits the
-  # fallback JSON and appends an error record (as a single JSON line)
-  # to $subsys_errors_file.
-  local name="$1" fallback="$2"
-  shift 2
-  : > "$subsys_err"
-  local out
-  if out=$("$@" 2>"$subsys_err"); then
-    printf '%s' "$out"
-    return 0
-  fi
-  local err_text
-  err_text=$(head -c 500 "$subsys_err" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
-  [[ -z "$err_text" ]] && err_text="subsystem exited non-zero with no stderr output"
-  jq -nc --arg n "$name" --arg e "$err_text" '{subsystem:$n, error:$e}' \
-    >> "$subsys_errors_file"
-  printf '%s' "$fallback"
-}
+_subsys_names=(check-claude-md-size check-links find-orphans check-staleness)
+_subsys_fallbacks=(
+  '{"status":"absent","bytes":0,"budget_bytes":3072}'
+  '{"checked":0,"broken":[],"needs_mcp_verify":[],"skipped":[]}'
+  '{"scanned":0,"orphans":[]}'
+  '{"enabled":false,"threshold_days":null,"scanned":0,"stale":[]}'
+)
+for i in 0 1 2 3; do
+  (
+    name="${_subsys_names[$i]}"
+    out_f="$_drift_tmpdir/${name}.out"
+    err_f="$_drift_tmpdir/${name}.err"
+    case "$name" in
+      check-claude-md-size) cmd=("${_script_dir}/check-claude-md-size.sh" --target "$target" --profile "$profile_path") ;;
+      check-links)          cmd=("${_script_dir}/check-links.sh" --target "$target") ;;
+      find-orphans)         cmd=("${_script_dir}/find-orphans.sh" --target "$target") ;;
+      check-staleness)      cmd=("${_script_dir}/check-staleness.sh" --target "$target" --profile "$profile_path") ;;
+    esac
+    if "${cmd[@]}" >"$out_f" 2>"$err_f"; then
+      :
+    else
+      printf '%s' "${_subsys_fallbacks[$i]}" > "$out_f"
+      err_text=$(head -c 500 "$err_f" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+      [[ -z "$err_text" ]] && err_text="subsystem exited non-zero with no stderr output"
+      jq -nc --arg n "$name" --arg e "$err_text" '{subsystem:$n, error:$e}' \
+        > "$_drift_tmpdir/${name}.errrec"
+    fi
+  ) &
+done
+wait
 
-# These run_subsystem calls are intentionally SEQUENTIAL.
-# run_subsystem appends JSON records to $subsys_errors_file via `>>`,
-# which is atomic-per-line on Linux (pipes < PIPE_BUF) but NOT reliably
-# atomic on macOS HFS+/APFS when multiple subshells append at once.
-# Parallelising these (e.g. `& wait`) requires coordinating the append
-# (flock, per-subsystem file, or in-memory accumulation) before it's
-# safe. Keep serial until someone redesigns the coordination.
-claude_md_json=$(run_subsystem check-claude-md-size \
-  '{"status":"absent","bytes":0,"budget_bytes":3072}' \
-  "${_script_dir}/check-claude-md-size.sh" --target "$target" --profile "$profile_path")
-links_json=$(run_subsystem check-links \
-  '{"checked":0,"broken":[],"needs_mcp_verify":[],"skipped":[]}' \
-  "${_script_dir}/check-links.sh" --target "$target")
-orphans_json=$(run_subsystem find-orphans \
-  '{"scanned":0,"orphans":[]}' \
-  "${_script_dir}/find-orphans.sh" --target "$target")
-staleness_json=$(run_subsystem check-staleness \
-  '{"enabled":false,"threshold_days":null,"scanned":0,"stale":[]}' \
-  "${_script_dir}/check-staleness.sh" --target "$target" --profile "$profile_path")
+claude_md_json=$(<"$_drift_tmpdir/check-claude-md-size.out")
+links_json=$(<"$_drift_tmpdir/check-links.out")
+orphans_json=$(<"$_drift_tmpdir/find-orphans.out")
+staleness_json=$(<"$_drift_tmpdir/check-staleness.out")
 
 n_broken=$(jq '.broken | length' <<<"$links_json")
 n_orphans=$(jq '.orphans | length' <<<"$orphans_json")
 n_stale=$(jq '.stale | length' <<<"$staleness_json")
 claude_md_status=$(jq -r '.status' <<<"$claude_md_json")
 
-# Collect subsystem errors from the side file into a JSON array.
+# Collect subsystem errors from per-subsystem files.
 subsystem_errors_json='[]'
-if [[ -s "$subsys_errors_file" ]]; then
-  subsystem_errors_json=$(jq -s '.' "$subsys_errors_file")
+shopt -s nullglob
+_errrec_files=("$_drift_tmpdir"/*.errrec)
+shopt -u nullglob
+if [[ ${#_errrec_files[@]} -gt 0 ]]; then
+  subsystem_errors_json=$(cat "${_errrec_files[@]}" | jq -s '.')
 fi
 n_subsys_errs=$(jq 'length' <<<"$subsystem_errors_json")
 

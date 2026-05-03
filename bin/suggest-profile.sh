@@ -19,6 +19,7 @@ source "${_script_dir}/_lib.sh"
 nyann::require_cmd jq
 
 target=""
+stack_file=""
 plugin_root="$(cd "${_script_dir}/.." && pwd)"
 user_root="${HOME}/.claude/nyann"
 
@@ -26,6 +27,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)        target="${2:-}"; shift 2 ;;
     --target=*)      target="${1#--target=}"; shift ;;
+    --stack)         stack_file="${2:-}"; shift 2 ;;
+    --stack=*)       stack_file="${1#--stack=}"; shift ;;
     --plugin-root)   plugin_root="${2:-}"; shift 2 ;;
     --plugin-root=*) plugin_root="${1#--plugin-root=}"; shift ;;
     --user-root)     user_root="${2:-}"; shift 2 ;;
@@ -39,16 +42,33 @@ done
 target="$(cd "$target" && pwd)"
 
 # --- detect stack -----------------------------------------------------------
+# Accept pre-computed StackDescriptor via --stack <file> to avoid redundant
+# detect-stack.sh calls (e.g. bootstrap already ran detection in step 1).
 
-stack_json=$("${_script_dir}/detect-stack.sh" --path "$target") \
-  || nyann::die "detect-stack.sh failed"
+if [[ -n "$stack_file" ]]; then
+  [[ -f "$stack_file" ]] || nyann::die "--stack file not found: $stack_file"
+  stack_json=$(<"$stack_file")
+  jq empty <<<"$stack_json" 2>/dev/null \
+    || nyann::die "--stack file is not valid JSON: $stack_file"
+  nyann::log "using pre-computed stack from $stack_file"
+else
+  stack_json=$("${_script_dir}/detect-stack.sh" --path "$target") \
+    || nyann::die "detect-stack.sh failed"
+fi
 
-detected_lang=$(jq -r '.primary_language // "unknown"' <<<"$stack_json")
-detected_fw=$(jq -r '.framework // "null"' <<<"$stack_json")
-detected_pm=$(jq -r '.package_manager // "null"' <<<"$stack_json")
-detected_confidence=$(jq -r '.confidence // 0' <<<"$stack_json")
+# Extract all fields in one jq call. IFS=$'\t' so empty middle fields
+# (e.g. framework="null" while package_manager is set) don't shift later
+# variables under default IFS, which collapses runs of whitespace.
+IFS=$'\t' read -r detected_lang detected_fw detected_pm detected_confidence is_monorepo < <(
+  jq -r '[
+    (.primary_language // "unknown"),
+    (.framework // "null"),
+    (.package_manager // "null"),
+    (.confidence // 0),
+    (.is_monorepo // false)
+  ] | @tsv' <<<"$stack_json"
+)
 secondary_langs_json=$(jq -c '.secondary_languages // []' <<<"$stack_json")
-is_monorepo=$(jq -r '.is_monorepo // false' <<<"$stack_json")
 
 nyann::log "detected: lang=$detected_lang fw=$detected_fw pm=$detected_pm confidence=$detected_confidence"
 
@@ -59,89 +79,101 @@ fi
 
 # --- scoring function -------------------------------------------------------
 # score_profiles <match_lang> <match_fw> <match_pm>
-# Reads all profiles and outputs a JSON array of matches.
+# Collects all profile files, then scores them in a single jq invocation
+# instead of spawning multiple jq subprocesses per profile.
 
 score_profiles() {
   local match_lang="$1" match_fw="$2" match_pm="$3"
   local profiles_dir="$plugin_root/profiles"
-  local acc='[]'
 
-  _score_one() {
-    local profile_path="$1"
-    local name
-    name=$(basename "$profile_path" .json)
-    [[ "$name" == "_schema" ]] && return
-
-    local p_lang p_fw p_pm score reasons
-    p_lang=$(jq -r '.stack.primary_language // "unknown"' "$profile_path")
-    p_fw=$(jq -r '.stack.framework // "null"' "$profile_path")
-    p_pm=$(jq -r '.stack.package_manager // "null"' "$profile_path")
-    score=0
-    reasons='[]'
-
-    # Language match (strongest signal).
-    if [[ "$p_lang" == "$match_lang" && "$p_lang" != "unknown" ]]; then
-      score=$((score + 50))
-      reasons=$(jq --arg r "language match: $match_lang" '. + [$r]' <<<"$reasons")
-    elif [[ "$p_lang" == "unknown" && "$match_lang" == "unknown" ]]; then
-      score=$((score + 20))
-      reasons=$(jq '. + ["both unknown language"]' <<<"$reasons")
-    fi
-
-    # JS ↔ TS affinity.
-    if [[ "$score" -eq 0 ]]; then
-      if { [[ "$match_lang" == "javascript" && "$p_lang" == "typescript" ]] \
-        || [[ "$match_lang" == "typescript" && "$p_lang" == "javascript" ]]; }; then
-        score=$((score + 35))
-        reasons=$(jq --arg r "JS/TS affinity: $match_lang ≈ $p_lang" '. + [$r]' <<<"$reasons")
-      fi
-    fi
-
-    # Framework match.
-    if [[ "$p_fw" != "null" && "$match_fw" != "null" && "$p_fw" == "$match_fw" ]]; then
-      score=$((score + 40))
-      reasons=$(jq --arg r "framework match: $match_fw" '. + [$r]' <<<"$reasons")
-    elif [[ "$p_fw" == "null" && "$match_fw" == "null" && "$score" -gt 0 ]]; then
-      score=$((score + 5))
-      reasons=$(jq '. + ["no framework (matches generic profile)"]' <<<"$reasons")
-    fi
-
-    # Package manager match (weak signal).
-    if [[ "$p_pm" != "null" && "$match_pm" != "null" && "$p_pm" == "$match_pm" ]]; then
-      score=$((score + 5))
-      reasons=$(jq --arg r "package manager match: $match_pm" '. + [$r]' <<<"$reasons")
-    fi
-
-    (( score == 0 )) && return
-
-    local confidence=$score
-    (( confidence > 100 )) && confidence=100
-
-    acc=$(jq \
-      --arg name "$name" \
-      --argjson confidence "$confidence" \
-      --argjson reasons "$reasons" \
-      '. + [{name: $name, confidence: $confidence, reasons: $reasons}]' <<<"$acc")
-  }
-
-  for f in "$profiles_dir"/*.json; do
-    [[ -f "$f" ]] || continue
-    _score_one "$f"
-  done
-
+  # Collect profile paths into an array. User profiles take precedence
+  # over starter profiles of the same name (mirrors load-profile.sh
+  # resolution order) so user customisations are not lost to a tied
+  # confidence score with the starter. Bash 3.2 compatible — pipe-delimited
+  # string instead of associative array.
+  local -a profile_files=()
+  local seen_names="|"
+  local _name
   if [[ -d "$user_root/profiles" ]]; then
     for f in "$user_root/profiles"/*.json; do
       [[ -f "$f" ]] || continue
-      _score_one "$f"
+      _name="$(basename "$f" .json)"
+      [[ "$_name" == "_schema" ]] && continue
+      profile_files+=("$f")
+      seen_names="${seen_names}${_name}|"
     done
   fi
+  for f in "$profiles_dir"/*.json; do
+    [[ -f "$f" ]] || continue
+    _name="$(basename "$f" .json)"
+    [[ "$_name" == "_schema" ]] && continue
+    [[ "$seen_names" == *"|${_name}|"* ]] && continue
+    profile_files+=("$f")
+  done
 
-  # Deduplicate by name, keep highest confidence per name.
-  jq '
+  # Pre-filter malformed JSON. A single bad file in ~/.claude/nyann/profiles/
+  # would otherwise abort the entire batch (jq -n inputs exits 5 on the first
+  # parse error), making bootstrap step 2 fail for every repo on the machine.
+  local -a valid_files=()
+  for f in "${profile_files[@]}"; do
+    if jq empty "$f" >/dev/null 2>&1; then
+      valid_files+=("$f")
+    else
+      nyann::warn "skipping malformed profile: $f"
+    fi
+  done
+  profile_files=("${valid_files[@]}")
+
+  (( ${#profile_files[@]} == 0 )) && { echo '[]'; return; }
+
+  # Feed all profiles as a JSON stream to a single jq invocation that
+  # scores, filters, deduplicates, and sorts in one pass.
+  jq -n \
+    --arg ml "$match_lang" --arg mf "$match_fw" --arg mp "$match_pm" \
+    '[inputs |
+      (.stack.primary_language // "unknown") as $pl |
+      (.stack.framework // "null") as $pf |
+      (.stack.package_manager // "null") as $pm |
+      (input_filename | split("/") | last | rtrimstr(".json")) as $name |
+
+      # Score computation
+      0 as $s |
+
+      # Language match (strongest signal)
+      (if $pl == $ml and $pl != "unknown" then
+         { s: ($s + 50), r: ["language match: " + $ml] }
+       elif $pl == "unknown" and $ml == "unknown" then
+         { s: ($s + 20), r: ["both unknown language"] }
+       # JS/TS affinity
+       elif ($ml == "javascript" and $pl == "typescript") or
+            ($ml == "typescript" and $pl == "javascript") then
+         { s: ($s + 35), r: ["JS/TS affinity: " + $ml + " ≈ " + $pl] }
+       else
+         { s: $s, r: [] }
+       end) as $lang_result |
+
+      # Framework match
+      ($lang_result |
+       if $pf != "null" and $mf != "null" and $pf == $mf then
+         { s: (.s + 40), r: (.r + ["framework match: " + $mf]) }
+       elif $pf == "null" and $mf == "null" and .s > 0 then
+         { s: (.s + 5), r: (.r + ["no framework (matches generic profile)"]) }
+       else . end) as $fw_result |
+
+      # Package manager match (weak signal)
+      ($fw_result |
+       if $pm != "null" and $mp != "null" and $pm == $mp then
+         { s: (.s + 5), r: (.r + ["package manager match: " + $mp]) }
+       else . end) as $final |
+
+      select($final.s > 0) |
+      { name: $name,
+        confidence: ([$final.s, 100] | min),
+        reasons: $final.r }
+    ] |
     group_by(.name) |
     map(sort_by(-.confidence) | .[0]) |
-    sort_by(-.confidence)
-  ' <<<"$acc"
+    sort_by(-.confidence)' "${profile_files[@]}"
 }
 
 # --- primary suggestions ----------------------------------------------------
