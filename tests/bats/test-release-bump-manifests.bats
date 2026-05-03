@@ -213,3 +213,59 @@ TOML
   # File stays untouched in dry-run.
   [ "$(jq -r '.version' "$repo/package.json")" = "0.1.0" ]
 }
+
+@test "prerelease version + --bump-manifests dies up-front" {
+  repo=$(make_repo)
+  echo '{"version":"0.1.0"}' > "$repo/package.json"
+  prof=$(make_profile "rc" '[{"path":"package.json","format":"json-version-key","key":".version"}]')
+
+  run bash "$RELEASE" --target "$repo" --version 1.0.0-rc.1 --profile "$prof" --bump-manifests --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -F -e "prerelease"
+  # File untouched — the prerelease guard must catch it BEFORE
+  # compute_bump_plan would have populated bumped_files_json. This is
+  # the bug-hunt P0: dry-run lying about real-run.
+  [ "$(jq -r '.version' "$repo/package.json")" = "0.1.0" ]
+}
+
+@test "mixed bumped+unchanged in one run lands only the changed file in the commit" {
+  repo=$(make_repo)
+  echo '{"version":"0.1.0"}' > "$repo/a.json"
+  echo '{"version":"2.0.0"}' > "$repo/b.json"   # already at target
+  prof=$(make_profile "mixed" '[
+    {"path":"a.json","format":"json-version-key","key":".version"},
+    {"path":"b.json","format":"json-version-key","key":".version"}
+  ]')
+
+  out=$(bash "$RELEASE" --target "$repo" --version 2.0.0 --profile "$prof" --bump-manifests --yes)
+  [ "$(echo "$out" | jq -r '.bumped_files | length')" = "2" ]
+  # a.json was at 0.1.0 → bumped. b.json was already 2.0.0 → unchanged.
+  [ "$(echo "$out" | jq -r '.bumped_files[] | select(.path=="a.json") | .action')" = "bumped" ]
+  [ "$(echo "$out" | jq -r '.bumped_files[] | select(.path=="b.json") | .action')" = "unchanged" ]
+  # Only a.json should be in the release commit's tree changes.
+  files=$(git -C "$repo" diff-tree --no-commit-id --name-only -r HEAD)
+  echo "$files" | grep -Fxq "a.json"
+  ! echo "$files" | grep -Fxq "b.json"
+}
+
+@test "missing --profile file dies with the path in the error" {
+  repo=$(make_repo)
+  run bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "/tmp/nope-$$.json" --bump-manifests --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -F -e "/tmp/nope-$$.json"
+}
+
+@test "json-version-key with shell-injection .key is rejected at runtime" {
+  repo=$(make_repo)
+  echo '{"version":"0.1.0"}' > "$repo/package.json"
+  # `key` is structurally illegal — bypasses the schema regex by hand-
+  # editing the profile file. Defence-in-depth runtime check should
+  # still refuse.
+  prof=$(make_profile "evil-key" '[{"path":"package.json","format":"json-version-key","key":". | env"}]')
+
+  run bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "$prof" --bump-manifests --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -F -e "simple jq path"
+  # File stays untouched — the rejection happened before mutation.
+  [ "$(jq -r '.version' "$repo/package.json")" = "0.1.0" ]
+}

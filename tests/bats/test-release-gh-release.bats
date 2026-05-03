@@ -173,3 +173,62 @@ SH
   # invoked the mock.
   [ ! -s "$TMP/gh-calls.log" ] || [ ! -e "$TMP/gh-calls.log" ]
 }
+
+@test "--gh-release: tag push fails → outcome:skipped, skipped_reason:tag-not-pushed" {
+  repo=$(make_pushable_repo)
+  make_mock_gh_release_create success
+  # Replace origin with an unreachable remote so the tag push fails.
+  git -C "$repo" remote set-url origin "file:///definitely/not/a/real/path-$$"
+
+  out=$(bash "$RELEASE" --target "$repo" --version 0.2.0 --yes --push --gh-release \
+    --gh "$TMP/mock/gh" 2>/dev/null) && rc=0 || rc=$?
+
+  # release.sh exits 3 when --push was requested but pushed=false.
+  [ "$rc" -eq 3 ]
+  [ "$(echo "$out" | jq -r '.gh_release.outcome')" = "skipped" ]
+  [ "$(echo "$out" | jq -r '.gh_release.skipped_reason')" = "tag-not-pushed" ]
+  # gh release create must NOT have been called — the tag isn't on origin.
+  [ ! -s "$TMP/gh-calls.log" ] || ! grep -F -e "release create" "$TMP/gh-calls.log"
+}
+
+@test "--gh-release with --strategy manual uses placeholder notes" {
+  # Manual strategy renders no CHANGELOG block, so the notes-file is
+  # the placeholder "Release <tag>." line. Verify gh sees a non-empty
+  # notes-file regardless.
+  repo=$(make_pushable_repo)
+  make_mock_gh_release_create success
+
+  out=$(bash "$RELEASE" --target "$repo" --version 0.2.0 --strategy manual --yes --push --gh-release \
+    --gh "$TMP/mock/gh" 2>/dev/null)
+
+  [ "$(echo "$out" | jq -r '.gh_release.outcome')" = "created" ]
+  # gh was still invoked with --notes-file (the placeholder).
+  grep -F -e "release create v0.2.0 --title v0.2.0 --notes-file" "$TMP/gh-calls.log"
+}
+
+@test "--gh-release: gh stdout with extra lines extracts only the URL" {
+  repo=$(make_pushable_repo)
+  # Custom mock that prints upload progress before the URL.
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in
+  auth) exit 0 ;;
+  release)
+    if [ "$2" = "create" ]; then
+      tag="$3"
+      printf 'Uploading asset 1/1...\nProcessing release...\nhttps://github.com/example/repo/releases/tag/%s\n' "$tag"
+      exit 0
+    fi
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+
+  out=$(bash "$RELEASE" --target "$repo" --version 0.2.0 --yes --push --gh-release \
+    --gh "$TMP/mock/gh" 2>/dev/null)
+
+  # The URL must be extracted cleanly, not "Uploading asset 1/1...".
+  [ "$(echo "$out" | jq -r '.gh_release.url')" = "https://github.com/example/repo/releases/tag/v0.2.0" ]
+}

@@ -266,9 +266,10 @@
             "properties": {
               "path": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9.][A-Za-z0-9._/-]*$",
+                "pattern": "^[A-Za-z0-9_.][A-Za-z0-9._/-]*$",
+                "not": { "pattern": "(^|/)\\.{1,2}(/|$)" },
                 "maxLength": 256,
-                "description": "Relative path from repo root. Must not start with '-' (option injection); leading '.' is permitted so dotfile-prefixed paths like '.claude-plugin/plugin.json' work. Path-traversal ('..') is enforced at runtime by bin/release.sh, not in the schema regex."
+                "description": "Relative path from repo root. Must not start with '-' (option injection); leading '.' is permitted so dotfile-prefixed paths like '.claude-plugin/plugin.json' work. The `not` clause additionally rejects any segment that is exactly '.' or '..' (catches '../foo', './foo', 'foo/../bar', '..', and '.' alone), making path-traversal a schema-layer error rather than relying on the bin/release.sh runtime check alone."
               },
               "format": {
                 "type": "string",
@@ -277,8 +278,9 @@
               },
               "key": {
                 "type": "string",
-                "maxLength": 256,
-                "description": "json-version-key: jq path to the version field (e.g. '.version' or '.plugins[0].version'). REQUIRED for json-version-key."
+                "pattern": "^\\.[A-Za-z_][A-Za-z0-9_]*(\\[[0-9]+\\]|\\.[A-Za-z_][A-Za-z0-9_]*)*$",
+                "maxLength": 128,
+                "description": "json-version-key: jq path to the version field (e.g. '.version' or '.plugins[0].version'). REQUIRED for json-version-key. Restricted to dotted-identifier + numeric-array-index forms so a profile can't smuggle a multi-step jq pipeline (e.g. `. | env`) through the bumper. Any character not in [A-Za-z0-9._\\[\\]] is rejected."
               },
               "section": {
                 "type": "string",

@@ -111,8 +111,8 @@
             },
             "skipped_reason": {
               "type": "string",
-              "enum": ["gh-not-installed", "gh-not-authenticated"],
-              "description": "Present only when outcome=='skipped'."
+              "enum": ["gh-not-installed", "gh-not-authenticated", "tag-not-pushed"],
+              "description": "Present only when outcome=='skipped'. tag-not-pushed surfaces when --gh-release was requested but the upstream tag push failed (gh release create would 404)."
             }
           }
         }

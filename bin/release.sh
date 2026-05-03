@@ -141,6 +141,18 @@ if $bump_manifests && [[ "$strategy" == "manual" ]]; then
   nyann::die "--bump-manifests requires --strategy conventional-changelog (manual strategy creates no commit for the bumps to land in)"
 fi
 
+# Prereleases (1.5.0-rc.1 etc.) intentionally skip the CHANGELOG prepend
+# AND the release commit (see the conventional-changelog branch below).
+# That means there's no commit for --bump-manifests output to land in
+# either — silently dropping the bumps would make dry-run lie about
+# what real-run actually does. Refuse up-front; users who want a
+# pre-release that DOES carry version-bumped manifests can stage their
+# own commit before tagging or open an issue with the use case so we
+# can scope a third strategy (`prerelease-with-bumps`) in v1.6.
+if $bump_manifests && [[ "$version" == *-* ]]; then
+  nyann::die "--bump-manifests is not supported on prerelease versions ($version): the prerelease path skips the release commit, so the bumps would be silently dropped. Cut the stable version with --bump-manifests, or run release.sh on a prerelease without --bump-manifests."
+fi
+
 # --gh-release needs the tag visible on origin.
 if $gh_release && ! $push; then
   nyann::die "--gh-release requires --push (the GitHub release attaches to the pushed tag)"
@@ -167,7 +179,8 @@ tag="${tag_prefix}${version}"
 tmp_changelog=""
 push_err=""
 commits_tsv=""
-trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"}' EXIT
+_resolved_bumps_profile=""
+trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"} ${_resolved_bumps_profile:+"$_resolved_bumps_profile"}' EXIT
 
 # --- soft-skip paths ---------------------------------------------------------
 
@@ -336,7 +349,7 @@ bumped_files_json='[]'
 _bp_paths=()
 _bp_formats=()
 _bp_payload=()
-_resolved_bumps_profile=""
+# _resolved_bumps_profile already declared and trapped above (line ~182).
 
 resolve_bumps_profile() {
   if [[ -n "$profile_path" ]]; then
@@ -390,6 +403,14 @@ compute_bump_plan() {
       json-version-key)
         key=$(jq -r '.key // empty' <<<"$entry")
         [[ -n "$key" ]] || nyann::die "release.bump_files[$i]: json-version-key requires .key"
+        # Defence-in-depth: even when the schema validator isn't on
+        # PATH (compute-drift falls back to `jq empty`), reject keys
+        # that aren't simple `.field` / `.field[0]` / `.a.b` paths.
+        # Without this guard, a profile shipping `key: ". | env"` would
+        # exfiltrate env vars during the bump.
+        if ! [[ "$key" =~ ^\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*$ ]]; then
+          nyann::die "release.bump_files[$i]: json-version-key .key must be a simple jq path (e.g. .version, .plugins[0].version) — got '$key'"
+        fi
         current=$(jq -r "$key // empty" "$full" 2>/dev/null) \
           || nyann::die "release.bump_files[$i]: jq failed reading $key from $path"
         if [[ "$current" == "$version" ]]; then
@@ -755,8 +776,9 @@ if $gh_release; then
   elif ! $tag_pushed; then
     # Tag never made it to origin — `gh release create` would 404 on the
     # tag. Skip with a clear next step rather than emitting a misleading
-    # error.
-    gh_release_json='{"outcome":"skipped","skipped_reason":"gh-not-installed"}'
+    # error. The skipped_reason MUST honestly reflect the cause; gh might
+    # be installed and authed in this branch.
+    gh_release_json='{"outcome":"skipped","skipped_reason":"tag-not-pushed"}'
     nyann::warn "gh-release: tag $tag wasn't pushed; skipping GitHub release creation"
     add_next_step "git push origin $tag && gh release create $tag --title \"$tag\"   # push the tag first, then re-create the release"
   else
@@ -775,8 +797,11 @@ if $gh_release; then
     fi
     gh_create_err=$(mktemp -t nyann-gh-rel.XXXXXX)
     if gh_url=$("$gh_bin" "${gh_args[@]}" 2>"$gh_create_err"); then
-      # gh prints the release URL on success.
-      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | head -1)
+      # gh prints the release URL on success. When --notes-file is large
+      # or assets are attached, gh may also print upload progress on
+      # stdout; pick the first http(s) line rather than blindly
+      # `head -1` the buffer.
+      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | grep -m1 -E '^https?://' || true)
       gh_release_json=$(jq -n --arg url "$gh_url" --argjson pre "$is_prerelease" \
         '{outcome:"created", url:$url, prerelease:$pre}')
     else
