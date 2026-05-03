@@ -187,7 +187,41 @@ commits_tsv=""
 # profile file via trap on every --profile run.
 _resolved_bumps_profile=""
 _bumps_profile_owned_tmp=""
-trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"} ${_bumps_profile_owned_tmp:+"$_bumps_profile_owned_tmp"}' EXIT
+
+# Signal-rollback state. _rollback_dir holds before-snapshots of every
+# file touched during the mutation phase (CHANGELOG + manifest bumps).
+# _mutation_in_progress flips true between the snapshot and the release
+# commit; if a SIGINT/SIGTERM/SIGHUP arrives while it's true, the
+# handler restores files from snapshots so the user never observes a
+# half-bumped working tree. After the commit lands, the flag flips
+# back to false (mutations are persisted via git; recovery is now via
+# git revert/reset, not file copy-back).
+_rollback_dir=""
+_mutation_in_progress=false
+_rollback_files=()
+
+_rollback_on_signal() {
+  trap - INT TERM HUP   # disarm so the handler doesn't recurse
+  if $_mutation_in_progress && [[ -n "$_rollback_dir" && -d "$_rollback_dir" ]]; then
+    nyann::warn "release: signal received mid-mutation; restoring working tree from snapshot ($_rollback_dir)"
+    local _f _full _snap
+    for _f in "${_rollback_files[@]}"; do
+      _full="$target/$_f"
+      _snap="$_rollback_dir/$_f"
+      if [[ -f "$_snap.existed" ]]; then
+        # File existed at snapshot time → restore byte-for-byte.
+        cp "$_snap" "$_full" 2>/dev/null || true
+      else
+        # File was created during mutation → remove it. We never delete
+        # files we didn't create (the .existed sentinel disambiguates).
+        rm -f "$_full" 2>/dev/null || true
+      fi
+    done
+  fi
+  exit 130
+}
+
+trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"} ${_bumps_profile_owned_tmp:+"$_bumps_profile_owned_tmp"}; rm -rf ${_rollback_dir:+"$_rollback_dir"}' EXIT
 
 # --- soft-skip paths ---------------------------------------------------------
 
@@ -348,15 +382,36 @@ fi
 
 bumped_files_json='[]'
 # Parallel arrays describing pending file mutations (bash 3.2 — no
-# associative arrays). Index N across all three describes one mutation:
+# associative arrays). Index N across all four describes one mutation:
 #   _bp_paths[N]   — repo-relative path
 #   _bp_formats[N] — json-version-key | toml-version-key | script
 #   _bp_payload[N] — format-specific arg (jq key / toml section / shell
 #                    command).
+#   _bp_digests[N] — digest of the file at compute time. apply_bump_plan
+#                    re-computes and aborts if anything changed between
+#                    phases (TOCTOU defense — relevant when --wait-for-checks
+#                    leaves minutes between compute and apply).
 _bp_paths=()
 _bp_formats=()
 _bp_payload=()
+_bp_digests=()
 # _resolved_bumps_profile already declared and trapped above (line ~182).
+
+# Portable file-digest helper. Mirrors load-profile.sh's pattern:
+# prefer shasum -a 256, fall back to sha256sum, then cksum. Returns
+# empty string when none of the three are available — caller treats
+# that as "TOCTOU check disabled" (logs a warning) rather than an
+# error, so the bumper still works on minimal containers.
+_file_digest() {
+  local f="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$f" 2>/dev/null | awk '{print $1}'
+  elif command -v cksum >/dev/null 2>&1; then
+    cksum "$f" 2>/dev/null | awk '{print $1"-"$2}'
+  fi
+}
 
 resolve_bumps_profile() {
   if [[ -n "$profile_path" ]]; then
@@ -366,21 +421,43 @@ resolve_bumps_profile() {
     # cleanup. _bumps_profile_owned_tmp stays empty.
     return 0
   fi
-  # Fall back to the default starter profile when --profile isn't passed.
-  # Loaders that already snapshot a profile (skills/release/SKILL.md)
-  # can short-circuit by passing --profile explicitly.
+  # Resolve the ACTIVE profile name, not a hardcoded "default".
+  # Resolution order matches session-check.sh and the rest of the
+  # nyann skill layer:
+  #   1. ~/.claude/nyann/preferences.json's .default_profile
+  #   2. CLAUDE.md's nyann-managed Profile marker (if present)
+  #   3. literal "default"
+  # Hardcoding "default" silently bumped the wrong manifests for any
+  # user whose active profile carried a different release.bump_files[].
+  local active_name="default"
+  local _prefs="${HOME}/.claude/nyann/preferences.json"
+  if [[ -f "$_prefs" ]] && command -v jq >/dev/null 2>&1; then
+    local _pref_name
+    _pref_name=$(jq -r '.default_profile // "auto-detect"' "$_prefs" 2>/dev/null || echo "auto-detect")
+    if [[ "$_pref_name" != "auto-detect" && -n "$_pref_name" && "$_pref_name" != "null" ]]; then
+      active_name="$_pref_name"
+    fi
+  fi
+  if [[ "$active_name" == "default" && -f "$target/CLAUDE.md" ]]; then
+    local _marker_name
+    _marker_name=$(sed -n 's/.*Profile *| *\([a-z0-9][a-z0-9-]*\).*/\1/p' "$target/CLAUDE.md" 2>/dev/null | head -1)
+    [[ -n "$_marker_name" ]] && active_name="$_marker_name"
+  fi
+
   local tmp
   tmp=$(mktemp -t nyann-release-prof.XXXXXX)
   # load-profile.sh resolves user > team > starter from $user_root and
   # the plugin-root profiles dir. It does not take --target — the
   # active profile is the one configured for the user, not for the
   # repo we're releasing.
-  if "${_script_dir}/load-profile.sh" default >"$tmp" 2>/dev/null; then
+  if "${_script_dir}/load-profile.sh" "$active_name" >"$tmp" 2>/dev/null; then
     _resolved_bumps_profile="$tmp"
     # We own this tmpfile — register it for cleanup via the EXIT trap.
     _bumps_profile_owned_tmp="$tmp"
+    nyann::log "--bump-manifests: resolved active profile '$active_name'"
   else
     rm -f "$tmp"
+    nyann::warn "--bump-manifests: could not load active profile '$active_name' (preferences/CLAUDE.md marker or default fallback); skipping bumps"
     return 1
   fi
 }
@@ -406,17 +483,14 @@ compute_bump_plan() {
     path=$(jq -r '.path' <<<"$entry")
     format=$(jq -r '.format' <<<"$entry")
 
-    # Runtime path-traversal guard. The schema's `not.pattern` clause
-    # rejects ./foo, foo/./bar, ., .., and double-dot segments — but
-    # validate-profile.sh falls back to `jq empty` when no JSON-schema
-    # validator is on PATH, so this runtime is the last line of defense.
-    # Match the schema's coverage exactly.
-    if [[ "$path" == /* \
-       || "$path" == *".."* \
-       || "$path" == "." \
-       || "$path" == ./* \
-       || "$path" == */./* \
-       || "$path" == */. ]]; then
+    # Runtime path-traversal guard. Match the schema's `not.pattern`
+    # clause exactly: any SEGMENT that is `.` or `..` is rejected, but
+    # legitimate names that contain `..` as a substring (e.g.
+    # `foo..bar.json`) are allowed. Earlier versions used `*".."*` which
+    # over-rejected. validate-profile.sh falls back to `jq empty` when
+    # no JSON-schema validator is on PATH, so this runtime is the last
+    # line of defense for unvalidated profiles.
+    if [[ "$path" == /* ]] || [[ "$path" =~ (^|/)\.\.?(/|$) ]]; then
       nyann::die "release.bump_files[$i].path must be repo-relative without './' or '..' segments: $path"
     fi
     nyann::assert_path_under_target "$target" "$target/$path" "release.bump_files[$i].path" >/dev/null
@@ -454,6 +528,7 @@ compute_bump_plan() {
           _bp_paths+=("$path")
           _bp_formats+=("$format")
           _bp_payload+=("$key")
+          _bp_digests+=("$(_file_digest "$full")")
           bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
             '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
         fi
@@ -475,6 +550,7 @@ compute_bump_plan() {
           _bp_paths+=("$path")
           _bp_formats+=("$format")
           _bp_payload+=("$section")
+          _bp_digests+=("$(_file_digest "$full")")
           bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
             '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
         fi
@@ -487,6 +563,7 @@ compute_bump_plan() {
         _bp_paths+=("$path")
         _bp_formats+=("$format")
         _bp_payload+=("$command")
+        _bp_digests+=("$(_file_digest "$full")")
         bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" \
           '. + [{path:$p, format:$fmt, action:"bumped", from_version:null}]' <<<"$bumped_files_json")
         ;;
@@ -498,12 +575,28 @@ compute_bump_plan() {
 }
 
 apply_bump_plan() {
-  local i path format payload full tmp
+  local i path format payload digest_at_compute digest_now full tmp
   for ((i=0; i<${#_bp_paths[@]}; i++)); do
     path="${_bp_paths[$i]}"
     format="${_bp_formats[$i]}"
     payload="${_bp_payload[$i]}"
+    digest_at_compute="${_bp_digests[$i]}"
     full="$target/$path"
+    # TOCTOU defense: re-digest the file just before mutating. If it
+    # changed between compute_bump_plan and now (another process,
+    # editor save, --wait-for-checks gating that took minutes), abort
+    # rather than ship a release commit whose dry-run preview no
+    # longer matches reality. When no digest tool is on PATH the
+    # check degrades to "skipped" — log a warning so the operator
+    # knows the TOCTOU window isn't being verified.
+    if [[ -n "$digest_at_compute" ]]; then
+      digest_now=$(_file_digest "$full")
+      if [[ "$digest_now" != "$digest_at_compute" ]]; then
+        nyann::die "bump-manifests: $path changed between compute and apply (digest mismatch); refusing to mutate stale plan. Re-run release.sh."
+      fi
+    else
+      nyann::warn "bump-manifests: no shasum/sha256sum/cksum on PATH; TOCTOU re-check disabled for $path"
+    fi
     case "$format" in
       json-version-key)
         tmp=$(mktemp -t nyann-bump-json.XXXXXX)
@@ -681,6 +774,30 @@ case "$strategy" in
       # section stays queued for the stable cut.
       :
     else
+      # Snapshot every file we're about to touch so a SIGINT/SIGTERM/SIGHUP
+      # mid-mutation can be rolled back instead of leaving a partially-
+      # mutated working tree. CHANGELOG.md (existing or about-to-be-created)
+      # is always in the rollback set; bump_files[] paths join only when
+      # --bump-manifests is active.
+      _rollback_dir=$(mktemp -d -t nyann-release-rollback.XXXXXX)
+      _rollback_files=("$changelog_path")
+      if (( ${#_bp_paths[@]} > 0 )); then
+        _rollback_files+=("${_bp_paths[@]}")
+      fi
+      for _rb_f in "${_rollback_files[@]}"; do
+        _rb_full="$target/$_rb_f"
+        if [[ -f "$_rb_full" ]]; then
+          mkdir -p "$_rollback_dir/$(dirname "$_rb_f")" 2>/dev/null || true
+          cp "$_rb_full" "$_rollback_dir/$_rb_f" 2>/dev/null || true
+          # Sentinel marks "this file existed at snapshot time" — distinct
+          # from "was created during mutation and should be rm'd on
+          # rollback".
+          : > "$_rollback_dir/$_rb_f.existed"
+        fi
+      done
+      _mutation_in_progress=true
+      trap _rollback_on_signal INT TERM HUP
+
       # Prepend changelog_block to CHANGELOG. Atomic: assemble into tmp,
       # then `mv` into place so a mid-write crash can't lose user content.
       full_changelog="$target/$changelog_path"
@@ -718,6 +835,15 @@ case "$strategy" in
       git -C "$target" \
         -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
         commit -q -m "chore(release): $tag" >/dev/null
+
+      # Commit succeeded — mutations are persisted via git, rollback
+      # via working-tree restore is no longer the right recovery
+      # (use `git revert` / `git reset` from here on). Clear the
+      # signal trap and the snapshot dir.
+      _mutation_in_progress=false
+      trap - INT TERM HUP
+      rm -rf "$_rollback_dir"
+      _rollback_dir=""
     fi
     ;;
   manual)

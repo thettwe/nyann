@@ -154,11 +154,13 @@ The dry-run output's `bumped_files[]` array previews each file's
 user before the real run.
 
 When the user says "publish the release on GitHub" / "create the GH
-release too" / the active profile signals `gh-release: true`, also pass
-`--gh-release`. The flag requires `--push` (the GH release attaches to
-the just-pushed tag) and runs `gh release create <tag> --notes-file
-<rendered-changelog>` after the push succeeds. For pre-release versions
-(`-rc.N`, `-beta.N`), the script auto-passes `--prerelease` to gh.
+release too", also pass `--gh-release`. The flag requires `--push`
+(the GH release attaches to the just-pushed tag) and runs
+`gh release create <tag> --notes-file <rendered-changelog>` after
+the push succeeds. For pre-release versions (`-rc.N`, `-beta.N`), the
+script auto-passes `--prerelease` to gh. There is no profile-level
+auto-toggle for `--gh-release` in v1.5.0 — gate on explicit user
+intent only.
 
 Both flags are opt-in. On profiles WITHOUT `release.bump_files`, do not
 auto-pass `--bump-manifests` — it would be a no-op but the skill should
