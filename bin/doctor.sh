@@ -116,6 +116,17 @@ else
   report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile") \
     || retro_rc=$?
 
+  # Validate the report shape before parsing. compute-drift can fail
+  # outright (non-zero rc, empty / partial output) — without this guard
+  # the @tsv read below would feed garbage to bash arithmetic later and
+  # we'd lose the original failure context. The drift schema requires a
+  # top-level `summary` object, so use that as the smoke test.
+  if ! jq -e 'type == "object" and (.summary | type) == "object"' \
+       >/dev/null 2>&1 <<<"$report"; then
+    nyann::die "compute-drift produced an invalid report (rc=${retro_rc:-?}); \
+re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
+  fi
+
   # Parse summary counters once. IFS=$'\t' so empty middle fields don't
   # shift later variables under default IFS (which collapses tab runs).
   IFS=$'\t' read -r n_missing n_mis n_off n_broken n_orphans n_stale n_subsys_errs claude_md_status < <(

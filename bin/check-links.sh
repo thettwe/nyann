@@ -84,7 +84,11 @@ sources_tsv=""
 trap 'rm -f "$broken_tsv" "$skipped_tsv" "$mcp_tsv" ${sources_tsv:+"$sources_tsv"}' EXIT
 
 # Single python3 process extracts links from every source file.
-# Input: one `<src>\t<full_path>` per line on stdin.
+# Input file: alternating <src>\0<full_path>\0<src>\0<full_path>... NUL
+# records (Unix paths can contain tabs and newlines, so the previous
+# TSV-per-line shape silently mis-attributed or skipped entries with
+# such filenames). Output stays TSV — link hrefs are markdown-spec'd
+# to exclude tab/newline so they're safe.
 # Output: one `<src>\t<link>` per line on stdout.
 # This collapses N python3 startups into 1.
 links_raw=""
@@ -93,35 +97,41 @@ if [[ ${#sources[@]} -gt 0 ]]; then
   for src in "${sources[@]}"; do
     full="$target/$src"
     [[ -f "$full" ]] || continue
-    printf '%s\t%s\n' "$src" "$full" >> "$sources_tsv"
+    printf '%s\0%s\0' "$src" "$full" >> "$sources_tsv"
   done
   if [[ -s "$sources_tsv" ]]; then
-    # Pass the TSV path as argv[1] rather than via stdin redirection;
+    # Pass the records file as argv[1] rather than via stdin redirection;
     # heredoc + < competes for fd 0 (shellcheck SC2261).
     links_raw=$(python3 - "$sources_tsv" <<'PY'
 import re, sys
 pattern = re.compile(r'\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
-sources_path = sys.argv[1]
-with open(sources_path) as srcfh:
-    for line in srcfh:
-        line = line.rstrip('\n')
-        if not line:
+records_path = sys.argv[1]
+with open(records_path, 'rb') as recfh:
+    blob = recfh.read()
+parts = blob.split(b'\0')
+# Trailing empty element from the final NUL terminator; alternating pairs.
+if parts and parts[-1] == b'':
+    parts.pop()
+for i in range(0, len(parts) - 1, 2):
+    src = parts[i].decode('utf-8', errors='replace')
+    full = parts[i + 1].decode('utf-8', errors='replace')
+    try:
+        with open(full) as f:
+            text = f.read()
+    except OSError:
+        continue
+    for m in pattern.findall(text):
+        # Tabs in href are not legal markdown link targets; skip if any
+        # leak through to keep the TSV contract clean.
+        if '\t' in m or '\n' in m:
             continue
-        parts = line.split('\t', 1)
-        if len(parts) != 2:
-            continue
-        src, full = parts
-        try:
-            with open(full) as f:
-                text = f.read()
-        except OSError:
-            continue
-        for m in pattern.findall(text):
-            # Tabs in href are not legal markdown link targets; skip if any
-            # leak through to keep the TSV contract clean.
-            if '\t' in m or '\n' in m:
-                continue
-            sys.stdout.write(f"{src}\t{m}\n")
+        # Output src\tlink. Source paths may contain tabs/newlines, so
+        # sanitise to space here to keep the downstream `IFS=$'\t' read`
+        # parseable. The original source file path is preserved in the
+        # broken/skipped/mcp accumulators only via this `src` value, so
+        # this is a one-time normalisation at the boundary.
+        src_safe = src.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ')
+        sys.stdout.write(f"{src_safe}\t{m}\n")
 PY
 )
   fi

@@ -45,9 +45,19 @@ def main() -> int:
             sys.exit(1)
         # `repos: null` is legal YAML and parses to None — setdefault would
         # leave it as None and the iteration below would TypeError. Coerce
-        # to [] explicitly. Same hazard if `repos` is a scalar/string.
-        if not isinstance(d.get("repos"), list):
+        # the null case to []. Reject other non-list shapes hard rather
+        # than silently rewriting them: a hand-edited config where
+        # `repos:` was accidentally turned into a mapping or a scalar
+        # would otherwise have its content dropped on the next merge.
+        repos = d.get("repos")
+        if repos is None:
             d["repos"] = []
+        elif not isinstance(repos, list):
+            sys.stderr.write(
+                f"[nyann] unexpected YAML shape in {p}: "
+                f"`repos` is {type(repos).__name__}, expected list\n"
+            )
+            sys.exit(1)
         return d
 
     dst = load(dst_path)

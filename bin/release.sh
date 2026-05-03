@@ -225,15 +225,19 @@ while IFS= read -r sha && IFS= read -r subject; do
     [[ "${BASH_REMATCH[3]}" == "!" ]] && breaking=true
     csubject="${BASH_REMATCH[4]}"
   fi
-  # Sanitise subject before serialising:
+  # Sanitise subject AND scope before serialising:
   #   tab — splits the TSV row;
   #   CR  — sneaks in via CRLF commit messages and renders as a literal
   #         carriage return inside the changelog bullet;
   #   LF  — Conventional Commit subjects are single-line by spec, but
   #         tooling that pipes raw `%B` through `--subject` filters can
   #         leak one. Splitting the TSV across lines is unrecoverable.
+  # Scope likewise: the cc_regex `\([^)]+\)` permits any non-`)` byte —
+  # `feat(a<TAB>b): msg` is a syntactically valid CC scope and would
+  # otherwise shift columns and corrupt commits_json + the changelog.
   csubject_safe="${csubject//[$'\t\r\n']/ }"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$sha" "$ctype" "$cscope" "$csubject_safe" "$breaking" >> "$commits_tsv"
+  cscope_safe="${cscope//[$'\t\r\n']/ }"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$sha" "$ctype" "$cscope_safe" "$csubject_safe" "$breaking" >> "$commits_tsv"
 done < <(git -C "$target" log --pretty=tformat:'%H%n%s' "$log_range" 2>/dev/null || true)
 
 commits_json=$(jq -R -s '
