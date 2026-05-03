@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Bash-native path validation** — `nyann::path_under_target` in `_lib.sh` uses `cd + pwd -P` and lexical `..` normalization instead of spawning a Python subprocess per path; eliminates all python3 dependencies from path validation
 - **Starter profile validation sentinel** — `load-profile.sh` skips `validate-profile.sh` (uvx/check-jsonschema subprocess) for starter profiles when a version sentinel matches the current plugin version; user and team profiles still validate on every load
 - **Stack passthrough for suggest-profile** — `suggest-profile.sh` accepts `--stack <file>` to reuse a pre-computed StackDescriptor; bootstrap skill updated to pass step-1 detection results, avoiding a redundant `detect-stack.sh` call
+- **Batch link-check** — `check-links.sh` extracts links from every source file in one `python3` call (vs one per source) and accumulates broken / skipped / mcp results into TSV files reduced to JSON in three trailing `jq` calls (vs `jq` per link); ~200 `jq` forks + ~150 `python3` forks eliminated per audit on a doc-heavy repo. Per-link `python3 -c` realpath replaced by `nyann::path_under_target`
+- **Batch find-orphans** — `find-orphans.sh` passes search terms via a US-separated `awk -v` instead of a per-iteration `mktemp` + `awk` + `grep -Fxq` pipeline; orphan rows accumulate as TSV and one trailing `jq` builds the array. ~90 forks eliminated on a 30-doc audit
+- **Batch check-staleness** — `check-staleness.sh` accumulates stale entries as TSV and converts to JSON in one trailing `jq` instead of forking `jq` per stale file
+- **Single-pass release commit collection + render** — `release.sh` parses commits into TSV in the loop and converts to JSON once; `render_changelog_block` builds the entire CHANGELOG section (header + breaking + 9 type sections + Other) in one `jq` program instead of ~12 separate `jq` invocations over the same `commits_json`
+- **Batch sync-team-profiles source unpacking** — `sync-team-profiles.sh` reads source `name`/`url`/`ref`/`interval`/`last_synced_at` via one `jq | @tsv` pass instead of 5 individual `jq` forks per source
+- **Shared pre-commit YAML merger** — duplicate inline Python merger in `install-hooks.sh` (Python phase + shared go/rust installer) extracted into `bin/_precommit-merge.py`; same fork cost, single source of truth
+- **Batch gen-claudemd workspace table** — `gen-claudemd.sh` emits one `jq | @tsv` row per workspace and decorates in bash; replaces the previous 5-`jq`-per-workspace pattern (~50 `jq` forks → 1 for a 10-workspace monorepo)
+- **Batch switch-profile field extractions** — `switch-profile.sh` bulk-extracts both profile JSON blobs in two `jq | @tsv` calls instead of 14+ individual reads of the same static blobs
+- **Single awk for gitignore drift** — `compute-drift.sh` normalises `.gitignore` and diffs against expected entries in one awk pass (vs read-loop + per-entry `grep -Fxq`)
 
 ### Fixed
 
@@ -29,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Parallel doc subsystem path safety** — `compute-drift.sh` dispatches subsystems via arrays instead of word-split strings, fixing breakage with spaces in paths
 - **Session cache key includes branch refs** — `session-check.sh` cache keyed on HEAD SHA + `refs/heads` digest so branch creates/deletes/merges within TTL invalidate correctly
 - **`--stack` file missing is now a hard error** — `suggest-profile.sh` dies instead of silently falling back to re-running `detect-stack.sh`
+- **Pre-filter malformed profiles in `suggest-profile`** — one corrupt JSON in `~/.claude/nyann/profiles/` no longer aborts the entire scoring batch; bad files are skipped with a warning
+- **Atomic session-check cache write** — write goes to `${cache_file}.tmp.$$` then `mv` so concurrent skill invocations cannot observe a partial cache; reads pull all sections in one awk pass with a numeric ts validation guard
+- **`IFS=$'\t'` on `@tsv` reads in `suggest-profile` + `doctor`** — same tab-collapse bug class as the `detect_claudemd_hints` fix, prevented in two more callers consuming jq `@tsv` output
+- **Cleanup trap covers earlier tmpfiles in `compute-drift`** — single trap installed up-front with `${var:+}` guards covers both `norm_file` (now removed) and `_drift_tmpdir` so SIGINT can't leak either
+- **`path_under_target` accepts target `/`** — root special-cased before the literal `//*` pattern test that would otherwise reject all paths
+- **User profiles shadow starter profiles in `suggest-profile`** — same-name dedupe at file-collection time (mirroring `load-profile.sh` resolution) instead of confidence-tied jq sort
+- **Disable session-check cache when digest unavailable** — `session-check.sh` sets `cache_ttl=0` and clears `cache_file` when both `md5sum`/`md5`/`cksum` are missing, eliminating cross-repo pollution from the old shared `stale-branches-fallback` filename
+- **Bootstrap skill capture step** — step 1 now redirects `detect-stack.sh` to `${TMPDIR:-/tmp}/nyann-stack.json` so step 2's `--stack` flag has a real path to consume
+- **Per-profile sentinel keyed on `(plugin_version, sha256)`** — `load-profile.sh` writes one sentinel per starter profile under `profiles/_validated/`; survives plugin downgrades and detects mid-version starter edits
 
 ## [1.3.0] - 2026-05-01
 

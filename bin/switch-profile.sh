@@ -97,7 +97,45 @@ add_entry() {
   esac
 }
 
-# Hook diffs
+# Bulk-extract every scalar field we diff in one jq call per side.
+# Replaces 14+ individual `jq -r '.foo // default' <<<"$..._json"` reads
+# (each forking jq) with two TSV reads. from_json and to_json are static
+# for the rest of this script, so this is pure deduplication.
+# Order MUST match the @tsv order below.
+IFS=$'\t' read -r \
+  from_strategy from_format from_ci \
+  from_x_gitignore from_x_editorconfig from_x_claude_md \
+  from_x_gh_ci from_x_gh_tpl from_x_gitmsg < <(
+  jq -r '[
+    (.branching.strategy // ""),
+    (.conventions.commit_format // ""),
+    (.ci.enabled // false),
+    (.extras.gitignore // false),
+    (.extras.editorconfig // false),
+    (.extras.claude_md // false),
+    (.extras.github_actions_ci // false),
+    (.extras.github_templates // false),
+    (.extras.commit_message_template // false)
+  ] | @tsv' <<<"$from_json")
+IFS=$'\t' read -r \
+  to_strategy to_format to_ci \
+  to_x_gitignore to_x_editorconfig to_x_claude_md \
+  to_x_gh_ci to_x_gh_tpl to_x_gitmsg < <(
+  jq -r '[
+    (.branching.strategy // ""),
+    (.conventions.commit_format // ""),
+    (.ci.enabled // false),
+    (.extras.gitignore // false),
+    (.extras.editorconfig // false),
+    (.extras.claude_md // false),
+    (.extras.github_actions_ci // false),
+    (.extras.github_templates // false),
+    (.extras.commit_message_template // false)
+  ] | @tsv' <<<"$to_json")
+
+# Hook diffs (phase-by-phase; each side's hook list is a JSON array so
+# can't be folded into the bulk extract above without a more elaborate
+# encoding. The fork count is bounded — 3 phases × 2 sides = 6 jq calls).
 for phase in pre_commit commit_msg pre_push; do
   from_hooks=$(jq -r ".hooks.${phase} // [] | .[]" <<<"$from_json" | sort)
   to_hooks=$(jq -r ".hooks.${phase} // [] | .[]" <<<"$to_json" | sort)
@@ -120,31 +158,30 @@ for phase in pre_commit commit_msg pre_push; do
 done
 
 # Branching strategy
-from_strategy=$(jq -r '.branching.strategy' <<<"$from_json")
-to_strategy=$(jq -r '.branching.strategy' <<<"$to_json")
 if [[ "$from_strategy" != "$to_strategy" ]]; then
   add_entry changes "branching" "branching.strategy" "$from_strategy" "$to_strategy" "change"
 fi
 
-# Extras diffs
-for extra in gitignore editorconfig claude_md github_actions_ci github_templates commit_message_template; do
-  from_val=$(jq -r ".extras.${extra} // false" <<<"$from_json")
-  to_val=$(jq -r ".extras.${extra} // false" <<<"$to_json")
+# Extras diffs (uses the bulk-extracted values above).
+_diff_extra() {
+  local key="$1" from_val="$2" to_val="$3"
   if [[ "$from_val" != "$to_val" ]]; then
-    add_entry changes "extras" "extras.${extra}" "$from_val" "$to_val" "change"
+    add_entry changes "extras" "extras.${key}" "$from_val" "$to_val" "change"
   fi
-done
+}
+_diff_extra gitignore                "$from_x_gitignore"    "$to_x_gitignore"
+_diff_extra editorconfig             "$from_x_editorconfig" "$to_x_editorconfig"
+_diff_extra claude_md                "$from_x_claude_md"    "$to_x_claude_md"
+_diff_extra github_actions_ci        "$from_x_gh_ci"        "$to_x_gh_ci"
+_diff_extra github_templates         "$from_x_gh_tpl"       "$to_x_gh_tpl"
+_diff_extra commit_message_template  "$from_x_gitmsg"       "$to_x_gitmsg"
 
 # Conventions
-from_format=$(jq -r '.conventions.commit_format' <<<"$from_json")
-to_format=$(jq -r '.conventions.commit_format' <<<"$to_json")
 if [[ "$from_format" != "$to_format" ]]; then
   add_entry changes "conventions" "conventions.commit_format" "$from_format" "$to_format" "change"
 fi
 
 # CI changes
-from_ci=$(jq -r '.ci.enabled // false' <<<"$from_json")
-to_ci=$(jq -r '.ci.enabled // false' <<<"$to_json")
 if [[ "$from_ci" != "$to_ci" ]]; then
   add_entry changes "ci" "ci.enabled" "$from_ci" "$to_ci" "change"
 fi
@@ -228,12 +265,15 @@ doc_plan_tmp=$(mktemp -t nyann-docplan.XXXXXX)
 plan_tmp=$(mktemp -t nyann-plan.XXXXXX)
 plan_writes='[]'
 
-want_editorconfig=$(jq -r '.extras.editorconfig // false'              <<<"$to_json")
-want_claude_md=$(jq -r   '.extras.claude_md // false'                  <<<"$to_json")
-want_ci=$(jq -r          '.ci.enabled // false'                        <<<"$to_json")
-want_pr_template=$(jq -r '.extras.github_templates // false'           <<<"$to_json")
-want_gitignore=$(jq -r   '.extras.gitignore // false'                  <<<"$to_json")
-want_gitmsg=$(jq -r      '.extras.commit_message_template // false'    <<<"$to_json")
+# Reuse the bulk-extracted to_* values from the diff phase above —
+# .extras.* and .ci.enabled are static for the script lifetime, so a
+# second extraction pass would just duplicate jq forks.
+want_editorconfig="$to_x_editorconfig"
+want_claude_md="$to_x_claude_md"
+want_ci="$to_ci"
+want_pr_template="$to_x_gh_tpl"
+want_gitignore="$to_x_gitignore"
+want_gitmsg="$to_x_gitmsg"
 
 append_write() {
   local path="$1"

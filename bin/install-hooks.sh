@@ -475,57 +475,13 @@ install_python_phase() {
   fi
 
   # Merge hook repos by URL. If the target config is absent, copy template.
-  # If present, run a small Python merger that keeps existing entries
+  # If present, run the shared Python merger that keeps existing entries
   # verbatim and appends any of our repos whose URL isn't already listed.
   if [[ ! -f "$dst" ]]; then
     cp "$tmpl" "$dst"
     nyann::log "wrote $dst"
   else
-    python3 - "$dst" "$tmpl" <<'PY'
-import sys
-try:
-    import yaml
-except ImportError:
-    sys.stderr.write("[nyann] PyYAML missing; skipping merge (template copy only)\n")
-    sys.exit(0)
-
-dst_path, tmpl_path = sys.argv[1], sys.argv[2]
-
-def load(p):
-    with open(p) as f:
-        d = yaml.safe_load(f) or {}
-    if not isinstance(d, dict):
-        sys.stderr.write(f"[nyann] unexpected YAML shape in {p}: root is {type(d).__name__}\n")
-        sys.exit(1)
-    d.setdefault('repos', [])
-    return d
-
-dst = load(dst_path)
-tmpl = load(tmpl_path)
-
-def repo_key(r):
-    if r.get('repo') == 'local':
-        ids = tuple(sorted((h.get('id') for h in r.get('hooks', []) if h.get('id'))))
-        return ('local', ids)
-    return ('remote', r.get('repo'))
-
-existing = {repo_key(r): r for r in dst['repos']}
-added = 0
-for r in tmpl['repos']:
-    k = repo_key(r)
-    if k in existing:
-        continue
-    dst['repos'].append(r)
-    existing[k] = r
-    added += 1
-
-if added:
-    with open(dst_path, 'w') as f:
-        yaml.safe_dump(dst, f, sort_keys=False)
-    print(f"[nyann] merged {added} nyann repo(s) into .pre-commit-config.yaml")
-else:
-    print("[nyann] .pre-commit-config.yaml already has all nyann repos; no change")
-PY
+    python3 "${_script_dir}/_precommit-merge.py" "$dst" "$tmpl"
     nyann::log "merged nyann hooks into $dst"
   fi
 
@@ -592,53 +548,11 @@ install_precommit_from_template() {
   fi
 
   # python3 is the only hard requirement for the merge path. If missing,
-  # fall back to "copy template if no existing config" and warn.
+  # fall back to "copy template if no existing config" and warn. The merger
+  # itself lives in bin/_precommit-merge.py — same logic shared with the
+  # Python phase above.
   if command -v python3 >/dev/null 2>&1 && [[ -f "$dst" ]]; then
-    python3 - "$dst" "$tmpl" <<'PY'
-import sys
-try:
-    import yaml
-except ImportError:
-    sys.stderr.write("[nyann] PyYAML missing; skipping merge (template copy only)\n")
-    sys.exit(0)
-
-dst_path, tmpl_path = sys.argv[1], sys.argv[2]
-
-def load(p):
-    with open(p) as f:
-        d = yaml.safe_load(f) or {}
-    if not isinstance(d, dict):
-        sys.stderr.write(f"[nyann] unexpected YAML shape in {p}: root is {type(d).__name__}\n")
-        sys.exit(1)
-    d.setdefault('repos', [])
-    return d
-
-dst = load(dst_path)
-tmpl = load(tmpl_path)
-
-def repo_key(r):
-    if r.get('repo') == 'local':
-        ids = tuple(sorted((h.get('id') for h in r.get('hooks', []) if h.get('id'))))
-        return ('local', ids)
-    return ('remote', r.get('repo'))
-
-existing = {repo_key(r): r for r in dst['repos']}
-added = 0
-for r in tmpl['repos']:
-    k = repo_key(r)
-    if k in existing:
-        continue
-    dst['repos'].append(r)
-    existing[k] = r
-    added += 1
-
-if added:
-    with open(dst_path, 'w') as f:
-        yaml.safe_dump(dst, f, sort_keys=False)
-    print(f"[nyann] merged {added} nyann repo(s) into .pre-commit-config.yaml")
-else:
-    print("[nyann] .pre-commit-config.yaml already has all nyann repos; no change")
-PY
+    python3 "${_script_dir}/_precommit-merge.py" "$dst" "$tmpl"
     nyann::log "merged nyann hooks into $dst"
   elif [[ ! -f "$dst" ]]; then
     cp "$tmpl" "$dst"

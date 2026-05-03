@@ -71,48 +71,82 @@ if ! nyann::has_cmd python3; then
   exit 0
 fi
 
-# Extract links of the form [text](url) per line. Skip angle-bracket / reference
-# style for now; the common case is inline links.
-extract_links_py() {
-  python3 - "$1" <<'PY'
+# Output accumulators are TSV tmp files, converted to JSON in a single
+# trailing jq pass. The previous implementation forked jq per link
+# (`. + [{...}]`) which on a doc-heavy repo with ~200 links cost ~200 jq
+# invocations; this pass costs three. `path_under_target` from _lib.sh
+# replaces the per-link `python3 -c` realpath canonicalisation, eliminating
+# another ~150 python3 forks on the same workload.
+broken_tsv=$(mktemp -t nyann-cl-broken.XXXXXX)
+skipped_tsv=$(mktemp -t nyann-cl-skipped.XXXXXX)
+mcp_tsv=$(mktemp -t nyann-cl-mcp.XXXXXX)
+sources_tsv=""
+trap 'rm -f "$broken_tsv" "$skipped_tsv" "$mcp_tsv" ${sources_tsv:+"$sources_tsv"}' EXIT
+
+# Single python3 process extracts links from every source file.
+# Input: one `<src>\t<full_path>` per line on stdin.
+# Output: one `<src>\t<link>` per line on stdout.
+# This collapses N python3 startups into 1.
+links_raw=""
+if [[ ${#sources[@]} -gt 0 ]]; then
+  sources_tsv=$(mktemp -t nyann-cl-sources.XXXXXX)
+  for src in "${sources[@]}"; do
+    full="$target/$src"
+    [[ -f "$full" ]] || continue
+    printf '%s\t%s\n' "$src" "$full" >> "$sources_tsv"
+  done
+  if [[ -s "$sources_tsv" ]]; then
+    # Pass the TSV path as argv[1] rather than via stdin redirection;
+    # heredoc + < competes for fd 0 (shellcheck SC2261).
+    links_raw=$(python3 - "$sources_tsv" <<'PY'
 import re, sys
 pattern = re.compile(r'\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
-with open(sys.argv[1]) as f:
-    text = f.read()
-for m in pattern.findall(text):
-    print(m)
+sources_path = sys.argv[1]
+with open(sources_path) as srcfh:
+    for line in srcfh:
+        line = line.rstrip('\n')
+        if not line:
+            continue
+        parts = line.split('\t', 1)
+        if len(parts) != 2:
+            continue
+        src, full = parts
+        try:
+            with open(full) as f:
+                text = f.read()
+        except OSError:
+            continue
+        for m in pattern.findall(text):
+            # Tabs in href are not legal markdown link targets; skip if any
+            # leak through to keep the TSV contract clean.
+            if '\t' in m or '\n' in m:
+                continue
+            sys.stdout.write(f"{src}\t{m}\n")
 PY
-}
+)
+  fi
+fi
 
-# bash 3.2 + set -u treats "${sources[@]}" on an empty array as unbound.
-if [[ ${#sources[@]} -gt 0 ]]; then
-for src in "${sources[@]}"; do
-  full="$target/$src"
-  [[ -f "$full" ]] || continue
-  while IFS= read -r link; do
+if [[ -n "$links_raw" ]]; then
+  while IFS=$'\t' read -r src link; do
     [[ -z "$link" ]] && continue
     checked=$((checked + 1))
 
     case "$link" in
       '#'*)
-        skipped=$(jq --arg src "$src" --arg link "$link" \
-          '. + [{ source: $src, link: $link, reason: "internal-anchor-check-disabled" }]' <<<"$skipped")
+        printf '%s\t%s\t%s\n' "$src" "$link" "internal-anchor-check-disabled" >> "$skipped_tsv"
         ;;
       http://*|https://*)
-        skipped=$(jq --arg src "$src" --arg link "$link" \
-          '. + [{ source: $src, link: $link, reason: "external-web-check-disabled" }]' <<<"$skipped")
+        printf '%s\t%s\t%s\n' "$src" "$link" "external-web-check-disabled" >> "$skipped_tsv"
         ;;
       mailto:*|data:*|tel:*)
-        skipped=$(jq --arg src "$src" --arg link "$link" \
-          '. + [{ source: $src, link: $link, reason: "uncheckable-scheme" }]' <<<"$skipped")
+        printf '%s\t%s\t%s\n' "$src" "$link" "uncheckable-scheme" >> "$skipped_tsv"
         ;;
       obsidian://*)
-        mcp=$(jq --arg src "$src" --arg link "$link" \
-          '. + [{ source: $src, link: $link, connector: "obsidian" }]' <<<"$mcp")
+        printf '%s\t%s\t%s\n' "$src" "$link" "obsidian" >> "$mcp_tsv"
         ;;
       notion://*)
-        mcp=$(jq --arg src "$src" --arg link "$link" \
-          '. + [{ source: $src, link: $link, connector: "notion" }]' <<<"$mcp")
+        printf '%s\t%s\t%s\n' "$src" "$link" "notion" >> "$mcp_tsv"
         ;;
       *)
         # Internal file. Strip any ?query or #anchor suffix before statting.
@@ -125,36 +159,35 @@ for src in "${sources[@]}"; do
         else
           candidate="$target/$src_dir/$path"
         fi
-        # Canonicalise (`..` collapse, trailing-slash trim) AND verify
-        # the resolved path is still inside $target. Without this, a
-        # link like `../../outside.md` from deep in docs/ could hit an
-        # existing file outside the repo and be reported as not-broken.
-        # Uses python so this works on macOS (no `realpath --relative-to`).
-        resolved=$(TARGET="$target" CAND="$candidate" python3 -c '
-import os, sys
-target = os.path.realpath(os.environ["TARGET"])
-cand = os.path.realpath(os.environ["CAND"])
-# Must be equal to target or a descendant of it.
-if cand == target or cand.startswith(target + os.sep):
-    print(cand)
-else:
-    print("")  # escapes the repo root
-' 2>/dev/null)
-
-        if [[ -z "$resolved" ]]; then
-          broken=$(jq --arg src "$src" --arg link "$link" \
-            '. + [{ source: $src, link: $link, reason: "escapes-repo-root" }]' <<<"$broken")
-        elif [[ -e "$resolved" ]]; then
-          :
+        # path_under_target is bash-native (cd + pwd -P + lexical ..
+        # normalisation). It returns 0 + canonical path under $target,
+        # or 1 if the candidate escapes. No python3 fork per link.
+        if resolved=$(nyann::path_under_target "$target" "$candidate" 2>/dev/null); then
+          if [[ ! -e "$resolved" ]]; then
+            printf '%s\t%s\t%s\n' "$src" "$link" "file-not-found" >> "$broken_tsv"
+          fi
         else
-          broken=$(jq --arg src "$src" --arg link "$link" \
-            '. + [{ source: $src, link: $link, reason: "file-not-found" }]' <<<"$broken")
+          printf '%s\t%s\t%s\n' "$src" "$link" "escapes-repo-root" >> "$broken_tsv"
         fi
         ;;
     esac
-  done < <(extract_links_py "$full")
-done
+  done <<<"$links_raw"
 fi
+
+# Single jq per category turns TSV into JSON arrays. select(. != "") drops
+# the empty trailing line that split("\n") leaves behind on a non-empty file.
+broken=$(jq -R -s '
+  split("\n")
+  | map(select(. != "") | split("\t"))
+  | map({source:.[0], link:.[1], reason:.[2]})' < "$broken_tsv")
+skipped=$(jq -R -s '
+  split("\n")
+  | map(select(. != "") | split("\t"))
+  | map({source:.[0], link:.[1], reason:.[2]})' < "$skipped_tsv")
+mcp=$(jq -R -s '
+  split("\n")
+  | map(select(. != "") | split("\t"))
+  | map({source:.[0], link:.[1], connector:.[2]})' < "$mcp_tsv")
 
 jq -n \
   --argjson checked "$checked" \

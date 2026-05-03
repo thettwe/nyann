@@ -81,16 +81,15 @@ _sync_cleanup() {
 }
 trap _sync_cleanup EXIT
 
-# Iterate sources.
-srcs_json=$(jq '.team_profile_sources // []' "$config")
-count=$(jq 'length' <<<"$srcs_json")
+# Iterate sources. Single jq pass emits one TSV row per source with all
+# five fields; previously each iteration spawned 5 jq processes for
+# field-by-field unpacking (e.g. 4 sources = 20 jq forks just to read
+# the config). Note: source `name`, `url`, and `ref` are validated
+# against allowlist regexes in the loop body — none of them can contain
+# tabs or newlines that would break TSV parsing.
 cache_root="$user_root/cache"
-for ((i = 0; i < count; i++)); do
-  name=$(jq -r --arg i "$i" '.[$i|tonumber].name' <<<"$srcs_json")
-  url=$(jq -r --arg i "$i" '.[$i|tonumber].url' <<<"$srcs_json")
-  ref=$(jq -r --arg i "$i" '.[$i|tonumber].ref // "main"' <<<"$srcs_json")
-  interval=$(jq -r --arg i "$i" '.[$i|tonumber].sync_interval_hours // 24' <<<"$srcs_json")
-  last=$(jq -r --arg i "$i" '.[$i|tonumber].last_synced_at // 0' <<<"$srcs_json")
+while IFS=$'\t' read -r name url ref interval last; do
+  [[ -z "$name" ]] && continue
 
   # Re-validate `name` on read. add-team-source.sh already enforces the
   # regex, but config.json is a plain file; a hand-edited entry like
@@ -235,7 +234,11 @@ for ((i = 0; i < count; i++)); do
     fi
   done
   shopt -u nullglob
-done
+done < <(jq -r '
+  (.team_profile_sources // [])[]
+  | [.name, .url, (.ref // "main"), (.sync_interval_hours // 24), (.last_synced_at // 0)]
+  | @tsv
+' "$config")
 
 jq -n \
   --argjson synced "$synced_json" \

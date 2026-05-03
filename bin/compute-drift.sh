@@ -36,14 +36,12 @@ done
 [[ -n "$profile_path" && -f "$profile_path" ]] || nyann::die "--profile <path> is required"
 target="$(cd "$target" && pwd)"
 
-# Install the cleanup trap up-front. norm_file (gitignore normalisation)
-# is created mid-script; _drift_tmpdir (parallel doc subsystems) is
-# created later still. A SIGINT/SIGTERM between creation and the prior
-# trap installation would leak either tmpfile. Initialising both to ""
-# and guarding with ${var:+} keeps the trap safe at any point in the run.
-norm_file=""
+# Install the cleanup trap up-front. _drift_tmpdir (parallel doc
+# subsystems) is created mid-script; a SIGINT/SIGTERM between creation
+# and the trap install would leak the tmpdir. Initialising to "" and
+# guarding with ${var:+} keeps the trap safe at any point in the run.
 _drift_tmpdir=""
-trap 'rm -rf ${norm_file:+"$norm_file"} ${_drift_tmpdir:+"$_drift_tmpdir"}' EXIT
+trap 'rm -rf ${_drift_tmpdir:+"$_drift_tmpdir"}' EXIT
 
 # Validate the profile against the schema before consuming any field.
 # bootstrap.sh and retrofit.sh already validate via load-profile.sh,
@@ -174,25 +172,40 @@ if [[ -f "$target/.gitignore" ]]; then
   fi
 
   if [[ ${#expected_entries[@]} -gt 0 ]]; then
-    # Normalize gitignore contents so `coverage` and `coverage/` count as
-    # matching. Strip trailing slashes and blank/comment lines.
-    norm_file=$(mktemp -t nyann-gi-norm.XXXXXX)
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      trimmed="${line#"${line%%[![:space:]]*}"}"
-      [[ -z "$trimmed" || "$trimmed" == \#* ]] && continue
-      stripped="${trimmed%/}"
-      printf '%s\n' "$stripped" >> "$norm_file"
-    done < "$target/.gitignore"
-
+    # Normalize gitignore + diff against expected entries in one pass:
+    # awk reads .gitignore (lstrip, drop blanks/comments, strip trailing
+    # `/`) into a hash; expected entries are also stripped and compared.
+    # Replaces the previous read-loop + per-entry `grep -Fxq` (~8 grep
+    # forks for 8 expected entries) with a single awk fork.
     missing_entries=()
-    for e in "${expected_entries[@]}"; do
-      stripped="${e%/}"
-      if ! grep -Fxq "$stripped" "$norm_file" 2>/dev/null; then
-        missing_entries+=("$e")
-      fi
-    done
-    rm -f "$norm_file"
-    norm_file=""
+    while IFS= read -r e; do
+      [[ -z "$e" ]] && continue
+      missing_entries+=("$e")
+    done < <(awk -v want_csv="$(IFS=,; printf '%s' "${expected_entries[*]}")" '
+      # NB: variable names avoid `exp` because BSD awk on macOS treats it
+      # as a reserved (math) builtin and refuses array indexing into it.
+      BEGIN {
+        n = split(want_csv, raw, ",")
+        for (i = 1; i <= n; i++) {
+          w = raw[i]
+          sub(/\/$/, "", w)
+          if (w != "") { want[i] = w; orig[i] = raw[i] }
+        }
+      }
+      {
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        if (line == "" || substr(line, 1, 1) == "#") next
+        sub(/\/$/, "", line)
+        seen[line] = 1
+      }
+      END {
+        for (i = 1; i <= n; i++) {
+          if (want[i] == "") continue
+          if (!(want[i] in seen)) print orig[i]
+        }
+      }
+    ' "$target/.gitignore")
 
     if [[ ${#missing_entries[@]} -gt 0 ]]; then
       csv=$(IFS=','; echo "${missing_entries[*]}")

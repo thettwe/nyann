@@ -70,14 +70,23 @@ done < <(find "${scan_dirs[@]}" -type f \( -name '*.md' -o -name '*.markdown' \)
 # tell which file a match landed in (used to skip self-references).
 CORPUS_MARKER="__NYANN_CORPUS_FILE__:"
 corpus_buf=$(mktemp -t nyann-corpus.XXXXXX)
-trap 'rm -f "$corpus_buf"' EXIT
+# Cleanup trap is installed below once orphans_tsv is allocated; both
+# tmpfiles share one trap.
 for ref in "${corpus[@]}"; do
   printf '\n%s%s\n' "$CORPUS_MARKER" "$ref" >> "$corpus_buf"
   cat "$ref" >> "$corpus_buf" 2>/dev/null || true
 done
 
-orphans='[]'
 scanned=0
+# Accumulate orphans as TSV; collapses N per-orphan jq forks into 1 at end.
+orphans_tsv=$(mktemp -t nyann-orphans.XXXXXX)
+# US (0x1F) is illegal in filenames, so it makes a safe term separator
+# inside `awk -v`. This drops the per-iteration mktemp + grep -Fxq
+# pipeline (3 forks per candidate) — awk now signals "found" via its
+# END exit code.
+US=$'\037'
+trap 'rm -f "$corpus_buf" "$orphans_tsv"' EXIT
+now=$(date +%s)
 
 while IFS= read -r -d '' f; do
   rel="${f#"$target"/}"
@@ -93,40 +102,31 @@ while IFS= read -r -d '' f; do
   # Consider directories with README inside — the README is the directory's
   # entry point; don't flag it as orphan if the directory is referenced
   # elsewhere.
-  search_terms=("$base")
+  terms_str="$base"
   if [[ "$base" == "README.md" ]]; then
     # Dir-level reference (e.g. "docs/research/README.md" or "docs/research/").
     dir="$(dirname "$rel")"
-    search_terms+=("$dir" "$(basename "$dir")")
+    terms_str+="${US}${dir}${US}$(basename "$dir")"
   fi
   # Also consider the relative-path form (e.g. `docs/architecture.md`).
-  search_terms+=("$rel")
+  terms_str+="${US}${rel}"
 
   # Single awk pass over the concatenated corpus: track which corpus
   # file each line belongs to and report a hit only when a search term
   # matches in a file OTHER than the candidate itself. Exits on first
-  # qualifying match for early termination on huge corpora.
-  #
-  # Search terms go through a temp file rather than `-v terms_csv=...`
-  # because `awk -v` does not accept embedded newlines (and a search
-  # term can legitimately be a path with `/` etc., though not newlines
-  # — using a file is the consistent pattern).
-  terms_file=$(mktemp -t nyann-orphan-terms.XXXXXX)
-  printf '%s\n' "${search_terms[@]}" > "$terms_file"
-  found_ref=false
+  # qualifying match for early termination on huge corpora; END's exit
+  # code propagates to bash so we don't need a stdout-grep pipeline.
   if awk \
        -v marker="$CORPUS_MARKER" \
        -v self="$f" \
-       -v terms_path="$terms_file" \
+       -v terms_str="$terms_str" \
+       -v sep="$US" \
        '
        BEGIN {
-         n = 0
-         while ((getline line < terms_path) > 0) {
-           if (line != "") { n++; terms[n] = line }
-         }
-         close(terms_path)
+         n = split(terms_str, terms, sep)
          marker_len = length(marker)
          is_self = 0
+         found = 0
        }
        substr($0, 1, marker_len) == marker {
          current = substr($0, marker_len + 1)
@@ -135,27 +135,28 @@ while IFS= read -r -d '' f; do
        }
        !is_self {
          for (i = 1; i <= n; i++) {
-           if (index($0, terms[i]) > 0) { print "1"; exit 0 }
+           if (terms[i] != "" && index($0, terms[i]) > 0) { found = 1; exit }
          }
        }
-       ' "$corpus_buf" | grep -Fxq "1"; then
-    found_ref=true
-  fi
-  rm -f "$terms_file"
-
-  if ! $found_ref; then
+       END { exit (found ? 0 : 1) }
+       ' "$corpus_buf"; then
+    : # referenced — not an orphan
+  else
     # Compute age in days.
     if stat -f "%m" "$f" >/dev/null 2>&1; then
       mtime=$(stat -f "%m" "$f")
     else
       mtime=$(stat -c "%Y" "$f")
     fi
-    now=$(date +%s)
     days=$(( (now - mtime) / 86400 ))
-    orphans=$(jq --arg p "$rel" --argjson d "$days" \
-      '. + [{ path: $p, last_modified_days_ago: $d }]' <<<"$orphans")
+    printf '%s\t%s\n' "$rel" "$days" >> "$orphans_tsv"
   fi
 done < <(find "${scan_dirs[@]}" -type f -print0)
+
+orphans=$(jq -R -s '
+  split("\n")
+  | map(select(. != "") | split("\t"))
+  | map({path:.[0], last_modified_days_ago:(.[1]|tonumber)})' < "$orphans_tsv")
 
 jq -n \
   --argjson scanned "$scanned" \

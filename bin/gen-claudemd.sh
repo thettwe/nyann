@@ -100,19 +100,21 @@ ws_table_rows=""
 max_ws_rows=10
 
 if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
-  ws_json=$(cat "$workspace_configs_path")
-  ws_total=$(jq 'length' <<<"$ws_json")
+  ws_total=$(jq 'length' "$workspace_configs_path")
   ws_show=$(( ws_total < max_ws_rows ? ws_total : max_ws_rows ))
 
-  for (( wi=0; wi<ws_show; wi++ )); do
-    ws=$(jq -c ".[$wi]" <<<"$ws_json")
-    ws_path=$(nyann::safe_md_cell "$(jq -r '.path' <<<"$ws")")
-    ws_lang=$(nyann::safe_md_cell "$(jq -r '.primary_language // "unknown"' <<<"$ws")")
-    ws_fw=$(jq -r '.framework // ""' <<<"$ws")
+  # Single jq pass emits one TSV row per workspace with all four fields,
+  # then bash reads + decorates. Replaces the previous per-iteration
+  # 5-jq fork pattern (5 forks × up to 10 workspaces = up to 50 jq forks
+  # to render one table). Workspace `path`/`primary_language`/`framework`/
+  # `package_manager` are detect-stack outputs — none can contain tabs.
+  while IFS=$'\t' read -r ws_path ws_lang ws_fw ws_pm; do
+    [[ -z "$ws_path" ]] && continue
+    ws_path=$(nyann::safe_md_cell "$ws_path")
+    ws_lang=$(nyann::safe_md_cell "$ws_lang")
     [[ "$ws_fw" == "null" || -z "$ws_fw" ]] && ws_fw="—"
     ws_fw=$(nyann::safe_md_cell "$ws_fw")
 
-    ws_pm=$(jq -r '.package_manager // ""' <<<"$ws")
     ws_cmds=""
     case "$ws_pm" in
       pnpm) ws_cmds="pnpm dev, pnpm test, pnpm lint" ;;
@@ -129,7 +131,11 @@ if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
     ws_cmds=$(nyann::safe_md_cell "$ws_cmds")
 
     ws_table_rows+="| ${ws_path} | ${ws_lang} | ${ws_fw} | ${ws_cmds} |"$'\n'
-  done
+  done < <(jq -r --argjson n "$ws_show" '
+    .[0:$n][]
+    | [.path, (.primary_language // "unknown"), (.framework // ""), (.package_manager // "")]
+    | @tsv
+  ' "$workspace_configs_path")
 
   if (( ws_total > max_ws_rows )); then
     ws_remaining=$(( ws_total - max_ws_rows ))
