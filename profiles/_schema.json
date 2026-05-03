@@ -255,6 +255,58 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$",
           "description": "Prefix for version tags (default: 'v'). Must not start with '-' (option injection) or contain shell metacharacters."
+        },
+        "bump_files": {
+          "type": "array",
+          "description": "Files to mutate in-place during release.sh --bump-manifests. Each entry declares a path + format + format-specific args. Bumps land in the release commit alongside CHANGELOG.md.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "format"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9.][A-Za-z0-9._/-]*$",
+                "maxLength": 256,
+                "description": "Relative path from repo root. Must not start with '-' (option injection); leading '.' is permitted so dotfile-prefixed paths like '.claude-plugin/plugin.json' work. Path-traversal ('..') is enforced at runtime by bin/release.sh, not in the schema regex."
+              },
+              "format": {
+                "type": "string",
+                "enum": ["json-version-key", "toml-version-key", "script"],
+                "description": "How to mutate the file. json-version-key uses jq; toml-version-key sed-edits a single-line `version = \"x.y.z\"` within a section; script invokes a user-provided command with $NEW_VERSION."
+              },
+              "key": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "json-version-key: jq path to the version field (e.g. '.version' or '.plugins[0].version'). REQUIRED for json-version-key."
+              },
+              "section": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]+$",
+                "maxLength": 64,
+                "description": "toml-version-key: TOML section header WITHOUT brackets (e.g. 'project' or 'package'). The first single-line `version = \"...\"` after `[<section>]` is rewritten. REQUIRED for toml-version-key."
+              },
+              "command": {
+                "type": "string",
+                "maxLength": 512,
+                "description": "script: shell command run with $NEW_VERSION exported. The command is responsible for mutating the file at .path. REQUIRED for script."
+              }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "format": { "const": "json-version-key" } }, "required": ["format"] },
+                "then": { "required": ["key"] }
+              },
+              {
+                "if": { "properties": { "format": { "const": "toml-version-key" } }, "required": ["format"] },
+                "then": { "required": ["section"] }
+              },
+              {
+                "if": { "properties": { "format": { "const": "script" } }, "required": ["format"] },
+                "then": { "required": ["command"] }
+              }
+            ]
+          }
         }
       }
     },

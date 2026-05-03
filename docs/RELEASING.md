@@ -81,12 +81,9 @@ git checkout main
 git pull --ff-only origin main
 git status   # must be clean
 
-# 2. Bump manifest from 1.0.0-dev to the actual version.
-#    Edit both .claude-plugin/plugin.json and marketplace.json,
-#    then commit and push as a normal PR.
-
-# 3. After the manifest-bump PR merges, run release.sh:
-bin/release.sh --version 1.0.0 --yes --push
+# 2. One-shot release: bump manifests, prepend CHANGELOG, commit, tag,
+#    push, and create the GitHub release in a single invocation.
+bin/release.sh --version 1.0.0 --yes --push --bump-manifests --gh-release
 ```
 
 `release.sh` will:
@@ -94,12 +91,16 @@ bin/release.sh --version 1.0.0 --yes --push
 2. Refuse if `v1.0.0` already exists locally
 3. Render the next CHANGELOG section from Conventional Commits since the last tag (or root if none)
 4. Print the rendered section + diff to stderr; require `--yes` to confirm
-5. Atomically prepend the section to `CHANGELOG.md`
-6. Create the release commit with the configured git identity
-7. Create the annotated tag `v1.0.0`
-8. With `--push`: push the tag, then push the branch (each surfaces auth/network/protected-branch failures via `nyann::warn`)
+5. With `--bump-manifests`: rewrite every file declared in `profile.release.bump_files[]` to the new version (idempotent — `unchanged` if already at target). For nyann's own `default` profile this covers `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+6. Atomically prepend the section to `CHANGELOG.md`
+7. Create the release commit (CHANGELOG + bumped manifests in one commit) with the configured git identity
+8. Create the annotated tag `v1.0.0`
+9. With `--push`: push the tag, then push the branch (each surfaces auth/network/protected-branch failures via `nyann::warn`)
+10. With `--gh-release`: run `gh release create v1.0.0 --notes-file <rendered-changelog>` (auto-passes `--prerelease` for SemVer suffixes). Soft-skips with a `next_steps[]` recovery command if `gh` is missing or unauthed.
 
 If anything fails between commit and tag, see "Recovery" below.
+
+The pre-`v1.5.0` ritual (manual edits to `plugin.json` + `marketplace.json` + `CHANGELOG.md` + a separate `gh release create`) still works — `--bump-manifests` and `--gh-release` are opt-in. Use the legacy ritual when the active profile has no `release.bump_files[]` declared.
 
 ## Post-release verification
 

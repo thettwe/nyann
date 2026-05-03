@@ -59,5 +59,19 @@
   },
   "ci": {
     "enabled": false
+  },
+  "release": {
+    "bump_files": [
+      {
+        "path": ".claude-plugin/plugin.json",
+        "format": "json-version-key",
+        "key": ".version"
+      },
+      {
+        "path": ".claude-plugin/marketplace.json",
+        "format": "json-version-key",
+        "key": ".plugins[0].version"
+      }
+    ]
   }
 }

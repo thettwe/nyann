@@ -313,6 +313,27 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 - [x] 43 JSON schemas (was 38)
 - [x] 820 bats tests (was 702)
 
+### Shipped in v1.5.0
+
+Release automation pass. Closes the gap that v1.4.0 surfaced (manifest
+versions could go stale silently — the v1.3.0 cut shipped with
+`marketplace.json` still at `1.2.1`).
+
+- [x] `bin/release.sh --bump-manifests` — profile-driven version bumps in
+      `json-version-key`, `toml-version-key`, and `script` formats; bumps
+      land in the same release commit as `CHANGELOG.md`; idempotent re-runs
+- [x] `bin/release.sh --gh-release` — auto-creates the GitHub release
+      attached to the pushed tag with notes from the rendered CHANGELOG
+      block; `--prerelease` flag for SemVer suffixes; soft-skip when `gh`
+      is missing or unauthed
+- [x] `profile.release.bump_files[]` schema field, with three discriminated
+      formats; nyann's own `default` profile dogfoods it for `plugin.json`
+      and `marketplace.json`
+- [x] `skills/release/SKILL.md` defaults to both flags when the active
+      profile declares `bump_files`
+- [x] 22 new bats covering every format, idempotency, validation errors,
+      `--push` / `--strategy manual` conflicts, and `gh` mock paths
+
 ### Shipped in v1.4.0
 
 Performance + reliability hardening pass. No new user-facing features; existing

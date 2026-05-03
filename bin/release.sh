@@ -61,6 +61,9 @@ wait_interval=30
 allow_no_pr=false
 allow_no_checks=false
 gh_bin="gh"
+bump_manifests=false
+gh_release=false
+profile_path=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +91,10 @@ while [[ $# -gt 0 ]]; do
     --allow-no-checks) allow_no_checks=true; shift ;;
     --gh)             gh_bin="${2:-}"; shift 2 ;;
     --gh=*)           gh_bin="${1#--gh=}"; shift ;;
+    --bump-manifests) bump_manifests=true; shift ;;
+    --gh-release)     gh_release=true; shift ;;
+    --profile)        profile_path="${2:-}"; shift 2 ;;
+    --profile=*)      profile_path="${1#--profile=}"; shift ;;
     -h|--help)        sed -n '3,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
@@ -125,6 +132,19 @@ case "$strategy" in
   conventional-changelog|manual|changesets|release-please) ;;
   *) nyann::die "--strategy must be conventional-changelog|manual|changesets|release-please" ;;
 esac
+
+# --bump-manifests requires a release commit to land the bumps in.
+# `manual` strategy skips the commit entirely (just tags HEAD) so the
+# combination is meaningless. Refuse it up-front rather than silently
+# dropping the bumps on the floor.
+if $bump_manifests && [[ "$strategy" == "manual" ]]; then
+  nyann::die "--bump-manifests requires --strategy conventional-changelog (manual strategy creates no commit for the bumps to land in)"
+fi
+
+# --gh-release needs the tag visible on origin.
+if $gh_release && ! $push; then
+  nyann::die "--gh-release requires --push (the GitHub release attaches to the pushed tag)"
+fi
 
 if [[ -n "$tag_prefix" ]] && ! [[ "$tag_prefix" =~ ^[A-Za-z0-9._/-]*$ ]]; then
   nyann::die "--tag-prefix must contain only [A-Za-z0-9._/-]: got '$tag_prefix'"
@@ -295,6 +315,187 @@ if [[ "$strategy" == "conventional-changelog" ]]; then
   changelog_block=$(render_changelog_block)
 fi
 
+# --- manifest bumps (--bump-manifests) ---------------------------------------
+# Driven by `release.bump_files[]` in the resolved profile. We split into
+# two phases:
+#   compute_bump_plan — reads each file, decides bumped vs unchanged,
+#                       populates bumped_files_json AND parallel arrays
+#                       describing the pending mutations. NEVER writes.
+#   apply_bump_plan   — replays the parallel arrays, writing each file
+#                       in place. Called only on the real-mutation path,
+#                       so --dry-run can preview what would happen
+#                       without touching the working tree.
+
+bumped_files_json='[]'
+# Parallel arrays describing pending file mutations (bash 3.2 — no
+# associative arrays). Index N across all three describes one mutation:
+#   _bp_paths[N]   — repo-relative path
+#   _bp_formats[N] — json-version-key | toml-version-key | script
+#   _bp_payload[N] — format-specific arg (jq key / toml section / shell
+#                    command).
+_bp_paths=()
+_bp_formats=()
+_bp_payload=()
+_resolved_bumps_profile=""
+
+resolve_bumps_profile() {
+  if [[ -n "$profile_path" ]]; then
+    [[ -f "$profile_path" ]] || nyann::die "--profile file not found: $profile_path"
+    _resolved_bumps_profile="$profile_path"
+    return 0
+  fi
+  # Fall back to the default starter profile when --profile isn't passed.
+  # Loaders that already snapshot a profile (skills/release/SKILL.md)
+  # can short-circuit by passing --profile explicitly.
+  local tmp
+  tmp=$(mktemp -t nyann-release-prof.XXXXXX)
+  if "${_script_dir}/load-profile.sh" --target "$target" default >"$tmp" 2>/dev/null; then
+    _resolved_bumps_profile="$tmp"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+compute_bump_plan() {
+  $bump_manifests || return 0
+
+  if ! resolve_bumps_profile; then
+    nyann::log "no profile resolvable; --bump-manifests is a no-op"
+    return 0
+  fi
+
+  local n
+  n=$(jq '.release.bump_files // [] | length' "$_resolved_bumps_profile")
+  if (( n == 0 )); then
+    nyann::log "profile has no release.bump_files; --bump-manifests is a no-op"
+    return 0
+  fi
+
+  local i entry path format key section command full current
+  for ((i=0; i<n; i++)); do
+    entry=$(jq -c ".release.bump_files[$i]" "$_resolved_bumps_profile")
+    path=$(jq -r '.path' <<<"$entry")
+    format=$(jq -r '.format' <<<"$entry")
+
+    [[ "$path" == /* || "$path" == *".."* ]] \
+      && nyann::die "release.bump_files[$i].path must be repo-relative without '..': $path"
+    nyann::assert_path_under_target "$target" "$target/$path" "release.bump_files[$i].path" >/dev/null
+
+    full="$target/$path"
+    [[ -L "$full" ]] && nyann::die "release.bump_files[$i]: refusing to bump via symlink: $full"
+    [[ -f "$full" ]] || nyann::die "release.bump_files[$i]: file not found: $full"
+
+    case "$format" in
+      json-version-key)
+        key=$(jq -r '.key // empty' <<<"$entry")
+        [[ -n "$key" ]] || nyann::die "release.bump_files[$i]: json-version-key requires .key"
+        current=$(jq -r "$key // empty" "$full" 2>/dev/null) \
+          || nyann::die "release.bump_files[$i]: jq failed reading $key from $path"
+        if [[ "$current" == "$version" ]]; then
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"unchanged", from_version:$from}]' <<<"$bumped_files_json")
+        else
+          _bp_paths+=("$path")
+          _bp_formats+=("$format")
+          _bp_payload+=("$key")
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
+        fi
+        ;;
+      toml-version-key)
+        section=$(jq -r '.section // empty' <<<"$entry")
+        [[ -n "$section" ]] || nyann::die "release.bump_files[$i]: toml-version-key requires .section"
+        current=$(awk -v sec="[$section]" '
+          /^\[/ { if ($0 == sec) in_sec=1; else if (in_sec) exit; next }
+          in_sec && /^[[:space:]]*version[[:space:]]*=[[:space:]]*"[^"]*"/ {
+            match($0, /"[^"]*"/); print substr($0, RSTART+1, RLENGTH-2); exit
+          }' "$full")
+        [[ -n "$current" ]] \
+          || nyann::die "release.bump_files[$i]: could not find single-line \`version = \"...\"\` in [$section] of $path"
+        if [[ "$current" == "$version" ]]; then
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"unchanged", from_version:$from}]' <<<"$bumped_files_json")
+        else
+          _bp_paths+=("$path")
+          _bp_formats+=("$format")
+          _bp_payload+=("$section")
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
+        fi
+        ;;
+      script)
+        command=$(jq -r '.command // empty' <<<"$entry")
+        [[ -n "$command" ]] || nyann::die "release.bump_files[$i]: script requires .command"
+        # script format has no idempotency check — the command owns
+        # whatever before/after read it needs. from_version stays null.
+        _bp_paths+=("$path")
+        _bp_formats+=("$format")
+        _bp_payload+=("$command")
+        bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" \
+          '. + [{path:$p, format:$fmt, action:"bumped", from_version:null}]' <<<"$bumped_files_json")
+        ;;
+      *)
+        nyann::die "release.bump_files[$i]: unknown format: $format"
+        ;;
+    esac
+  done
+}
+
+apply_bump_plan() {
+  local i path format payload full tmp
+  for ((i=0; i<${#_bp_paths[@]}; i++)); do
+    path="${_bp_paths[$i]}"
+    format="${_bp_formats[$i]}"
+    payload="${_bp_payload[$i]}"
+    full="$target/$path"
+    case "$format" in
+      json-version-key)
+        tmp=$(mktemp -t nyann-bump-json.XXXXXX)
+        if jq --arg v "$version" "$payload = \$v" "$full" > "$tmp"; then
+          mv "$tmp" "$full"
+        else
+          rm -f "$tmp"
+          nyann::die "bump-manifests: jq failed setting $payload in $path"
+        fi
+        ;;
+      toml-version-key)
+        tmp=$(mktemp -t nyann-bump-toml.XXXXXX)
+        # NB: gsub on `"[^"]*"` replaces all double-quoted strings on the
+        # line. On a single-line `version = "x.y.z"` (with optional
+        # trailing comment) there's only one such string, so the rewrite
+        # is precise. The pre-line filter (in_section + the regex anchor)
+        # is what stops us from matching `description = "..."`.
+        awk -v sec="[$payload]" -v new="$version" '
+          /^\[/ {
+            if ($0 == sec) in_sec=1
+            else if (in_sec) in_sec=0
+            print; next
+          }
+          in_sec && !done && /^[[:space:]]*version[[:space:]]*=[[:space:]]*"[^"]*"/ {
+            sub(/"[^"]*"/, "\"" new "\"")
+            done = 1
+          }
+          { print }
+        ' "$full" > "$tmp"
+        mv "$tmp" "$full"
+        ;;
+      script)
+        # Run the user-provided command with cwd=$target so relative
+        # paths (the common case: `echo $NEW_VERSION > VERSION`) resolve
+        # against the repo root regardless of where release.sh was
+        # invoked from.
+        if ! ( cd "$target" && NEW_VERSION="$version" bash -c "$payload" ); then
+          nyann::die "bump-manifests: script command failed for $path: $payload"
+        fi
+        ;;
+    esac
+  done
+}
+
+# Compute up-front so --dry-run output can preview the bump plan.
+compute_bump_plan
+
 # --- mutation phase ----------------------------------------------------------
 
 pushed=false
@@ -316,9 +517,12 @@ if $dry_run; then
     --argjson commits "$commits_json" \
     --argjson pushed "$pushed" \
     --argjson prerelease "$is_prerelease" \
+    --argjson bumped "$bumped_files_json" \
+    --argjson bump_on "$($bump_manifests && echo true || echo false)" \
     '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
       commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:[],
-      prerelease:$prerelease, dry_run:true}'
+      prerelease:$prerelease, dry_run:true}
+     + (if $bump_on then {bumped_files:$bumped} else {} end)'
   exit 0
 fi
 
@@ -439,10 +643,23 @@ case "$strategy" in
       fi
       mv "$tmp_changelog" "$full_changelog"
 
+      # Apply pending manifest bumps so they land in the same release
+      # commit as CHANGELOG.md. compute_bump_plan ran earlier and
+      # populated _bp_paths/_bp_formats/_bp_payload — this just replays
+      # them. apply_bump_plan is a no-op when --bump-manifests wasn't
+      # passed (the arrays are empty).
+      apply_bump_plan
+
       # Release commit runs under the repo's configured identity when
       # available; nyann@local is only the fallback.
       nyann::resolve_identity "$target"
       git -C "$target" add -- "$changelog_path"
+      # Stage every file the bump plan touched. Each path was
+      # path_under_target-validated during compute_bump_plan, so it's
+      # safe to feed to `git add`.
+      if (( ${#_bp_paths[@]} > 0 )); then
+        git -C "$target" add -- "${_bp_paths[@]}"
+      fi
       git -C "$target" \
         -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
         commit -q -m "chore(release): $tag" >/dev/null
@@ -521,38 +738,85 @@ if $push && $tag_pushed && $branch_pushed; then
   pushed=true
 fi
 
-if [[ -n "$ci_gate_json" ]]; then
-  jq -n \
-    --arg status "released" \
-    --arg strategy "$strategy" \
-    --arg version "$version" \
-    --arg tag "$tag" \
-    --arg from "$from_ref" \
-    --arg changelog "$changelog_block" \
-    --argjson commits "$commits_json" \
-    --argjson pushed "$pushed" \
-    --argjson next_steps "$next_steps_json" \
-    --argjson prerelease "$is_prerelease" \
-    --argjson ci_gate "$ci_gate_json" \
-    '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
-      commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:$next_steps,
-      prerelease:$prerelease, ci_gate:$ci_gate}'
-else
-  jq -n \
-    --arg status "released" \
-    --arg strategy "$strategy" \
-    --arg version "$version" \
-    --arg tag "$tag" \
-    --arg from "$from_ref" \
-    --arg changelog "$changelog_block" \
-    --argjson commits "$commits_json" \
-    --argjson pushed "$pushed" \
-    --argjson next_steps "$next_steps_json" \
-    --argjson prerelease "$is_prerelease" \
-    '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
-      commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:$next_steps,
-      prerelease:$prerelease}'
+# --- GitHub release (--gh-release) ------------------------------------------
+# Create the GH release attached to the just-pushed tag with the rendered
+# CHANGELOG block as notes. nyann's gh-integration convention: soft-skip
+# when gh is missing/unauthed (don't fail the release), surface the
+# manual recovery command in next_steps[]. Tag stays on origin either
+# way — we never undo a successful tag push.
+gh_release_json=""
+if $gh_release; then
+  if ! command -v "$gh_bin" >/dev/null 2>&1; then
+    gh_release_json='{"outcome":"skipped","skipped_reason":"gh-not-installed"}'
+    add_next_step "gh release create $tag --title \"$tag\" --notes-file <CHANGELOG-block>   # gh missing; install gh, then re-create the release manually"
+  elif ! "$gh_bin" auth status >/dev/null 2>&1; then
+    gh_release_json='{"outcome":"skipped","skipped_reason":"gh-not-authenticated"}'
+    add_next_step "gh auth login && gh release create $tag --title \"$tag\" --notes-file <CHANGELOG-block>"
+  elif ! $tag_pushed; then
+    # Tag never made it to origin — `gh release create` would 404 on the
+    # tag. Skip with a clear next step rather than emitting a misleading
+    # error.
+    gh_release_json='{"outcome":"skipped","skipped_reason":"gh-not-installed"}'
+    nyann::warn "gh-release: tag $tag wasn't pushed; skipping GitHub release creation"
+    add_next_step "git push origin $tag && gh release create $tag --title \"$tag\"   # push the tag first, then re-create the release"
+  else
+    # Materialise the rendered CHANGELOG block to a tmp file so
+    # `gh release create --notes-file` reads it byte-exactly (no shell
+    # interpolation, no embedded-newline gotchas).
+    notes_file=$(mktemp -t nyann-release-notes.XXXXXX)
+    if [[ -n "$changelog_block" ]]; then
+      printf '%s' "$changelog_block" > "$notes_file"
+    else
+      printf '%s\n' "Release $tag." > "$notes_file"
+    fi
+    gh_args=(release create "$tag" --title "$tag" --notes-file "$notes_file")
+    if $is_prerelease; then
+      gh_args+=(--prerelease)
+    fi
+    gh_create_err=$(mktemp -t nyann-gh-rel.XXXXXX)
+    if gh_url=$("$gh_bin" "${gh_args[@]}" 2>"$gh_create_err"); then
+      # gh prints the release URL on success.
+      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | head -1)
+      gh_release_json=$(jq -n --arg url "$gh_url" --argjson pre "$is_prerelease" \
+        '{outcome:"created", url:$url, prerelease:$pre}')
+    else
+      err=$(nyann::redact_url "$(head -c 1000 "$gh_create_err" | tr '\n' ' ')")
+      gh_release_json=$(jq -n --arg err "$err" --argjson pre "$is_prerelease" \
+        '{outcome:"failed", error:$err, prerelease:$pre}')
+      nyann::warn "gh-release: gh release create failed: $err"
+      add_next_step "gh release create $tag --title \"$tag\" --notes-file <changelog-block>   # gh release create failed; re-run after fixing the cause above"
+    fi
+    rm -f "$gh_create_err" "$notes_file"
+  fi
 fi
+
+# Build the final ReleaseSuccess JSON in one jq call. ci_gate,
+# bumped_files, and gh_release are all optional — emit each only when
+# the corresponding flag was active, so the schema's
+# additionalProperties:false stays clean.
+ci_gate_arg=${ci_gate_json:-null}
+gh_release_arg=${gh_release_json:-null}
+jq -n \
+  --arg status "released" \
+  --arg strategy "$strategy" \
+  --arg version "$version" \
+  --arg tag "$tag" \
+  --arg from "$from_ref" \
+  --arg changelog "$changelog_block" \
+  --argjson commits "$commits_json" \
+  --argjson pushed "$pushed" \
+  --argjson next_steps "$next_steps_json" \
+  --argjson prerelease "$is_prerelease" \
+  --argjson ci_gate "$ci_gate_arg" \
+  --argjson bumped "$bumped_files_json" \
+  --argjson bump_on "$($bump_manifests && echo true || echo false)" \
+  --argjson gh_release "$gh_release_arg" \
+  '{status:$status, strategy:$strategy, version:$version, tag:$tag, from:$from,
+    commits:$commits, changelog:$changelog, pushed:$pushed, next_steps:$next_steps,
+    prerelease:$prerelease}
+   + (if $ci_gate    != null then {ci_gate:    $ci_gate}    else {} end)
+   + (if $bump_on             then {bumped_files: $bumped}  else {} end)
+   + (if $gh_release != null then {gh_release: $gh_release} else {} end)'
 
 # Exit non-zero when --push was requested but at least one push step
 # failed. Lets CI / skill-layer wrappers detect the half-state without
