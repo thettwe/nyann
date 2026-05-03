@@ -136,8 +136,16 @@ if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
 
     ws_table_rows+="| ${ws_path} | ${ws_lang} | ${ws_fw} | ${ws_cmds} |"$'\n'
   done < <(jq -r --argjson n "$ws_show" '
+    # @tsv escapes \t/\r/\n/\\ as literal two-char sequences in the
+    # output stream, which would then leak through `IFS=$'\''\t'\'' read`
+    # as backslash-prefixed escapes (e.g. a workspace path containing a
+    # tab would render as `foo\tbar` in the CLAUDE.md table). Strip the
+    # offending bytes inside jq before @tsv runs. Workspace path is the
+    # only realistically untrusted field here — the others are from
+    # detect-stack and constrained to known enums.
+    def safe: gsub("[\t\r\n]"; " ");
     .[0:$n][]
-    | [.path, (.primary_language // "unknown"), (.framework // ""), (.package_manager // "")]
+    | [(.path | safe), (.primary_language // "unknown"), (.framework // ""), (.package_manager // "")]
     | @tsv
   ' "$workspace_configs_path")
 

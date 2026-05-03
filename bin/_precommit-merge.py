@@ -43,21 +43,46 @@ def main() -> int:
                 f"[nyann] unexpected YAML shape in {p}: root is {type(d).__name__}\n"
             )
             sys.exit(1)
-        d.setdefault("repos", [])
+        # `repos: null` is legal YAML and parses to None — setdefault would
+        # leave it as None and the iteration below would TypeError. Coerce
+        # to [] explicitly. Same hazard if `repos` is a scalar/string.
+        if not isinstance(d.get("repos"), list):
+            d["repos"] = []
         return d
 
     dst = load(dst_path)
     tmpl = load(tmpl_path)
 
-    def repo_key(r: dict):
+    def repo_key(r):
+        # A list with a bare `- ` line in YAML produces None entries;
+        # custom mappings that aren't dicts also slip through here. Treat
+        # them as opaque and key on object identity so they're preserved
+        # but never collide with our remote/local keys.
+        if not isinstance(r, dict):
+            return ("opaque", id(r))
         if r.get("repo") == "local":
-            ids = tuple(sorted(h.get("id") for h in r.get("hooks", []) if h.get("id")))
+            hooks = r.get("hooks") or []
+            ids = tuple(
+                sorted(
+                    h.get("id")
+                    for h in hooks
+                    if isinstance(h, dict) and h.get("id")
+                )
+            )
             return ("local", ids)
         return ("remote", r.get("repo"))
 
     existing = {repo_key(r): r for r in dst["repos"]}
     added = 0
     for r in tmpl["repos"]:
+        # Skip malformed template entries rather than aborting the whole
+        # merge — the user's existing config is the source of truth and
+        # should not be left half-merged on a template error.
+        if not isinstance(r, dict):
+            sys.stderr.write(
+                "[nyann] template contains a non-mapping repo entry; skipping\n"
+            )
+            continue
         k = repo_key(r)
         if k in existing:
             continue

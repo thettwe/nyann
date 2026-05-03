@@ -73,9 +73,15 @@ done < <(find "${scan_dirs[@]}" -type f \( -name '*.md' -o -name '*.markdown' \)
 # misread as a corpus boundary. Suffix with $$ + a random tag so colliding
 # content is essentially impossible.
 CORPUS_MARKER="__NYANN_CORPUS_FILE_${$}_${RANDOM}__:"
+# Install the cleanup trap up-front against placeholder vars and let
+# ${var:+} guard pick up whichever tmpfiles have already been allocated.
+# Without this, a SIGINT during the corpus-build loop below (which can
+# take a non-trivial fraction of a second on large doc trees) would
+# leak corpus_buf into $TMPDIR.
+corpus_buf=""
+orphans_tsv=""
+trap 'rm -f ${corpus_buf:+"$corpus_buf"} ${orphans_tsv:+"$orphans_tsv"}' EXIT
 corpus_buf=$(mktemp -t nyann-corpus.XXXXXX)
-# Cleanup trap is installed below once orphans_tsv is allocated; both
-# tmpfiles share one trap.
 for ref in "${corpus[@]}"; do
   printf '\n%s%s\n' "$CORPUS_MARKER" "$ref" >> "$corpus_buf"
   cat "$ref" >> "$corpus_buf" 2>/dev/null || true
@@ -89,7 +95,6 @@ orphans_tsv=$(mktemp -t nyann-orphans.XXXXXX)
 # pipeline (3 forks per candidate) — awk now signals "found" via its
 # END exit code.
 US=$'\037'
-trap 'rm -f "$corpus_buf" "$orphans_tsv"' EXIT
 now=$(date +%s)
 
 while IFS= read -r -d '' f; do
