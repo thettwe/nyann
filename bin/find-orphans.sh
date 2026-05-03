@@ -68,7 +68,11 @@ done < <(find "${scan_dirs[@]}" -type f \( -name '*.md' -o -name '*.markdown' \)
 #
 # Each corpus section starts with `<MARKER><abs-path>\n` so awk can
 # tell which file a match landed in (used to skip self-references).
-CORPUS_MARKER="__NYANN_CORPUS_FILE__:"
+# Per-run marker — a doc legitimately containing `__NYANN_CORPUS_FILE__:`
+# (e.g. nyann's own internal docs about find-orphans) would otherwise be
+# misread as a corpus boundary. Suffix with $$ + a random tag so colliding
+# content is essentially impossible.
+CORPUS_MARKER="__NYANN_CORPUS_FILE_${$}_${RANDOM}__:"
 corpus_buf=$(mktemp -t nyann-corpus.XXXXXX)
 # Cleanup trap is installed below once orphans_tsv is allocated; both
 # tmpfiles share one trap.
@@ -149,7 +153,12 @@ while IFS= read -r -d '' f; do
       mtime=$(stat -c "%Y" "$f")
     fi
     days=$(( (now - mtime) / 86400 ))
-    printf '%s\t%s\n' "$rel" "$days" >> "$orphans_tsv"
+    # Unix filenames may legally contain tab/CR/LF. Without sanitising,
+    # one such filename would split the TSV row across columns or lines
+    # and the trailing `jq | tonumber` reduce would abort the entire
+    # audit (no orphan report at all) instead of just dropping that row.
+    rel_safe="${rel//[$'\t\r\n']/ }"
+    printf '%s\t%s\n' "$rel_safe" "$days" >> "$orphans_tsv"
   fi
 done < <(find "${scan_dirs[@]}" -type f -print0)
 

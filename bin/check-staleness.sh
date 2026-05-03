@@ -82,7 +82,11 @@ if [[ ${#scan_dirs[@]} -gt 0 ]]; then
     fi
     days=$(( (now - mtime) / 86400 ))
     if (( days >= threshold )); then
-      printf '%s\t%s\n' "$rel" "$days" >> "$stale_tsv"
+      # Unix filenames may legally contain tab/CR/LF. Sanitise before
+      # serialising so a single weirdly-named doc can't corrupt the TSV
+      # and abort the trailing jq reduce for the whole audit.
+      rel_safe="${rel//[$'\t\r\n']/ }"
+      printf '%s\t%s\n' "$rel_safe" "$days" >> "$stale_tsv"
     fi
   done < <(find "${scan_dirs[@]}" -type f -print0)
 fi

@@ -225,10 +225,14 @@ while IFS= read -r sha && IFS= read -r subject; do
     [[ "${BASH_REMATCH[3]}" == "!" ]] && breaking=true
     csubject="${BASH_REMATCH[4]}"
   fi
-  # Subject may legitimately contain tabs; replace with a single space
-  # before serialising so the TSV stays parseable. Conventional Commit
-  # subjects are single-line by spec, so newlines are not a concern here.
-  csubject_safe="${csubject//$'\t'/ }"
+  # Sanitise subject before serialising:
+  #   tab — splits the TSV row;
+  #   CR  — sneaks in via CRLF commit messages and renders as a literal
+  #         carriage return inside the changelog bullet;
+  #   LF  — Conventional Commit subjects are single-line by spec, but
+  #         tooling that pipes raw `%B` through `--subject` filters can
+  #         leak one. Splitting the TSV across lines is unrecoverable.
+  csubject_safe="${csubject//[$'\t\r\n']/ }"
   printf '%s\t%s\t%s\t%s\t%s\n' "$sha" "$ctype" "$cscope" "$csubject_safe" "$breaking" >> "$commits_tsv"
 done < <(git -C "$target" log --pretty=tformat:'%H%n%s' "$log_range" 2>/dev/null || true)
 
@@ -273,7 +277,12 @@ render_changelog_block() {
     section("Build";       [.[] | select(.breaking == false and .type == "build")]) +
     section("CI";          [.[] | select(.breaking == false and .type == "ci")]) +
     section("Chores";      [.[] | select(.breaking == false and .type == "chore")]) +
-    section("Other";       [.[] | select(.breaking == false and (([.type] | inside($known)) | not))])
+    # NB: explicit `index(.type) == null` (equality) — not `[.type] | inside($known)`,
+    # which uses jq array-contains semantics that fall back to substring matching for
+    # strings: `[""] | inside(["feat"])` is TRUE (empty string is a substring of every
+    # string) and `["fea"] | inside(["feat"])` is also TRUE. Both would silently drop
+    # the commit from the changelog instead of landing it in Other.
+    section("Other"; [.[] | select(.breaking == false) | select(.type as $t | $t == "" or ($known | index($t) == null))])
   ' <<<"$commits_json"
 }
 

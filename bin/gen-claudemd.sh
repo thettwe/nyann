@@ -100,7 +100,11 @@ ws_table_rows=""
 max_ws_rows=10
 
 if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
-  ws_total=$(jq 'length' "$workspace_configs_path")
+  # Guard the arithmetic against an unparseable / truncated workspace file:
+  # jq emits nothing on parse error and bash arithmetic on an empty string
+  # would otherwise silently render an empty table.
+  ws_total=$(jq 'length' "$workspace_configs_path" 2>/dev/null) || ws_total=0
+  [[ "$ws_total" =~ ^[0-9]+$ ]] || ws_total=0
   ws_show=$(( ws_total < max_ws_rows ? ws_total : max_ws_rows ))
 
   # Single jq pass emits one TSV row per workspace with all four fields,
