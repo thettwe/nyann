@@ -36,6 +36,15 @@ done
 [[ -n "$profile_path" && -f "$profile_path" ]] || nyann::die "--profile <path> is required"
 target="$(cd "$target" && pwd)"
 
+# Install the cleanup trap up-front. norm_file (gitignore normalisation)
+# is created mid-script; _drift_tmpdir (parallel doc subsystems) is
+# created later still. A SIGINT/SIGTERM between creation and the prior
+# trap installation would leak either tmpfile. Initialising both to ""
+# and guarding with ${var:+} keeps the trap safe at any point in the run.
+norm_file=""
+_drift_tmpdir=""
+trap 'rm -rf ${norm_file:+"$norm_file"} ${_drift_tmpdir:+"$_drift_tmpdir"}' EXIT
+
 # Validate the profile against the schema before consuming any field.
 # bootstrap.sh and retrofit.sh already validate via load-profile.sh,
 # but compute-drift can be invoked directly (tests, future skills,
@@ -183,6 +192,7 @@ if [[ -f "$target/.gitignore" ]]; then
       fi
     done
     rm -f "$norm_file"
+    norm_file=""
 
     if [[ ${#missing_entries[@]} -gt 0 ]]; then
       csv=$(IFS=','; echo "${missing_entries[*]}")
@@ -237,10 +247,9 @@ n_off=$(jq 'length' <<<"$offenders_json")
 # Each doc subsystem writes to its own pair of output files (stdout +
 # stderr), solving the macOS APFS append-atomicity concern that
 # previously forced serial execution. All four subsystems now run in
-# parallel via background jobs + wait.
-norm_file=""
+# parallel via background jobs + wait. Cleanup trap is installed at
+# top-of-script so partial state is cleaned up on SIGINT.
 _drift_tmpdir=$(mktemp -d -t nyann-driftsubs.XXXXXX)
-trap 'rm -rf ${norm_file:+"$norm_file"} "$_drift_tmpdir"' EXIT
 
 _subsys_names=(check-claude-md-size check-links find-orphans check-staleness)
 _subsys_fallbacks=(

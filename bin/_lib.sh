@@ -105,6 +105,14 @@ nyann::path_under_target() {
   done
   IFS="$oIFS"
 
+  # Special-case root: when target is "/", the second pattern becomes
+  # the literal `//*`, which only matches strings starting with `//`,
+  # not real absolute paths. Anything resolves under "/" by definition.
+  if [[ "$resolved_target" == "/" ]]; then
+    printf '%s\n' "$result"
+    return 0
+  fi
+
   if [[ "$result" == "$resolved_target" || "$result" == "$resolved_target"/* ]]; then
     printf '%s\n' "$result"
     return 0

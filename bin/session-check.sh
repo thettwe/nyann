@@ -84,25 +84,50 @@ head_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
 refs_hash=$(git for-each-ref --format='%(refname)%(objectname)' refs/heads/ 2>/dev/null | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
 cache_dir="${TMPDIR:-/tmp}/nyann-session-cache"
 _dir_hash=$(printf '%s' "$(pwd)" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
-cache_file="$cache_dir/stale-branches-${_dir_hash:-fallback}"
 cache_ttl=60
+# When either hash failed (no md5sum/md5/cksum on PATH, or git refs read
+# failed), disable caching entirely. The previous fallback file name
+# `stale-branches-fallback` was shared across every repo on the machine,
+# so one repo's stale-branch JSON would surface for every other repo for
+# 60 seconds — a silent cross-repo correctness leak.
+if [[ -z "$_dir_hash" || -z "$refs_hash" ]]; then
+  cache_ttl=0
+  cache_file=""
+else
+  cache_file="$cache_dir/stale-branches-${_dir_hash}"
+fi
 
 stale_report=""
-if [[ -n "$head_sha" && -f "$cache_file" ]]; then
-  cached_sha=$(head -1 "$cache_file" 2>/dev/null || echo "")
-  cached_refs=$(sed -n '2p' "$cache_file" 2>/dev/null || echo "")
-  cached_ts=$(sed -n '3p' "$cache_file" 2>/dev/null || echo "0")
+if [[ -n "$head_sha" && -n "$cache_file" && -f "$cache_file" ]]; then
+  # Read all four sections in a single pass via awk so a concurrent
+  # writer can't surface a partial cache between our reads. The 4th
+  # section (the JSON payload) may itself contain newlines, so we keep
+  # everything from line 4 onward.
+  cache_payload=$(awk 'NR==1{a=$0; next} NR==2{b=$0; next} NR==3{c=$0; next} {if (d=="") d=$0; else d=d "\n" $0} END{printf "%s\n%s\n%s\n%s", a, b, c, d}' "$cache_file" 2>/dev/null || echo "")
+  cached_sha=$(printf '%s\n' "$cache_payload" | sed -n '1p')
+  cached_refs=$(printf '%s\n' "$cache_payload" | sed -n '2p')
+  cached_ts=$(printf '%s\n' "$cache_payload" | sed -n '3p')
+  [[ "$cached_ts" =~ ^[0-9]+$ ]] || cached_ts=0
   now_ts=$(date +%s)
   if [[ "$cached_sha" == "$head_sha" && "$cached_refs" == "$refs_hash" ]] && (( now_ts - cached_ts < cache_ttl )); then
-    stale_report=$(tail -n +4 "$cache_file" 2>/dev/null || echo "")
+    stale_report=$(printf '%s\n' "$cache_payload" | tail -n +4)
   fi
 fi
 
 if [[ -z "$stale_report" ]]; then
   stale_report=$("${_script_dir}/check-stale-branches.sh" --target "." 2>/dev/null) || stale_report=""
-  if [[ -n "$head_sha" && -n "$stale_report" ]]; then
+  # Atomic write: a concurrent reader (commit → pr → ship in quick
+  # succession can spawn parallel session-checks) must never observe
+  # a half-written cache. Write to a per-PID tmp file then mv into
+  # place; mv is atomic on the same filesystem.
+  if [[ -n "$head_sha" && -n "$stale_report" && -n "$cache_file" && "$cache_ttl" -gt 0 ]]; then
     mkdir -p "$cache_dir" 2>/dev/null || true
-    { printf '%s\n%s\n%s\n%s\n' "$head_sha" "$refs_hash" "$(date +%s)" "$stale_report"; } > "$cache_file" 2>/dev/null || true
+    cache_tmp="${cache_file}.tmp.$$"
+    if { printf '%s\n%s\n%s\n%s\n' "$head_sha" "$refs_hash" "$(date +%s)" "$stale_report"; } > "$cache_tmp" 2>/dev/null; then
+      mv "$cache_tmp" "$cache_file" 2>/dev/null || rm -f "$cache_tmp" 2>/dev/null
+    else
+      rm -f "$cache_tmp" 2>/dev/null || true
+    fi
   fi
 fi
 

@@ -56,8 +56,10 @@ else
     || nyann::die "detect-stack.sh failed"
 fi
 
-# Extract all fields in one jq call.
-read -r detected_lang detected_fw detected_pm detected_confidence is_monorepo < <(
+# Extract all fields in one jq call. IFS=$'\t' so empty middle fields
+# (e.g. framework="null" while package_manager is set) don't shift later
+# variables under default IFS, which collapses runs of whitespace.
+IFS=$'\t' read -r detected_lang detected_fw detected_pm detected_confidence is_monorepo < <(
   jq -r '[
     (.primary_language // "unknown"),
     (.framework // "null"),
@@ -84,20 +86,43 @@ score_profiles() {
   local match_lang="$1" match_fw="$2" match_pm="$3"
   local profiles_dir="$plugin_root/profiles"
 
-  # Collect profile paths into an array.
+  # Collect profile paths into an array. User profiles take precedence
+  # over starter profiles of the same name (mirrors load-profile.sh
+  # resolution order) so user customisations are not lost to a tied
+  # confidence score with the starter. Bash 3.2 compatible — pipe-delimited
+  # string instead of associative array.
   local -a profile_files=()
-  for f in "$profiles_dir"/*.json; do
-    [[ -f "$f" ]] || continue
-    [[ "$(basename "$f" .json)" == "_schema" ]] && continue
-    profile_files+=("$f")
-  done
+  local seen_names="|"
+  local _name
   if [[ -d "$user_root/profiles" ]]; then
     for f in "$user_root/profiles"/*.json; do
       [[ -f "$f" ]] || continue
-      [[ "$(basename "$f" .json)" == "_schema" ]] && continue
+      _name="$(basename "$f" .json)"
+      [[ "$_name" == "_schema" ]] && continue
       profile_files+=("$f")
+      seen_names="${seen_names}${_name}|"
     done
   fi
+  for f in "$profiles_dir"/*.json; do
+    [[ -f "$f" ]] || continue
+    _name="$(basename "$f" .json)"
+    [[ "$_name" == "_schema" ]] && continue
+    [[ "$seen_names" == *"|${_name}|"* ]] && continue
+    profile_files+=("$f")
+  done
+
+  # Pre-filter malformed JSON. A single bad file in ~/.claude/nyann/profiles/
+  # would otherwise abort the entire batch (jq -n inputs exits 5 on the first
+  # parse error), making bootstrap step 2 fail for every repo on the machine.
+  local -a valid_files=()
+  for f in "${profile_files[@]}"; do
+    if jq empty "$f" >/dev/null 2>&1; then
+      valid_files+=("$f")
+    else
+      nyann::warn "skipping malformed profile: $f"
+    fi
+  done
+  profile_files=("${valid_files[@]}")
 
   (( ${#profile_files[@]} == 0 )) && { echo '[]'; return; }
 

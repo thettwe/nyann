@@ -38,7 +38,9 @@ Do not block — let the user decide whether to sync first.
 
 ## 1. Detect
 
-1. Run `bin/detect-stack.sh --path <target>`. Capture the JSON. Never proceed without it.
+1. Run `bin/detect-stack.sh --path <target>` and capture the JSON to a temp file
+   (e.g. `bin/detect-stack.sh --path <target> > "${TMPDIR:-/tmp}/nyann-stack.json"`)
+   so step 2 can pass it via `--stack`. Never proceed without it.
 2. If `confidence < 0.6`, tell the user what you found and ask them to confirm the stack before
    continuing. Show the top two or three reasoning entries so they can see *why* you chose what
    you chose.

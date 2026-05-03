@@ -213,16 +213,36 @@ else
 fi
 
 # Validate via validate-profile.sh against the snapshot.
-# Starter profiles are immutable between plugin releases, so skip the
-# expensive validator (uvx/check-jsonschema subprocess) when a version
-# sentinel confirms they were already validated for this plugin version.
+# Starter profiles ship pre-validated in the plugin release, so skip the
+# expensive validator (uvx/check-jsonschema subprocess) when a per-profile
+# sentinel confirms this exact file content was validated against the
+# current plugin version.
+#
+# Sentinel file (one per starter profile): ${plugin_root}/profiles/_validated/<name>
+# Sentinel contents: "<plugin_version>:<sha256-of-profile-file>"
+#
+# Keying on (version, sha256) gives:
+#   - downgrade-safe (1.4.0 → 1.3.0): plugin_version mismatches → re-validate
+#   - mid-version edit detection: a hand-edited starter no longer matches
+#     its sha256 → re-validate (and the new sha256 is stamped only after
+#     successful validation, so a corrupt edit can't poison the cache)
 _skip_validation=false
+_plugin_version=""
+_profile_sha=""
+_sentinel_file=""
 if [[ "$source_label" == "starter" ]]; then
   _plugin_version=$(jq -r '.version // ""' "${_script_dir}/../.claude-plugin/plugin.json" 2>/dev/null || echo "")
-  _sentinel_file="${plugin_root}/profiles/_validated_at_version"
-  if [[ -n "$_plugin_version" && -f "$_sentinel_file" ]]; then
-    _sentinel_version=$(<"$_sentinel_file")
-    [[ "$_sentinel_version" == "$_plugin_version" ]] && _skip_validation=true
+  if command -v shasum >/dev/null 2>&1; then
+    _profile_sha=$(shasum -a 256 "$tmp_resolved" 2>/dev/null | awk '{print $1}')
+  elif command -v sha256sum >/dev/null 2>&1; then
+    _profile_sha=$(sha256sum "$tmp_resolved" 2>/dev/null | awk '{print $1}')
+  fi
+  if [[ -n "$_plugin_version" && -n "$_profile_sha" ]]; then
+    _sentinel_file="${plugin_root}/profiles/_validated/$(basename "$resolved")"
+    if [[ -f "$_sentinel_file" ]]; then
+      _sentinel_value=$(<"$_sentinel_file")
+      [[ "$_sentinel_value" == "${_plugin_version}:${_profile_sha}" ]] && _skip_validation=true
+    fi
   fi
 fi
 
@@ -236,9 +256,10 @@ else
     nyann::warn "profile failed validation: ${resolved}"
     exit 4
   fi
-  # Update sentinel on successful starter profile validation.
-  if [[ "$source_label" == "starter" && -n "${_plugin_version:-}" ]]; then
-    printf '%s' "$_plugin_version" > "${_sentinel_file:-}" 2>/dev/null || true
+  # Stamp the per-profile sentinel only after a successful validation.
+  if [[ "$source_label" == "starter" && -n "$_plugin_version" && -n "$_profile_sha" && -n "$_sentinel_file" ]]; then
+    mkdir -p "$(dirname "$_sentinel_file")" 2>/dev/null || true
+    printf '%s:%s' "$_plugin_version" "$_profile_sha" > "$_sentinel_file" 2>/dev/null || true
   fi
 fi
 

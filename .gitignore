@@ -16,6 +16,7 @@
 
 # Runtime caches
 profiles/_validated_at_version
+profiles/_validated/
 
 # Language / tooling artifacts (in case contributors run tests against fixtures)
 node_modules/

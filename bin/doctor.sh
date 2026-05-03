@@ -116,8 +116,9 @@ else
   report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile") \
     || retro_rc=$?
 
-  # Parse summary counters once.
-  read -r n_missing n_mis n_off n_broken n_orphans n_stale n_subsys_errs claude_md_status < <(
+  # Parse summary counters once. IFS=$'\t' so empty middle fields don't
+  # shift later variables under default IFS (which collapses tab runs).
+  IFS=$'\t' read -r n_missing n_mis n_off n_broken n_orphans n_stale n_subsys_errs claude_md_status < <(
     jq -r '[
       (.summary.missing // 0),
       (.summary.misconfigured // 0),
