@@ -269,3 +269,44 @@ TOML
   # File stays untouched — the rejection happened before mutation.
   [ "$(jq -r '.version' "$repo/package.json")" = "0.1.0" ]
 }
+
+@test "json-version-key with non-existent .key dies (no phantom field insertion)" {
+  repo=$(make_repo)
+  # File has `name` but no `version`. Bumping should refuse rather
+  # than silently inserting a brand-new top-level `version` field.
+  echo '{"name":"x"}' > "$repo/package.json"
+  prof=$(make_profile "missing-key" '[{"path":"package.json","format":"json-version-key","key":".version"}]')
+
+  run bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "$prof" --bump-manifests --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -F -e "not present"
+  # File untouched.
+  [ "$(jq -r 'has("version")' "$repo/package.json")" = "false" ]
+}
+
+@test "runtime path guard rejects ./foo (defense-in-depth past schema)" {
+  repo=$(make_repo)
+  # Hand-craft a profile that bypasses schema (./foo would also be
+  # rejected by the schema regex, but test the runtime in isolation).
+  prof=$(make_profile "leading-dot-slash" '[{"path":"./package.json","format":"json-version-key","key":".version"}]')
+
+  run bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "$prof" --bump-manifests --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -F -e "without './'"
+}
+
+@test "user-supplied --profile is NOT deleted by the EXIT trap (regression)" {
+  # Earlier versions of the trap conflated the user's --profile path
+  # with the script-owned tmpfile and would `rm -f` the user's profile
+  # on EXIT — catastrophic data loss. Lock that down.
+  repo=$(make_repo)
+  echo '{"version":"0.1.0"}' > "$repo/package.json"
+  prof=$(make_profile "survives" '[{"path":"package.json","format":"json-version-key","key":".version"}]')
+  # Sanity: the file exists before invocation.
+  [ -f "$prof" ]
+
+  bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "$prof" --bump-manifests --dry-run >/dev/null
+
+  # Profile must still exist after release.sh exits.
+  [ -f "$prof" ]
+}

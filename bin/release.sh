@@ -179,8 +179,15 @@ tag="${tag_prefix}${version}"
 tmp_changelog=""
 push_err=""
 commits_tsv=""
+# `_bumps_profile_owned_tmp` is the ONLY path that should ever be
+# rm -f'd — it's set ONLY when this script mktempted its own copy of
+# the resolved profile. The user-supplied `--profile <path>` lives in
+# `_resolved_bumps_profile` (read-only path) and must NEVER appear in
+# the trap. Earlier versions conflated the two and deleted the user's
+# profile file via trap on every --profile run.
 _resolved_bumps_profile=""
-trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"} ${_resolved_bumps_profile:+"$_resolved_bumps_profile"}' EXIT
+_bumps_profile_owned_tmp=""
+trap 'rm -f "$tmp_changelog" "$push_err" ${commits_tsv:+"$commits_tsv"} ${_bumps_profile_owned_tmp:+"$_bumps_profile_owned_tmp"}' EXIT
 
 # --- soft-skip paths ---------------------------------------------------------
 
@@ -355,6 +362,8 @@ resolve_bumps_profile() {
   if [[ -n "$profile_path" ]]; then
     [[ -f "$profile_path" ]] || nyann::die "--profile file not found: $profile_path"
     _resolved_bumps_profile="$profile_path"
+    # Caller-supplied path — we do NOT own it; do NOT register it for
+    # cleanup. _bumps_profile_owned_tmp stays empty.
     return 0
   fi
   # Fall back to the default starter profile when --profile isn't passed.
@@ -362,8 +371,14 @@ resolve_bumps_profile() {
   # can short-circuit by passing --profile explicitly.
   local tmp
   tmp=$(mktemp -t nyann-release-prof.XXXXXX)
-  if "${_script_dir}/load-profile.sh" --target "$target" default >"$tmp" 2>/dev/null; then
+  # load-profile.sh resolves user > team > starter from $user_root and
+  # the plugin-root profiles dir. It does not take --target — the
+  # active profile is the one configured for the user, not for the
+  # repo we're releasing.
+  if "${_script_dir}/load-profile.sh" default >"$tmp" 2>/dev/null; then
     _resolved_bumps_profile="$tmp"
+    # We own this tmpfile — register it for cleanup via the EXIT trap.
+    _bumps_profile_owned_tmp="$tmp"
   else
     rm -f "$tmp"
     return 1
@@ -391,8 +406,19 @@ compute_bump_plan() {
     path=$(jq -r '.path' <<<"$entry")
     format=$(jq -r '.format' <<<"$entry")
 
-    [[ "$path" == /* || "$path" == *".."* ]] \
-      && nyann::die "release.bump_files[$i].path must be repo-relative without '..': $path"
+    # Runtime path-traversal guard. The schema's `not.pattern` clause
+    # rejects ./foo, foo/./bar, ., .., and double-dot segments — but
+    # validate-profile.sh falls back to `jq empty` when no JSON-schema
+    # validator is on PATH, so this runtime is the last line of defense.
+    # Match the schema's coverage exactly.
+    if [[ "$path" == /* \
+       || "$path" == *".."* \
+       || "$path" == "." \
+       || "$path" == ./* \
+       || "$path" == */./* \
+       || "$path" == */. ]]; then
+      nyann::die "release.bump_files[$i].path must be repo-relative without './' or '..' segments: $path"
+    fi
     nyann::assert_path_under_target "$target" "$target/$path" "release.bump_files[$i].path" >/dev/null
 
     full="$target/$path"
@@ -410,6 +436,14 @@ compute_bump_plan() {
         # exfiltrate env vars during the bump.
         if ! [[ "$key" =~ ^\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\]|\.[A-Za-z_][A-Za-z0-9_]*)*$ ]]; then
           nyann::die "release.bump_files[$i]: json-version-key .key must be a simple jq path (e.g. .version, .plugins[0].version) — got '$key'"
+        fi
+        # Require the key to actually exist BEFORE we'd otherwise
+        # silently insert a fresh field at the typo'd path during
+        # apply_bump_plan. toml-version-key already dies on missing
+        # `version = ...`; symmetric handling here saves the user from
+        # shipping a release with a phantom .versionn field months later.
+        if ! jq -e "$key" "$full" >/dev/null 2>&1; then
+          nyann::die "release.bump_files[$i]: json-version-key .key '$key' not present in $path (refusing to silently insert a new field)"
         fi
         current=$(jq -r "$key // empty" "$full" 2>/dev/null) \
           || nyann::die "release.bump_files[$i]: jq failed reading $key from $path"
@@ -802,8 +836,19 @@ if $gh_release; then
       # stdout; pick the first http(s) line rather than blindly
       # `head -1` the buffer.
       gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | grep -m1 -E '^https?://' || true)
-      gh_release_json=$(jq -n --arg url "$gh_url" --argjson pre "$is_prerelease" \
-        '{outcome:"created", url:$url, prerelease:$pre}')
+      # Schema marks `url` as optional under outcome:created — when the
+      # extraction yielded nothing (a future gh version that prints
+      # decoration before the URL, or no URL at all), emit the success
+      # outcome WITHOUT the field rather than shipping `"url": ""`. The
+      # tag is on origin either way; consumers can construct the URL
+      # from the tag.
+      if [[ -n "$gh_url" ]]; then
+        gh_release_json=$(jq -n --arg url "$gh_url" --argjson pre "$is_prerelease" \
+          '{outcome:"created", url:$url, prerelease:$pre}')
+      else
+        gh_release_json=$(jq -n --argjson pre "$is_prerelease" \
+          '{outcome:"created", prerelease:$pre}')
+      fi
     else
       err=$(nyann::redact_url "$(head -c 1000 "$gh_create_err" | tr '\n' ' ')")
       gh_release_json=$(jq -n --arg err "$err" --argjson pre "$is_prerelease" \
