@@ -5,6 +5,31 @@ All notable changes to **nyann** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-05-01
+
+### Changed
+
+- **Doctor text mode: single drift pass** — doctor.sh now loads the profile once and calls `compute-drift.sh` directly instead of invoking `retrofit.sh` twice (once for JSON, once for text); eliminates redundant profile validation and duplicate documentation-subsystem execution (~50% faster doctor in text mode)
+- **Parallel documentation subsystems** — `compute-drift.sh` runs `check-claude-md-size`, `check-links`, `find-orphans`, and `check-staleness` in parallel using per-subsystem output files instead of sequential shared-file appends; estimated 40–60% wall-clock reduction for repos with non-trivial `docs/` trees
+- **Single-pass extension counting** — `detect-stack.sh` extension-count fallback uses one `find | awk` pass instead of 13 separate `find` invocations (one per language); same tree traversal, 13× fewer processes
+- **Single-pass CLAUDE.md hints** — `detect_claudemd_hints` uses a single `awk` pass instead of 14+ separate `grep -Eiq` invocations
+- **Batch profile scoring** — `suggest-profile.sh` scores all profiles in a single `jq` invocation using `inputs` instead of spawning 3+ `jq` subprocesses per profile (~108 `jq` forks → 1 for 18 profiles)
+- **Single-pass stale-branch detection** — `check-stale-branches.sh` uses `git branch --merged` once instead of per-branch `git merge-base --is-ancestor` calls; bash 3.2 compatible (no associative arrays)
+- **Session-check caching** — `session-check.sh` caches stale-branch results keyed by HEAD SHA with 60s TTL so back-to-back skill invocations (commit → pr → ship) skip redundant branch classification
+- **Single jq for workspace lint-staged config** — `install-hooks.sh` `build_workspace_lint_staged` replaced per-workspace multi-`jq` loop (~35 forks for 5 workspaces) with one `jq` program
+- **Bash-native path validation** — `nyann::path_under_target` in `_lib.sh` uses `cd + pwd -P` and lexical `..` normalization instead of spawning a Python subprocess per path; eliminates all python3 dependencies from path validation
+- **Starter profile validation sentinel** — `load-profile.sh` skips `validate-profile.sh` (uvx/check-jsonschema subprocess) for starter profiles when a version sentinel matches the current plugin version; user and team profiles still validate on every load
+- **Stack passthrough for suggest-profile** — `suggest-profile.sh` accepts `--stack <file>` to reuse a pre-computed StackDescriptor; bootstrap skill updated to pass step-1 detection results, avoiding a redundant `detect-stack.sh` call
+
+### Fixed
+
+- **Unused `hook_name` variable** — removed dead assignment in `install-hooks.sh` husky publish loop (shellcheck SC2034)
+- **macOS `md5sum` portability** — `session-check.sh` cache key generation falls back to `md5 -q` or `cksum` when `md5sum` is unavailable
+- **CLAUDE.md hint field shifting** — `detect_claudemd_hints` awk output now tab-delimited so empty middle fields don't collapse during `read`
+- **Parallel doc subsystem path safety** — `compute-drift.sh` dispatches subsystems via arrays instead of word-split strings, fixing breakage with spaces in paths
+- **Session cache key includes branch refs** — `session-check.sh` cache keyed on HEAD SHA + `refs/heads` digest so branch creates/deletes/merges within TTL invalidate correctly
+- **`--stack` file missing is now a hard error** — `suggest-profile.sh` dies instead of silently falling back to re-running `detect-stack.sh`
+
 ## [1.3.0] - 2026-05-01
 
 ### Added

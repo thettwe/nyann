@@ -73,24 +73,27 @@ if [[ -z "$base_branch" ]] || ! git -C "$target" show-ref --verify --quiet "refs
   exit 0
 fi
 
-base_sha=$(git -C "$target" rev-parse "refs/heads/${base_branch}")
 now_ts=$(date +%s)
 threshold_secs=$(( days_threshold * 86400 ))
+
+# Collect all merged branch names in one git call instead of per-branch
+# git merge-base --is-ancestor. Store as newline-delimited string for
+# grep lookup (bash 3.2 compatible — no associative arrays).
+_merged_list=""
+while IFS= read -r mb; do
+  mb="${mb#"${mb%%[![:space:]]*}"}"
+  [[ -n "$mb" ]] && _merged_list="${_merged_list}${mb}"$'\n'
+done < <(git -C "$target" branch --merged "$base_branch" 2>/dev/null)
 
 merged_json='[]'
 stale_json='[]'
 
 while IFS=$'\t' read -r name iso committer_ts short_sha; do
   [[ -z "$name" ]] && continue
-  # Skip the base branch itself and the current branch.
   [[ "$name" == "$base_branch" ]] && continue
   [[ "$name" == "$current_branch" ]] && continue
 
-  branch_sha=$(git -C "$target" rev-parse "refs/heads/${name}")
-
-  # Reachability: is branch_sha an ancestor of base_sha?
-  # `git merge-base --is-ancestor` exits 0 when ancestor, 1 otherwise.
-  if git -C "$target" merge-base --is-ancestor "$branch_sha" "$base_sha" 2>/dev/null; then
+  if printf '%s' "$_merged_list" | grep -Fxq "$name"; then
     merged_json=$(jq --arg n "$name" --arg ts "$iso" --arg sha "$short_sha" \
       '. + [{name:$n, last_commit_at:$ts, last_commit_sha:$sha}]' <<<"$merged_json")
     continue

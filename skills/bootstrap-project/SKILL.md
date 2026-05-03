@@ -54,9 +54,10 @@ Three branches:
 
 - **User named a profile.** Load it with `bin/load-profile.sh <name>`. If the loader exits 2
   (profile not found), list the available profiles it reported and ask the user to pick one.
-- **No profile named.** Run `bin/suggest-profile.sh --target <repo>` to get a ranked
-  list of matching profiles with confidence scores. The script runs detect-stack internally
-  and scores every starter profile against the detected stack.
+- **No profile named.** Run `bin/suggest-profile.sh --target <repo> --stack <stack-json-file>`
+  to get a ranked list of matching profiles with confidence scores. Pass the StackDescriptor
+  JSON captured in step 1 via `--stack` so the script reuses it instead of re-running
+  detect-stack.sh (which would duplicate the directory walk).
 
   Show the user the top suggestion (or top 2-3 if scores are close):
   > "Detected: TypeScript + Next.js. Suggested profile: `nextjs-prototype` (confidence: 90).

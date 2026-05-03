@@ -62,28 +62,54 @@ nyann::has_python_yaml() {
 # Canonicalises <candidate> (collapsing `..`, following symlinks) and
 # verifies it resolves to <target> or a descendant. On success, prints
 # the canonical candidate to stdout and returns 0. On failure (escape,
-# missing args, python unavailable) prints nothing and returns 1.
+# missing args) prints nothing and returns 1.
 #
-# Works for non-existent candidates — python's os.path.realpath does
-# lexical normalisation for any missing suffix. Requires python3
-# because `realpath --relative-to` isn't portable to macOS's default
-# coreutils.
+# Works for non-existent candidates: resolves the nearest existing
+# ancestor via cd+pwd -P (follows symlinks), then lexically normalizes
+# any remaining non-existent suffix (collapsing .. components). Pure
+# bash — no python subprocess.
 nyann::path_under_target() {
   local target="${1-}" cand="${2-}"
   [[ -n "$target" && -n "$cand" ]] || return 1
-  command -v python3 >/dev/null 2>&1 || return 1
-  TARGET="$target" CAND="$cand" python3 -c '
-import os, sys
-try:
-    target = os.path.realpath(os.environ["TARGET"])
-    cand   = os.path.realpath(os.environ["CAND"])
-except Exception:
-    sys.exit(1)
-if cand == target or cand.startswith(target + os.sep):
-    print(cand)
-    sys.exit(0)
-sys.exit(1)
-' 2>/dev/null
+
+  local resolved_target
+  resolved_target=$(cd "$target" 2>/dev/null && pwd -P) || return 1
+
+  [[ "$cand" == /* ]] || cand="$PWD/$cand"
+
+  # Walk up to the nearest existing ancestor.
+  local existing="$cand" tail=""
+  while [[ ! -e "$existing" ]]; do
+    [[ "$existing" == "/" ]] && return 1
+    tail="/$(basename "$existing")$tail"
+    existing=$(dirname "$existing")
+  done
+
+  local resolved_base
+  if [[ -d "$existing" ]]; then
+    resolved_base=$(cd "$existing" && pwd -P) || return 1
+  else
+    resolved_base="$(cd "$(dirname "$existing")" && pwd -P)/$(basename "$existing")" || return 1
+  fi
+
+  # Lexically normalize .. in the non-existent tail.
+  local result="$resolved_base"
+  local oIFS="$IFS" seg
+  IFS='/'
+  for seg in $tail; do
+    case "$seg" in
+      ''|.) ;;
+      ..)  result=$(dirname "$result") ;;
+      *)   result="$result/$seg" ;;
+    esac
+  done
+  IFS="$oIFS"
+
+  if [[ "$result" == "$resolved_target" || "$result" == "$resolved_target"/* ]]; then
+    printf '%s\n' "$result"
+    return 0
+  fi
+  return 1
 }
 
 # nyann::assert_path_under_target <target> <candidate> <context>

@@ -188,67 +188,36 @@ install_core_phase() {
 
 # --- workspace-aware lint-staged config builder -------------------------------
 
-hook_to_lint_staged_cmd() {
-  case "$1" in
-    eslint)      echo "eslint --fix" ;;
-    prettier)    echo "prettier --write" ;;
-    stylelint)   echo "stylelint --fix" ;;
-    ruff)        echo "ruff check --fix" ;;
-    ruff-format) echo "ruff format" ;;
-    *)           return 1 ;;
-  esac
-}
-
-lang_to_glob() {
-  case "$1" in
-    typescript|javascript) echo "*.{js,jsx,ts,tsx,mjs,cjs}" ;;
-    python)                echo "*.py" ;;
-    go)                    echo "*.go" ;;
-    rust)                  echo "*.rs" ;;
-    *)                     return 1 ;;
-  esac
-}
-
 build_workspace_lint_staged() {
   local ws_configs="$1"
-  local ws_count
-  ws_count=$(jq 'length' <<<"$ws_configs")
 
-  local result='{}'
-  for (( i=0; i<ws_count; i++ )); do
-    local ws
-    ws=$(jq -c ".[$i]" <<<"$ws_configs")
-    local ws_path ws_lang
-    ws_path=$(jq -r '.path' <<<"$ws")
-    ws_lang=$(jq -r '.primary_language // "unknown"' <<<"$ws")
+  # Single jq invocation replaces per-workspace/per-hook subprocess loop.
+  # Maps hook IDs → lint-staged commands and languages → file globs inline.
+  jq '
+    def hook_cmd:
+      {"eslint": "eslint --fix", "prettier": "prettier --write",
+       "stylelint": "stylelint --fix", "ruff": "ruff check --fix",
+       "ruff-format": "ruff format"};
+    def lang_glob:
+      {"typescript": "*.{js,jsx,ts,tsx,mjs,cjs}",
+       "javascript": "*.{js,jsx,ts,tsx,mjs,cjs}",
+       "python": "*.py", "go": "*.go", "rust": "*.rs"};
 
-    local glob
-    glob=$(lang_to_glob "$ws_lang") || continue
-
-    local pre_commit_hooks
-    pre_commit_hooks=$(jq -c '.hooks.pre_commit // []' <<<"$ws")
-    local cmds='[]'
-    local hook_count
-    hook_count=$(jq 'length' <<<"$pre_commit_hooks")
-    for (( j=0; j<hook_count; j++ )); do
-      local hook_name cmd
-      hook_name=$(jq -r ".[$j]" <<<"$pre_commit_hooks")
-      cmd=$(hook_to_lint_staged_cmd "$hook_name") || continue
-      cmds=$(jq --arg c "$cmd" '. + [$c]' <<<"$cmds")
-    done
-
-    local cmd_count
-    cmd_count=$(jq 'length' <<<"$cmds")
-    if (( cmd_count > 0 )); then
-      local key="${ws_path}/**/${glob}"
-      result=$(jq --arg k "$key" --argjson v "$cmds" '. + {($k): $v}' <<<"$result")
-    fi
-  done
-
-  # Always include a generic formatting glob for non-code files at root.
-  result=$(jq '. + {"*.{json,md,yml,yaml,css,scss}": ["prettier --write"]}' <<<"$result")
-
-  echo "$result"
+    reduce .[] as $ws ({}; . as $acc |
+      ($ws.primary_language // "unknown") as $lang |
+      (lang_glob[$lang] // null) as $glob |
+      if $glob == null then $acc
+      else
+        ([$ws.hooks.pre_commit // [] | .[] |
+          hook_cmd[.] // empty]) as $cmds |
+        if ($cmds | length) == 0 then $acc
+        else
+          (($ws.path) + "/**/" + $glob) as $key |
+          $acc + {($key): $cmds}
+        end
+      end
+    ) + {"*.{json,md,yml,yaml,css,scss}": ["prettier --write"]}
+  ' <<<"$ws_configs"
 }
 
 # --- JS/TS phase (husky + commitlint + lint-staged) --------------------------
@@ -462,9 +431,8 @@ COMMITLINT_EOF
 
   # Phase B: publish the staged hooks. Iterate in the same order so the
   # log lines mirror the assembly order.
-  local entry hook_name hook_tmp hook_dst
+  local entry hook_tmp hook_dst
   for entry in "${_staged_hooks[@]}"; do
-    hook_name="${entry%%|*}"
     hook_tmp="${entry#*|}"; hook_tmp="${hook_tmp%%|*}"
     hook_dst="${entry##*|}"
     mv "$hook_tmp" "$hook_dst"

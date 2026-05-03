@@ -213,12 +213,33 @@ else
 fi
 
 # Validate via validate-profile.sh against the snapshot.
-"${_script_dir}/validate-profile.sh" "$tmp_resolved" >/dev/null 2>"$validate_err"
-vrc=$?
-if [[ $vrc -ne 0 ]]; then
-  cat "$validate_err" >&2 || true
-  nyann::warn "profile failed validation: ${resolved}"
-  exit 4
+# Starter profiles are immutable between plugin releases, so skip the
+# expensive validator (uvx/check-jsonschema subprocess) when a version
+# sentinel confirms they were already validated for this plugin version.
+_skip_validation=false
+if [[ "$source_label" == "starter" ]]; then
+  _plugin_version=$(jq -r '.version // ""' "${_script_dir}/../.claude-plugin/plugin.json" 2>/dev/null || echo "")
+  _sentinel_file="${plugin_root}/profiles/_validated_at_version"
+  if [[ -n "$_plugin_version" && -f "$_sentinel_file" ]]; then
+    _sentinel_version=$(<"$_sentinel_file")
+    [[ "$_sentinel_version" == "$_plugin_version" ]] && _skip_validation=true
+  fi
+fi
+
+if $_skip_validation; then
+  nyann::log "starter profile validation skipped (sentinel matches v${_plugin_version})"
+else
+  "${_script_dir}/validate-profile.sh" "$tmp_resolved" >/dev/null 2>"$validate_err"
+  vrc=$?
+  if [[ $vrc -ne 0 ]]; then
+    cat "$validate_err" >&2 || true
+    nyann::warn "profile failed validation: ${resolved}"
+    exit 4
+  fi
+  # Update sentinel on successful starter profile validation.
+  if [[ "$source_label" == "starter" && -n "${_plugin_version:-}" ]]; then
+    printf '%s' "$_plugin_version" > "${_sentinel_file:-}" 2>/dev/null || true
+  fi
 fi
 
 # Inject _meta on emit. The JSON in $tmp_resolved is the validated

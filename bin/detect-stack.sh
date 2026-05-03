@@ -368,89 +368,67 @@ detect_claudemd_hints() {
   local claudemd="$path/CLAUDE.md"
   [[ -f "$claudemd" ]] || return 1
 
-  local body
-  body="$(<"$claudemd")"
+  # Single awk pass replaces 14+ separate grep invocations. Outputs
+  # space-separated flags: lang_hit framework_hit detected_lang detected_fw
+  local awk_result
+  awk_result=$(awk '
+    BEGIN { IGNORECASE=1; lang=""; fw="" }
+    /python|py3/      { if (!lang) lang="python" }
+    /typescript|tsconfig/ { if (!lang) lang="typescript" }
+    /javascript|node\.?js/ { if (!lang && !lang) lang="javascript" }
+    /golang|go [0-9]/ { if (!lang) lang="go" }
+    /rust|cargo/      { if (!lang) lang="rust" }
+    /swift|swiftui|uikit|xcode/ { if (!lang) lang="swift" }
+    /kotlin|android|jetpack|gradle/ { if (!lang) lang="kotlin" }
+    /bash|shellcheck|shell script/ { if (!lang) lang="shell" }
+    /java|spring.boot|maven|gradle/ { if (!lang) lang="java" }
+    /c#|csharp|\.net|aspnet|dotnet/ { if (!lang) lang="csharp" }
+    /php|laravel|symfony|composer/ { if (!lang) lang="php" }
+    /dart|flutter|pubspec/ { if (!lang) lang="dart" }
+    /ruby|rails|sinatra|bundler|gemfile/ { if (!lang) lang="ruby" }
+    /next(\.js)?/   { if (!fw) fw="next" }
+    /fastapi/       { if (!fw) fw="fastapi" }
+    /django/        { if (!fw) fw="django" }
+    /flask/         { if (!fw) fw="flask" }
+    /spring.boot|quarkus|aspnet|blazor|laravel|symfony|flutter|rails|sinatra/ { fwcorr=1 }
+    END { printf "%s\t%s\t%d", lang, fw, fwcorr+0 }
+  ' "$claudemd")
+
+  local detected_lang detected_fw fw_corroborate
+  IFS=$'\t' read -r detected_lang detected_fw fw_corroborate <<<"$awk_result"
 
   local hit=0
 
-  # Language hints — only fill when primary is still unknown so manifest wins.
-  if [[ "$primary_language" == "unknown" ]]; then
-    if grep -Eiq '\bpython\b|\bpy3\b' <<<"$body"; then
-      primary_language="python"
-      hit=1
-      add_reason "CLAUDE.md references Python → primary_language = python"
-    elif grep -Eiq '\btypescript\b|\btsconfig\b' <<<"$body"; then
-      primary_language="typescript"
-      hit=1
-      add_reason "CLAUDE.md references TypeScript → primary_language = typescript"
-    elif grep -Eiq '\bjavascript\b|\bnode\.?js\b' <<<"$body"; then
-      primary_language="javascript"
-      hit=1
-      add_reason "CLAUDE.md references Node/JavaScript → primary_language = javascript"
-    elif grep -Eiq '\bgolang\b|\bgo [0-9]' <<<"$body"; then
-      primary_language="go"
-      hit=1
-      add_reason "CLAUDE.md references Go → primary_language = go"
-    elif grep -Eiq '\brust\b|\bcargo\b' <<<"$body"; then
-      primary_language="rust"
-      hit=1
-      add_reason "CLAUDE.md references Rust → primary_language = rust"
-    elif grep -Eiq '\bswift\b|\bswiftui\b|\buikit\b|\bxcode\b' <<<"$body"; then
-      primary_language="swift"
-      hit=1
-      add_reason "CLAUDE.md references Swift → primary_language = swift"
-    elif grep -Eiq '\bkotlin\b|\bandroid\b|\bjetpack\b|\bgradle\b' <<<"$body"; then
-      primary_language="kotlin"
-      hit=1
-      add_reason "CLAUDE.md references Kotlin → primary_language = kotlin"
-    elif grep -Eiq '\bbash\b|\bshellcheck\b|\bshell script' <<<"$body"; then
-      primary_language="shell"
-      hit=1
-      add_reason "CLAUDE.md references shell/bash → primary_language = shell"
-    elif grep -Eiq '\bjava\b|\bspring.boot\b|\bmaven\b|\bgradle\b' <<<"$body"; then
-      primary_language="java"
-      hit=1
-      add_reason "CLAUDE.md references Java → primary_language = java"
-    elif grep -Eiq '\bc#\b|\bcsharp\b|\b\.net\b|\baspnet\b|\bdotnet\b' <<<"$body"; then
-      primary_language="csharp"
-      hit=1
-      add_reason "CLAUDE.md references C#/.NET → primary_language = csharp"
-    elif grep -Eiq '\bphp\b|\blaravel\b|\bsymfony\b|\bcomposer\b' <<<"$body"; then
-      primary_language="php"
-      hit=1
-      add_reason "CLAUDE.md references PHP → primary_language = php"
-    elif grep -Eiq '\bdart\b|\bflutter\b|\bpubspec\b' <<<"$body"; then
-      primary_language="dart"
-      hit=1
-      add_reason "CLAUDE.md references Dart/Flutter → primary_language = dart"
-    elif grep -Eiq '\bruby\b|\brails\b|\bsinatra\b|\bbundler\b|\bgemfile\b' <<<"$body"; then
-      primary_language="ruby"
-      hit=1
-      add_reason "CLAUDE.md references Ruby → primary_language = ruby"
-    fi
+  if [[ "$primary_language" == "unknown" && -n "$detected_lang" ]]; then
+    primary_language="$detected_lang"
+    hit=1
+    case "$detected_lang" in
+      python)     add_reason "CLAUDE.md references Python → primary_language = python" ;;
+      typescript) add_reason "CLAUDE.md references TypeScript → primary_language = typescript" ;;
+      javascript) add_reason "CLAUDE.md references Node/JavaScript → primary_language = javascript" ;;
+      go)         add_reason "CLAUDE.md references Go → primary_language = go" ;;
+      rust)       add_reason "CLAUDE.md references Rust → primary_language = rust" ;;
+      swift)      add_reason "CLAUDE.md references Swift → primary_language = swift" ;;
+      kotlin)     add_reason "CLAUDE.md references Kotlin → primary_language = kotlin" ;;
+      shell)      add_reason "CLAUDE.md references shell/bash → primary_language = shell" ;;
+      java)       add_reason "CLAUDE.md references Java → primary_language = java" ;;
+      csharp)     add_reason "CLAUDE.md references C#/.NET → primary_language = csharp" ;;
+      php)        add_reason "CLAUDE.md references PHP → primary_language = php" ;;
+      dart)       add_reason "CLAUDE.md references Dart/Flutter → primary_language = dart" ;;
+      ruby)       add_reason "CLAUDE.md references Ruby → primary_language = ruby" ;;
+    esac
   fi
 
-  # Framework hints — fill only when null. Useful when no manifest was found.
-  if [[ "$framework" == "null" ]]; then
-    if grep -Eiq '\bnext(\.js)?\b' <<<"$body"; then
-      framework='"next"'
-      hit=1
-      add_reason "CLAUDE.md references Next.js → framework = next"
-    elif grep -Eiq '\bfastapi\b' <<<"$body"; then
-      framework='"fastapi"'
-      hit=1
-      add_reason "CLAUDE.md references FastAPI → framework = fastapi"
-    elif grep -Eiq '\bdjango\b' <<<"$body"; then
-      framework='"django"'
-      hit=1
-      add_reason "CLAUDE.md references Django → framework = django"
-    elif grep -Eiq '\bflask\b' <<<"$body"; then
-      framework='"flask"'
-      hit=1
-      add_reason "CLAUDE.md references Flask → framework = flask"
-    fi
-  elif grep -Eiq '\bnext(\.js)?\b|\bfastapi\b|\bdjango\b|\bflask\b|\bspring.boot\b|\bquarkus\b|\baspnet\b|\bblazor\b|\blaravel\b|\bsymfony\b|\bflutter\b|\brails\b|\bsinatra\b' <<<"$body"; then
-    # Manifest already matched; CLAUDE.md corroborates — still counts.
+  if [[ "$framework" == "null" && -n "$detected_fw" ]]; then
+    framework="\"$detected_fw\""
+    hit=1
+    case "$detected_fw" in
+      next)    add_reason "CLAUDE.md references Next.js → framework = next" ;;
+      fastapi) add_reason "CLAUDE.md references FastAPI → framework = fastapi" ;;
+      django)  add_reason "CLAUDE.md references Django → framework = django" ;;
+      flask)   add_reason "CLAUDE.md references Flask → framework = flask" ;;
+    esac
+  elif [[ "$framework" != "null" ]] && (( fw_corroborate == 1 )); then
     hit=1
     add_reason "CLAUDE.md framework reference corroborates manifest detection"
   fi
@@ -807,31 +785,22 @@ detect_shell() {
 detect_by_extension_counts() {
   [[ "$primary_language" != "unknown" ]] && return 0
 
-  # Use find with -prune to avoid walking node_modules / .venv / dist / build / .git.
-  local excludes=(
-    -path "$path/node_modules" -prune -o
-    -path "$path/.venv"        -prune -o
-    -path "$path/.git"          -prune -o
-    -path "$path/dist"          -prune -o
-    -path "$path/build"         -prune -o
-    -path "$path/__pycache__"   -prune -o
-    -path "$path/target"        -prune -o
-  )
+  # Single find pass counts all source-file extensions via awk, replacing
+  # 13 separate find invocations that each walked the same tree.
+  local counts
+  counts=$(find "$path" \
+    -path "$path/node_modules" -prune -o \
+    -path "$path/.venv"        -prune -o \
+    -path "$path/.git"          -prune -o \
+    -path "$path/dist"          -prune -o \
+    -path "$path/build"         -prune -o \
+    -path "$path/__pycache__"   -prune -o \
+    -path "$path/target"        -prune -o \
+    -type f -print 2>/dev/null \
+  | awk -F. '{ext=tolower($NF)} ext=="py"{py++} ext=="ts"||ext=="tsx"{ts++} ext=="js"||ext=="jsx"||ext=="mjs"{js++} ext=="go"{go++} ext=="rs"{rs++} ext=="swift"{sw++} ext=="kt"{kt++} ext=="sh"{sh++} ext=="java"{jv++} ext=="cs"{cs++} ext=="php"{php++} ext=="dart"{da++} ext=="rb"{rb++} END{printf "%d %d %d %d %d %d %d %d %d %d %d %d %d",py+0,ts+0,js+0,go+0,rs+0,sw+0,kt+0,sh+0,jv+0,cs+0,php+0,da+0,rb+0}')
 
   local py ts js go rs sw kt sh jv cs php da rb
-  py=$(find "$path" "${excludes[@]}" -type f -name '*.py' -print 2>/dev/null | wc -l | tr -d ' ')
-  ts=$(find "$path" "${excludes[@]}" -type f \( -name '*.ts' -o -name '*.tsx' \) -print 2>/dev/null | wc -l | tr -d ' ')
-  js=$(find "$path" "${excludes[@]}" -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.mjs' \) -print 2>/dev/null | wc -l | tr -d ' ')
-  go=$(find "$path" "${excludes[@]}" -type f -name '*.go' -print 2>/dev/null | wc -l | tr -d ' ')
-  rs=$(find "$path" "${excludes[@]}" -type f -name '*.rs' -print 2>/dev/null | wc -l | tr -d ' ')
-  sw=$(find "$path" "${excludes[@]}" -type f -name '*.swift' -print 2>/dev/null | wc -l | tr -d ' ')
-  kt=$(find "$path" "${excludes[@]}" -type f -name '*.kt' -print 2>/dev/null | wc -l | tr -d ' ')
-  sh=$(find "$path" "${excludes[@]}" -type f -name '*.sh' -print 2>/dev/null | wc -l | tr -d ' ')
-  jv=$(find "$path" "${excludes[@]}" -type f -name '*.java' -print 2>/dev/null | wc -l | tr -d ' ')
-  cs=$(find "$path" "${excludes[@]}" -type f -name '*.cs' -print 2>/dev/null | wc -l | tr -d ' ')
-  php=$(find "$path" "${excludes[@]}" -type f -name '*.php' -print 2>/dev/null | wc -l | tr -d ' ')
-  da=$(find "$path" "${excludes[@]}" -type f -name '*.dart' -print 2>/dev/null | wc -l | tr -d ' ')
-  rb=$(find "$path" "${excludes[@]}" -type f -name '*.rb' -print 2>/dev/null | wc -l | tr -d ' ')
+  read -r py ts js go rs sw kt sh jv cs php da rb <<<"$counts"
 
   local max=0 winner=""
   for pair in "python:$py" "typescript:$ts" "javascript:$js" "go:$go" "rust:$rs" "swift:$sw" "kotlin:$kt" "shell:$sh" "java:$jv" "csharp:$cs" "php:$php" "dart:$da" "ruby:$rb"; do

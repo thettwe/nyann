@@ -14,6 +14,9 @@
 .claude/
 .claude-octopus/
 
+# Runtime caches
+profiles/_validated_at_version
+
 # Language / tooling artifacts (in case contributors run tests against fixtures)
 node_modules/
 __pycache__/

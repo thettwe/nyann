@@ -28,7 +28,9 @@ source "${_script_dir}/_lib.sh"
 nyann::require_cmd jq
 
 score_tmp=""
-trap 'rm -f "${score_tmp:-}"' EXIT
+tmp_profile=""
+load_err=""
+trap 'rm -f "${score_tmp:-}" "${tmp_profile:-}" "${load_err:-}"' EXIT
 
 target=""
 profile_name=""
@@ -54,17 +56,19 @@ done
 [[ -n "$target" && -d "$target" ]] || nyann::die "--target <repo> is required and must be a directory"
 [[ -n "$profile_name" ]] || nyann::die "--profile <name> is required"
 
-args=(--target "$target" --profile "$profile_name")
-if $json_out; then
-  args+=(--json)
-else
-  args+=(--report-only)
-fi
+# --- Load profile ONCE -------------------------------------------------------
+# Previously load-profile.sh ran separately to extract stale_days, then
+# retrofit.sh called it again internally. Now we load once and pass the
+# resolved profile to compute-drift.sh directly.
+tmp_profile=$(mktemp -t nyann-doctor-profile.XXXXXX)
+load_err=$(mktemp -t nyann-doctor-load.XXXXXX)
+"${_script_dir}/load-profile.sh" "$profile_name" > "$tmp_profile" 2>"$load_err" \
+  || { cat "$load_err" >&2; nyann::die "failed to load profile: $profile_name"; }
+
+stale_days=$(jq -r '.branching.stale_after_days // 90' "$tmp_profile" 2>/dev/null || echo 90)
+[[ "$stale_days" =~ ^[0-9]+$ ]] || stale_days=90
 
 # --- GitHub protection probe (read-only) ------------------------------------
-# Runs before retrofit so its result lands in both the JSON path and the
-# text path. Soft-skips when gh is missing or unauthenticated; the audit
-# emits a ProtectionAudit-shaped skip JSON in that case.
 protection_audit_json=$("${_script_dir}/gh-integration.sh" \
   --target "$target" --profile "$profile_name" \
   --gh "$gh_bin" --check 2>/dev/null || echo '{}')
@@ -76,13 +80,6 @@ pa_critical=$(jq -r '.summary.critical // 0' <<<"$protection_audit_json")
 pa_warn=$(jq -r '.summary.warn // 0' <<<"$protection_audit_json")
 
 # --- Stale-branch probe (read-only) -----------------------------------------
-# Pulls profile.branching.stale_after_days (default 90); base branch is
-# auto-resolved by the script. No drift contributes to exit code (these
-# are housekeeping signals, not safety violations) but counts surface
-# in the text + JSON output so the user can decide to run cleanup.
-stale_days=$(bash "${_script_dir}/load-profile.sh" "$profile_name" 2>/dev/null \
-  | jq -r '.branching.stale_after_days // 90' 2>/dev/null || echo 90)
-[[ "$stale_days" =~ ^[0-9]+$ ]] || stale_days=90
 stale_branches_json=$("${_script_dir}/check-stale-branches.sh" \
   --target "$target" --days "$stale_days" 2>/dev/null || echo '{}')
 if [[ -z "$stale_branches_json" ]] || \
@@ -92,17 +89,16 @@ fi
 sb_merged=$(jq -r '.summary.merged_count // 0' <<<"$stale_branches_json")
 sb_stale=$(jq -r '.summary.stale_count // 0' <<<"$stale_branches_json")
 
-# retrofit.sh handles the heavy lifting.
+# --- Compute drift ONCE -------------------------------------------------------
+# Previously text mode ran retrofit.sh twice (once --json, once --report-only).
+# Now compute-drift.sh runs once; JSON mode wraps via retrofit.sh, text mode
+# renders directly from the captured JSON.
 retro_rc=0
-if $json_out; then
-  # Capture JSON output so we can append health_score
-  retro_output=$("${_script_dir}/retrofit.sh" "${args[@]}") || retro_rc=$?
 
-  # Compute health score from the drift report
+if $json_out; then
+  retro_output=$("${_script_dir}/retrofit.sh" --target "$target" --profile "$profile_name" --json) || retro_rc=$?
   score_json=$(printf '%s\n' "$retro_output" | "${_script_dir}/compute-health-score.sh" 2>/dev/null || echo '{"score":0,"breakdown":{}}')
 
-  # Persist score to memory/health.json — opt-in via --persist so the
-  # default doctor invocation stays strictly read-only as documented.
   if $persist; then
     score_tmp=$(mktemp -t nyann-score.XXXXXX)
     printf '%s\n' "$score_json" > "$score_tmp"
@@ -110,26 +106,131 @@ if $json_out; then
     rm -f "$score_tmp"
   fi
 
-  # Add health_score, protection_audit, AND stale_branches to output
   printf '%s\n' "$retro_output" | jq \
     --argjson hs "$score_json" \
     --argjson pa "$protection_audit_json" \
     --argjson sb "$stale_branches_json" \
     '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb }'
 else
-  # Capture JSON drift data first for health scoring (suppressed output)
-  drift_json=$("${_script_dir}/retrofit.sh" --target "$target" --profile "$profile_name" --json 2>/dev/null || echo '{}')
+  # Single compute-drift call replaces two retrofit.sh calls.
+  report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile") \
+    || retro_rc=$?
 
-  # Display human-readable text report
-  "${_script_dir}/retrofit.sh" "${args[@]}" || retro_rc=$?
+  # Parse summary counters once.
+  read -r n_missing n_mis n_off n_broken n_orphans n_stale n_subsys_errs claude_md_status < <(
+    jq -r '[
+      (.summary.missing // 0),
+      (.summary.misconfigured // 0),
+      (.summary.non_compliant_commits // 0),
+      (.summary.broken_links // 0),
+      (.summary.orphans // 0),
+      (.summary.stale_docs // 0),
+      (.summary.subsystem_errors // 0),
+      (.summary.claude_md_status // "ok")
+    ] | @tsv' <<<"$report"
+  )
 
-  # Compute health score from the captured JSON
-  score_json=$(printf '%s\n' "$drift_json" | "${_script_dir}/compute-health-score.sh" 2>/dev/null || echo '{"score":0,"breakdown":{}}')
+  # Render text report (mirrors retrofit.sh render_report).
+  {
+    printf '\nDrift vs. profile %q (target: %s)\n\n' "$profile_name" "$target"
+    printf 'MISSING:\n'
+    if [[ "$n_missing" == "0" ]]; then
+      printf '  (none)\n'
+    else
+      jq -r '.missing[] | "  ✗ " + .path + ( if .detail then "   # " + .detail else "" end )' <<<"$report"
+    fi
+    printf '\nMISCONFIGURED:\n'
+    if [[ "$n_mis" == "0" ]]; then
+      printf '  (none)\n'
+    else
+      jq -r '.misconfigured[] |
+        "  ⚠ " + .path + " — " + .reason +
+        ( if .missing_entries then " (missing: " + (.missing_entries | join(", ")) + ")" else "" end )' <<<"$report"
+    fi
+    printf '\nNON-COMPLIANT HISTORY (last %s commits):\n' "$(jq -r '.non_compliant_history.checked' <<<"$report")"
+    if [[ "$n_off" == "0" ]]; then
+      printf '  (none — informational only; history rewrites are out of scope)\n'
+    else
+      jq -r '.non_compliant_history.offenders[] | "  ⚠ " + .sha + "  " + .subject' <<<"$report"
+      printf '  (%s commit(s) above — informational only; history rewrites are out of scope)\n' "$n_off"
+    fi
+
+    printf '\nDOCUMENTATION:\n'
+    case "$claude_md_status" in
+      ok)     printf '  ✓ CLAUDE.md %s B (under %s B budget)\n' \
+                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
+      warn)   printf '  ⚠ CLAUDE.md %s B (> %s B soft budget)\n' \
+                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
+      error)  printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
+                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
+      absent) printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+    esac
+
+    checked_links=$(jq -r '.documentation.links.checked' <<<"$report")
+    if [[ "$n_broken" == "0" ]]; then
+      printf '  ✓ %s internal link(s) resolve\n' "$checked_links"
+    else
+      printf '  ✗ %s broken internal link(s):\n' "$n_broken"
+      jq -r '.documentation.links.broken[] | "      - " + .source + " → " + .link' <<<"$report"
+    fi
+
+    n_mcp=$(jq '.documentation.links.needs_mcp_verify | length' <<<"$report")
+    if [[ "$n_mcp" != "0" ]]; then
+      printf '  ⚠ %s MCP link(s) need connector verification (skill-layer)\n' "$n_mcp"
+    fi
+
+    if [[ "$n_orphans" == "0" ]]; then
+      printf '  ✓ 0 orphans in docs/ + memory/\n'
+    else
+      printf '  ⚠ %s orphan(s) in docs/ + memory/:\n' "$n_orphans"
+      jq -r '.documentation.orphans.orphans[] | "      - " + .path + "  (" + (.last_modified_days_ago|tostring) + " days)"' <<<"$report"
+    fi
+
+    staleness_enabled=$(jq -r '.documentation.staleness.enabled' <<<"$report")
+    if [[ "$staleness_enabled" == "true" ]]; then
+      threshold=$(jq -r '.documentation.staleness.threshold_days' <<<"$report")
+      if [[ "$n_stale" == "0" ]]; then
+        printf '  ✓ 0 docs past staleness threshold (%s days)\n' "$threshold"
+      else
+        printf '  ⚠ %s doc(s) past staleness threshold (%s days):\n' "$n_stale" "$threshold"
+        jq -r '.documentation.staleness.stale[] | "      - " + .path + "  (" + (.last_modified_days_ago|tostring) + " days)"' <<<"$report"
+      fi
+    fi
+
+    if (( n_subsys_errs > 0 )); then
+      printf '  ⚠ %s doc-check subsystem(s) failed to execute; results may be incomplete:\n' "$n_subsys_errs"
+      jq -r '.documentation.subsystem_errors[] | "      - " + .subsystem + ": " + .error' <<<"$report"
+    fi
+
+    printf '\n'
+  } >&2
+
+  # Determine exit code from drift.
+  has_critical=false
+  has_warn=false
+  (( n_missing > 0 )) && has_critical=true
+  (( n_broken > 0 )) && has_critical=true
+  [[ "$claude_md_status" == "error" ]] && has_critical=true
+  (( n_mis > 0 )) && has_warn=true
+  (( n_off > 0 )) && has_warn=true
+  (( n_orphans > 0 )) && has_warn=true
+  (( n_stale > 0 )) && has_warn=true
+  (( n_subsys_errs > 0 )) && has_warn=true
+  [[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
+
+  if $has_critical; then retro_rc=5
+  elif $has_warn; then retro_rc=4
+  fi
+
+  # Compute health score from the same drift JSON.
+  score_json=$(printf '%s\n' "$report" | "${_script_dir}/compute-health-score.sh" 2>/dev/null || echo '{"score":0,"breakdown":{}}')
 
   score_val=$(jq -r '.score' <<<"$score_json")
   breakdown=$(jq -r '.breakdown | to_entries | map(select(.value < 0)) | map("  \(.value)  \(.key)") | join("\n")' <<<"$score_json")
 
-  # Read trend from memory/health.json if it exists
   trend_delta=""
   if [[ -f "$target/memory/health.json" ]]; then
     trend_dir=$(jq -r '.trend.direction // "stable"' "$target/memory/health.json")
@@ -146,7 +247,6 @@ else
     printf '%s\n' "$breakdown"
   fi
 
-  # Persist score — opt-in via --persist (see header comment).
   if $persist; then
     score_tmp=$(mktemp -t nyann-score.XXXXXX)
     printf '%s\n' "$score_json" > "$score_tmp"
