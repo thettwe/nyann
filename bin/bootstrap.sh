@@ -517,6 +517,11 @@ else
       summary_skipped_records=$(jq --argjson rec "$line" '. + [$rec]' <<<"$summary_skipped_records")
     fi
   done < "$tmpout"
+  # Symmetric with the failure branch: ensure the tee process-sub has
+  # flushed (so its writes don't race with `rm` and leave the inode
+  # alive in /tmp via the open fd). Pure file-leak hygiene — the
+  # success path never reads $tmperr.
+  wait
   rm -f "$tmpout" "$tmperr"
 fi
 summary_hook_phases=$(printf '%s\n' "${hook_phases[@]}" | jq -R . | jq -sc .)

@@ -150,6 +150,13 @@ while IFS=$'\t' read -r name url ref interval last; do
     continue
   fi
 
+  # Wait for any tee process-sub from the PREVIOUS iteration to flush
+  # before we truncate the shared $sync_err. Without this, on a slow
+  # system tee could write its final bytes AFTER `: > "$sync_err"` has
+  # truncated the file, leaving bytes from source N visible to source
+  # N+1's failure-path read — mis-attributing the error to the wrong
+  # source.
+  wait
   : > "$sync_err"
   # Re-resolve cache_dir immediately before each git -C so a racing
   # process that replaces the dir with a symlink between our

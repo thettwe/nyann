@@ -981,11 +981,15 @@ if $gh_release; then
     # captured bytes stay available for the failure-reason path
     # below. Same pattern as bin/pr.sh's gh-pr-create call.
     if gh_url=$("$gh_bin" "${gh_args[@]}" 2> >(tee "$gh_create_err" >&2)); then
-      # gh prints the release URL on success. When --notes-file is large
-      # or assets are attached, gh may also print upload progress on
-      # stdout; pick the first http(s) line rather than blindly
-      # `head -1` the buffer.
-      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | grep -m1 -E '^https?://' || true)
+      # gh prints the release URL on success. When --notes-file is
+      # large or assets are attached, gh may also print upload
+      # progress on stdout — including pre-signed `uploads.github.com`
+      # URLs that we MUST NOT surface as the canonical release URL.
+      # Anchor on the `/releases/tag/<tag>` path so we match the
+      # right line even if the buffer carries decoration / progress
+      # URLs ahead of it.
+      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' \
+        | grep -m1 -E '^https?://[^[:space:]]+/releases/tag/' || true)
       # Schema marks `url` as optional under outcome:created — when the
       # extraction yielded nothing (a future gh version that prints
       # decoration before the URL, or no URL at all), emit the success

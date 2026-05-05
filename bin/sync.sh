@@ -187,12 +187,14 @@ nyann::resolve_identity "$target"
 nyann::log "sync: $strategy onto $base_ref..."
 
 if [[ "$strategy" == "rebase" ]]; then
-  # Send git's stdout to stderr so the user sees rebase status
-  # ("First, rewinding head...", "Auto-merging X", "Successfully
-  # rebased") while sync.sh's own stdout stays reserved for the JSON
-  # contract. git rebase normally splits status across both streams;
-  # consolidating onto fd2 keeps everything user-visible without
-  # polluting JSON consumers.
+  # `1>&2` here is defensive: modern `git rebase` writes status
+  # entirely to stderr ("Successfully rebased and updated...",
+  # "CONFLICT in ..."), so this redirect is currently a no-op. Kept
+  # so that any future git version that splits status onto stdout
+  # can't pollute sync.sh's JSON contract on stdout. The merge
+  # branch below has the same redirect for the SAME reason but
+  # actively rerouting — `git merge` does write its summary to
+  # stdout.
   if ! git -C "$target" -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
          rebase -- "$base_ref" 1>&2; then
     nyann::warn "rebase paused with conflicts; resolve them and run 'git rebase --continue' (or --abort to bail)"
@@ -205,6 +207,9 @@ if [[ "$strategy" == "rebase" ]]; then
     exit 0
   fi
 else
+  # `1>&2` here actively reroutes — git merge writes "Merge made by
+  # 'ort' strategy" + diffstat to stdout, which would corrupt sync.sh's
+  # JSON contract.
   if ! git -C "$target" -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
          merge --no-edit -- "$base_ref" 1>&2; then
     nyann::warn "merge paused with conflicts; resolve them, then run 'git merge --continue' (or --abort to bail)"
