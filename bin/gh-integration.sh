@@ -112,6 +112,10 @@ if ! "$gh_bin" auth status >/dev/null 2>&1; then
   nyann::warn "gh is installed but not authenticated; skipping GitHub integration"
   skip "gh-not-authenticated"
 fi
+# NB: any gh api call MUST come AFTER owner/repo validation below,
+# even read-only ones. The security test asserts no api call leaks
+# before that gate (a malicious owner like '..attacker' must not
+# trigger any network round-trip).
 
 # --- phase 3: load profile ---------------------------------------------------
 
@@ -177,6 +181,20 @@ if ! [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || [[ "$repo" == *..* ]]; the
   skip "invalid-repo"
 fi
 
+# Cheap upfront rate-limit probe (deferred until AFTER owner/repo
+# validation above so a malicious owner can't trigger a network
+# round-trip — see security-hardening test). Each `gh api` probe in
+# phase 4a silences stderr by design (404 = feature absent is the
+# common case); the trade-off is that an exhausted rate limit also
+# falls back silently. A single warn here surfaces that risk without
+# introducing per-probe error checking.
+if rate_json=$("$gh_bin" api /rate_limit 2>/dev/null); then
+  rl_remaining=$(jq -r '.resources.core.remaining // 5000' <<<"$rate_json" 2>/dev/null || echo 5000)
+  if [[ "$rl_remaining" =~ ^[0-9]+$ ]] && (( rl_remaining < 50 )); then
+    nyann::warn "gh API rate-limit low ($rl_remaining/5000 remaining); audit results may be incomplete (probes silently fall back to defaults on rate-limit failure)"
+  fi
+fi
+
 # --- shared helpers (used by both --check and --apply) ----------------------
 
 branches_for_strategy() {
@@ -199,6 +217,30 @@ codeowners_path() {
 }
 
 # --- phase 4a: --check (read-only audit) ------------------------------------
+#
+# All `gh api ... 2>/dev/null || echo '{}'` probes below silence stderr
+# by design. Rationale:
+#
+#   - 404 ("feature absent") is the COMMON case for branch protection,
+#     rulesets, code-scanning, etc. on repos that haven't opted in.
+#     Spammy "HTTP 404 Not Found" lines on stderr would litter every
+#     doctor run.
+#
+#   - The script normalises the response shape via jq below, so the
+#     `|| echo '{}'` fallback feeds a safe empty object into the
+#     parser even on non-404 errors (auth, rate-limit, network).
+#
+#   - The trade-off: a non-404 failure ALSO falls back silently. The
+#     audit may misreport "nothing protected" when the truth is "we
+#     couldn't check." Mitigations: (a) the upfront `gh auth status`
+#     check at line ~111 catches expired tokens; (b) the rate-limit
+#     warning at line ~120 surfaces near-exhaustion; (c) typed
+#     "skipped" reasons in the final JSON tell the caller when an
+#     entire phase was skipped vs returned an actual zero result.
+#
+# Per-probe error surfacing was considered and rejected as too noisy
+# for the dominant 404-fallback case. Adopt only if a real misreport
+# bug surfaces from the field.
 # Emits a ProtectionAudit JSON conforming to
 # schemas/protection-audit.schema.json. Doctor consumes this; no
 # writes happen on this path.

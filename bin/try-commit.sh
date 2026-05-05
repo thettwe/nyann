@@ -48,14 +48,22 @@ done
 tmperr=$(mktemp -t nyann-commit-err.XXXXXX)
 trap 'rm -f "$tmperr"' EXIT
 
+# Stdout: muted because git commit's success summary is not part of
+# the contract (the skill echoes the SHA back). Stderr: tee'd to user
+# terminal AND $tmperr — the user sees pre-commit hook progress
+# (gitleaks scan, lint-staged, ruff, commitizen) live during what can
+# be a 10-60s commit, while the captured bytes still feed the
+# rejection-classifier below. Without the tee, the user sees a
+# silent terminal until success or a wall-of-text rejection.
 set +e
 if [[ -n "$body" ]]; then
-  git -C "$target" commit -m "$subject" -m "$body" > /dev/null 2> "$tmperr"
+  git -C "$target" commit -m "$subject" -m "$body" >/dev/null 2> >(tee "$tmperr" >&2)
 else
-  git -C "$target" commit -m "$subject" > /dev/null 2> "$tmperr"
+  git -C "$target" commit -m "$subject" >/dev/null 2> >(tee "$tmperr" >&2)
 fi
 rc=$?
 set -e
+wait   # let tee flush before classify reads $tmperr
 
 # Classify the outcome.
 result="error"
