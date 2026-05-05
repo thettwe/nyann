@@ -130,7 +130,14 @@ if [[ "$mode" == "auto-merge" ]]; then
   [[ -n "$user_root" ]] && pr_args+=(--user-root "$user_root")
 fi
 
-pr_out=$("${_script_dir}/pr.sh" "${pr_args[@]}" 2>/dev/null) || true
+# NB: do NOT redirect stderr to /dev/null here. pr.sh emits push
+# progress, gh-create progress, nyann::warn lines, and nyann::die
+# context to stderr — that's the user's only feedback signal during
+# the 5-30s push + 2-10s gh-create network ops. Earlier versions
+# muzzled the channel and the user saw a hung terminal. stdout is
+# still captured for the JSON contract.
+nyann::log "ship: opening PR via bin/pr.sh..."
+pr_out=$("${_script_dir}/pr.sh" "${pr_args[@]}") || true
 
 # Empty stdout = pr.sh died hard; treat as pr-failed.
 if [[ -z "$pr_out" ]]; then
@@ -203,8 +210,15 @@ fi
 
 # Wait for checks. wait-for-pr-checks.sh exits 0 for pass/no-checks/skipped,
 # 3 for fail/timeout. We forward the outcome to the ship summary.
+#
+# IMPORTANT: stderr passes through to the user terminal. wait-for-pr-checks.sh
+# was specifically designed to emit one progress line per poll
+# ("PR #N checks: 3/5 passing, 2 in_progress…") so a `--client-side`
+# user can see the wait isn't hung. Earlier versions captured stderr
+# to /dev/null which silenced the entire 30-min polling window.
+nyann::log "ship: PR #$pr_number opened ($pr_url); waiting for checks..."
 checks_out=$("${_script_dir}/wait-for-pr-checks.sh" --target "$target" \
-  --pr "$pr_number" --gh "$gh_bin" --timeout "$timeout_secs" --interval "$interval_secs" 2>/dev/null) || true
+  --pr "$pr_number" --gh "$gh_bin" --timeout "$timeout_secs" --interval "$interval_secs") || true
 
 if [[ -z "$checks_out" ]] || [[ "$(jq -r 'type' <<<"$checks_out" 2>/dev/null || echo "")" != "object" ]]; then
   checks_out='{"outcome":"skipped","summary":{"total":0,"passing":0,"failing":0,"in_progress":0}}'
@@ -289,7 +303,11 @@ merge_args+=(--delete-branch)
 
 merge_err=$(mktemp -t nyann-ship-merge.XXXXXX)
 trap 'rm -f "$merge_err"' EXIT
-if ( cd "$target" && "$gh_bin" "${merge_args[@]}" ) >/dev/null 2>"$merge_err"; then
+nyann::log "ship: checks green ($checks_passing passing, $checks_failing failing); merging via gh pr merge --$merge_strategy..."
+# Tee stderr so the user sees gh's "Merging pull request..." /
+# "Deleted branch X" lines live, while we still capture for the
+# failure-reason path.
+if ( cd "$target" && "$gh_bin" "${merge_args[@]}" ) >/dev/null 2> >(tee "$merge_err" >&2); then
   emit_with_checks "shipped"
 else
   reason=$(head -c 500 "$merge_err" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
