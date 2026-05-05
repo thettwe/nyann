@@ -3,6 +3,11 @@
 # All network paths use a mock gh so the loop is deterministic and
 # fast. Mirrors test-pr.bats / test-wait-for-pr-checks.bats setup.
 
+# `run --separate-stderr` requires bats 1.5+; we use it on the tests
+# that pipe $output to jq because ship.sh now emits progress logs to
+# stderr (see ship.sh:~135 / pr.sh:~225 / wait-for-pr-checks.sh:~210).
+bats_require_minimum_version 1.5.0
+
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   SHIP="${REPO_ROOT}/bin/ship.sh"
@@ -136,7 +141,9 @@ SH
   ( cd "$repo" && git remote add origin "$origin_bare" )
   # PR create succeeds, merge --auto call fails (e.g. repo doesn't allow it).
   make_mock_gh success failure
-  run bash "$SHIP" --target "$repo" --title "feat: x" --gh "$TMP/mock/gh"
+  # --separate-stderr keeps progress logs (now emitted live to the
+  # user terminal) out of $output so jq can parse the JSON contract.
+  run --separate-stderr bash "$SHIP" --target "$repo" --title "feat: x" --gh "$TMP/mock/gh"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "merge-failed"' >/dev/null
   # PR URL still present — create itself succeeded.
@@ -168,7 +175,7 @@ SH
   git init -q --bare "$origin_bare"
   ( cd "$repo" && git remote add origin "$origin_bare" )
   make_mock_gh success success '[{"name":"test","status":"completed","conclusion":"failure","workflow":"ci.yml"}]'
-  run bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
+  run --separate-stderr bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
     --gh "$TMP/mock/gh" --timeout 5 --interval 1
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "ci-failed"' >/dev/null
@@ -188,7 +195,7 @@ SH
   git init -q --bare "$origin_bare"
   ( cd "$repo" && git remote add origin "$origin_bare" )
   make_mock_gh success success '[]'  # empty checks
-  run bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
+  run --separate-stderr bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
     --gh "$TMP/mock/gh" --timeout 5 --interval 1
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "ci-failed"' >/dev/null
@@ -221,7 +228,7 @@ SH
   ( cd "$repo" && git remote add origin "$origin_bare" )
   # CI passes; gh pr merge call returns non-zero.
   make_mock_gh success failure '[{"name":"lint","status":"completed","conclusion":"success","workflow":"ci.yml"}]'
-  run bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
+  run --separate-stderr bash "$SHIP" --target "$repo" --title "feat: x" --client-side \
     --gh "$TMP/mock/gh" --timeout 5 --interval 1
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.outcome == "merge-failed"' >/dev/null

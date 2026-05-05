@@ -150,6 +150,13 @@ while IFS=$'\t' read -r name url ref interval last; do
     continue
   fi
 
+  # Wait for any tee process-sub from the PREVIOUS iteration to flush
+  # before we truncate the shared $sync_err. Without this, on a slow
+  # system tee could write its final bytes AFTER `: > "$sync_err"` has
+  # truncated the file, leaving bytes from source N visible to source
+  # N+1's failure-path read — mis-attributing the error to the wrong
+  # source.
+  wait
   : > "$sync_err"
   # Re-resolve cache_dir immediately before each git -C so a racing
   # process that replaces the dir with a symlink between our
@@ -177,7 +184,13 @@ while IFS=$'\t' read -r name url ref interval last; do
     git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
               -c protocol.file.allow=user \
               -c core.hooksPath=/dev/null -c submodule.recurse=false)
-    if ! git "${git_safe[@]}" -C "$resolved_cache" fetch --depth=1 --no-recurse-submodules origin -- "$ref" >"$sync_err" 2>&1; then
+    nyann::log "sync-team-profiles: $name (fetching $ref from $(nyann::redact_url "$url"))..."
+    # Tee stderr to user terminal AND captured file: a multi-source
+    # sync where each fetch is silent for 10s-2min looks dead. The
+    # captured bytes still feed the redact-on-failure path.
+    if ! git "${git_safe[@]}" -C "$resolved_cache" fetch --depth=1 --no-recurse-submodules origin -- "$ref" \
+         >/dev/null 2> >(tee "$sync_err" >&2); then
+      wait   # let tee flush before we read $sync_err
       # Redact creds from any URL that may appear in stderr.
       err_msg=$(nyann::redact_url "$(head -c 500 "$sync_err" | tr '\n' ' ')")
       invalid_json=$(jq --arg n "$name" --arg err "$err_msg" '. + [{name:$n, kind:"fetch-failed", error:$err}]' <<<"$invalid_json")
@@ -192,7 +205,10 @@ while IFS=$'\t' read -r name url ref interval last; do
     git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
               -c protocol.file.allow=user \
               -c core.hooksPath=/dev/null -c submodule.recurse=false)
-    if ! git "${git_safe[@]}" clone --depth=1 --no-recurse-submodules --branch "$ref" -- "$url" "$cache_dir" >"$sync_err" 2>&1; then
+    nyann::log "sync-team-profiles: $name (cloning $ref from $(nyann::redact_url "$url"))..."
+    if ! git "${git_safe[@]}" clone --depth=1 --no-recurse-submodules --branch "$ref" -- "$url" "$cache_dir" \
+         >/dev/null 2> >(tee "$sync_err" >&2); then
+      wait   # let tee flush before we read $sync_err
       err_msg=$(nyann::redact_url "$(head -c 500 "$sync_err" | tr '\n' ' ')")
       invalid_json=$(jq --arg n "$name" --arg err "$err_msg" '. + [{name:$n, kind:"clone-failed", error:$err}]' <<<"$invalid_json")
       continue

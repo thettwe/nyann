@@ -502,10 +502,16 @@ install_python_phase() {
     return 0
   fi
 
+  # Stage announcement: pre-commit's first run downloads venvs / Node
+  # modules / Ruby gems for every hook repo, which can take 30s-3min
+  # silent. Streaming pre-commit's output buries the bootstrap log
+  # under 100+ "[INFO] Installing environment for..." lines, so we
+  # stay quiet but tell the user up-front WHY we're about to be quiet.
+  nyann::log "pre-commit install: downloading hook environments (first run can take 30s-3min)..."
   if ( cd "$target" && "${pre_commit_cmd[@]}" install --install-hooks >/dev/null 2>&1 ); then
     nyann::log "pre-commit install completed"
   else
-    nyann::warn "pre-commit install failed; run it manually in $target"
+    nyann::warn "pre-commit install failed; run it manually in $target (re-run with PRE_COMMIT_LOG_FILE=/tmp/pc.log for diagnostics)"
   fi
 }
 
@@ -574,10 +580,13 @@ install_precommit_from_template() {
     return 0
   fi
 
+  # Same rationale as install_python_phase: stage announcement up
+  # front because the call is silent for 30s-3min on first run.
+  nyann::log "pre-commit install ($stage): downloading hook environments (first run can take 30s-3min)..."
   if ( cd "$target" && "${pre_commit_cmd[@]}" install --install-hooks >/dev/null 2>&1 ); then
     nyann::log "pre-commit install completed ($stage)"
   else
-    nyann::warn "pre-commit install failed; run it manually in $target"
+    nyann::warn "pre-commit install failed; run it manually in $target (re-run with PRE_COMMIT_LOG_FILE=/tmp/pc.log for diagnostics)"
   fi
 }
 

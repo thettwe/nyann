@@ -484,14 +484,29 @@ if $dry_run; then
   nyann::log "DRY-RUN: bin/install-hooks.sh --target $target ${hook_phases[*]} ${hook_extra_args[*]+${hook_extra_args[*]}}"
 else
   # install-hooks.sh logs to stderr; JSON skip records land on stdout. Split
-  # the two so we can parse skips and still surface the human log.
+  # the two so we can parse skips on stdout and still surface the human log.
+  #
+  # Stderr was previously captured to a tmp file and dumped at the end via
+  # `cat $tmperr >&2`; that turned a 30s-3min install into a silent block
+  # followed by a wall of text. Tee stderr to BOTH the user terminal (live
+  # progress while pre-commit downloads hook environments) AND the tmp
+  # file (so the failure-path dump still works exactly as before).
+  # Stdout STAYS captured to a tmp file — it's the JSON-skip-record
+  # contract bootstrap.sh consumes; tee'ing it would break the SHA-bound
+  # plan execution.
   tmpout=$(mktemp -t nyann-install-out.XXXXXX)
   _bootstrap_tmp_files+=("$tmpout")
   tmperr=$(mktemp -t nyann-install-err.XXXXXX)
   _bootstrap_tmp_files+=("$tmperr")
-  if ! "${_script_dir}/install-hooks.sh" --target "$target" "${hook_phases[@]}" ${hook_extra_args[@]+"${hook_extra_args[@]}"} >"$tmpout" 2>"$tmperr"; then
+  if ! "${_script_dir}/install-hooks.sh" --target "$target" "${hook_phases[@]}" ${hook_extra_args[@]+"${hook_extra_args[@]}"} \
+         >"$tmpout" 2> >(tee "$tmperr" >&2); then
     rc=$?
+    wait   # let tee flush before reading $tmperr (no-op if already done)
     nyann::warn "install-hooks step failed (rc=$rc)"
+    # User already saw the stderr live via tee; the dump was the
+    # failure-context fallback. Now redundant on the happy "user
+    # watched it stream" path, but kept for log-capture / non-tty
+    # environments where the tee target wasn't a real terminal.
     cat "$tmperr" >&2 || true
     rm -f "$tmpout" "$tmperr"
     exit $rc
@@ -502,7 +517,11 @@ else
       summary_skipped_records=$(jq --argjson rec "$line" '. + [$rec]' <<<"$summary_skipped_records")
     fi
   done < "$tmpout"
-  cat "$tmperr" >&2 || true
+  # Symmetric with the failure branch: ensure the tee process-sub has
+  # flushed (so its writes don't race with `rm` and leave the inode
+  # alive in /tmp via the open fd). Pure file-leak hygiene — the
+  # success path never reads $tmperr.
+  wait
   rm -f "$tmpout" "$tmperr"
 fi
 summary_hook_phases=$(printf '%s\n' "${hook_phases[@]}" | jq -R . | jq -sc .)

@@ -1,6 +1,12 @@
 #!/usr/bin/env bats
 # bin/sync.sh — branch safety, clean-tree check, rebase/merge paths.
 
+# `run --separate-stderr` requires bats 1.5+. Used on the conflict
+# test below because sync.sh now streams git's rebase/merge status to
+# stderr (so the user sees auto-merging / CONFLICT lines live), and
+# bats `run` would otherwise fold that into $output and break jq.
+bats_require_minimum_version 1.5.0
+
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   SYNC="${REPO_ROOT}/bin/sync.sh"
@@ -99,7 +105,7 @@ make_conflict_repo() {
 
 @test "rebase path: exits 0 with status=conflicts and leaves rebase in progress" {
   repo=$(make_conflict_repo)
-  run bash "$SYNC" --target "$repo"
+  run --separate-stderr bash "$SYNC" --target "$repo"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r '.status')" = "conflicts" ]
   [ "$(echo "$output" | jq '.conflicts | length')" -gt 0 ]

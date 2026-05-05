@@ -69,9 +69,13 @@ stale_days=$(jq -r '.branching.stale_after_days // 90' "$tmp_profile" 2>/dev/nul
 [[ "$stale_days" =~ ^[0-9]+$ ]] || stale_days=90
 
 # --- GitHub protection probe (read-only) ------------------------------------
+# Stderr passes through to the user terminal so legitimate diagnostics
+# (rate-limit warnings, expired-token messages, missing-scope errors)
+# surface instead of being silently swallowed into a "no issues" report.
+# The `|| echo '{}'` already shields against non-zero exits.
 protection_audit_json=$("${_script_dir}/gh-integration.sh" \
   --target "$target" --profile "$profile_name" \
-  --gh "$gh_bin" --check 2>/dev/null || echo '{}')
+  --gh "$gh_bin" --check || echo '{}')
 if [[ -z "$protection_audit_json" ]] || \
    [[ "$(jq -r 'type' <<<"$protection_audit_json" 2>/dev/null || echo "")" != "object" ]]; then
   protection_audit_json='{}'
@@ -80,8 +84,11 @@ pa_critical=$(jq -r '.summary.critical // 0' <<<"$protection_audit_json")
 pa_warn=$(jq -r '.summary.warn // 0' <<<"$protection_audit_json")
 
 # --- Stale-branch probe (read-only) -----------------------------------------
+# Same rationale: let stderr through so the user sees why a probe
+# fell back to {} (e.g. detached HEAD, no commits yet) instead of a
+# silent "no stale branches" misreport.
 stale_branches_json=$("${_script_dir}/check-stale-branches.sh" \
-  --target "$target" --days "$stale_days" 2>/dev/null || echo '{}')
+  --target "$target" --days "$stale_days" || echo '{}')
 if [[ -z "$stale_branches_json" ]] || \
    [[ "$(jq -r 'type' <<<"$stale_branches_json" 2>/dev/null || echo "")" != "object" ]]; then
   stale_branches_json='{}'

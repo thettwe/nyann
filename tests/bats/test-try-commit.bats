@@ -1,6 +1,12 @@
 #!/usr/bin/env bats
 # bin/try-commit.sh — structured commit wrapper tests.
 
+# `run --separate-stderr` requires bats 1.5+. Tests that pipe $output
+# to jq use it because try-commit.sh now tees git's stderr (pre-commit
+# hook output) to the user terminal — that's the whole point — and we
+# want $output to stay stdout-only for the JSON contract.
+bats_require_minimum_version 1.5.0
+
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   TRY_COMMIT="${REPO_ROOT}/bin/try-commit.sh"
@@ -24,12 +30,15 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "missing --subject dies" {
+  # No --separate-stderr here: the error message goes to stderr via
+  # nyann::die, and we want the merged stream so $output finds it.
   run bash "$TRY_COMMIT" --target "$TMP/repo"
   [ "$status" -ne 0 ]
   [[ "$output" == *"--subject is required"* ]]
 }
 
 @test "subject starting with dash is rejected" {
+  # Same reason as the test above — error-message check on stderr.
   run bash "$TRY_COMMIT" --target "$TMP/repo" --subject "-bad"
   [ "$status" -ne 0 ]
   [[ "$output" == *"must not start with"* ]]
@@ -44,7 +53,7 @@ teardown() { rm -rf "$TMP"; }
 @test "successful commit returns committed result" {
   echo "change" >> "$TMP/repo/file.txt"
   git -C "$TMP/repo" add file.txt
-  run bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: test commit"
+  run --separate-stderr bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: test commit"
   [ "$status" -eq 0 ]
   result=$(echo "$output" | jq -r '.result')
   [ "$result" = "committed" ]
@@ -56,7 +65,7 @@ teardown() { rm -rf "$TMP"; }
 @test "commit with body passes both subject and body" {
   echo "change2" >> "$TMP/repo/file.txt"
   git -C "$TMP/repo" add file.txt
-  run bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: with body" --body "detailed description"
+  run --separate-stderr bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: with body" --body "detailed description"
   [ "$status" -eq 0 ]
   result=$(echo "$output" | jq -r '.result')
   [ "$result" = "committed" ]
@@ -65,7 +74,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "nothing to commit returns error result" {
-  run bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: empty"
+  run --separate-stderr bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: empty"
   [ "$status" -eq 0 ]
   result=$(echo "$output" | jq -r '.result')
   [ "$result" = "error" ]
@@ -76,7 +85,7 @@ teardown() { rm -rf "$TMP"; }
 @test "output shape has all required fields" {
   echo "change3" >> "$TMP/repo/file.txt"
   git -C "$TMP/repo" add file.txt
-  run bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: shape test"
+  run --separate-stderr bash "$TRY_COMMIT" --target "$TMP/repo" --subject "feat: shape test"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e 'has("result", "sha", "subject", "stage", "reason", "exit_code")' >/dev/null
 }
@@ -89,7 +98,7 @@ teardown() { rm -rf "$TMP"; }
 
   echo "change4" >> "$TMP/repo/file.txt"
   git -C "$TMP/repo" add file.txt
-  run bash "$TRY_COMMIT" --target "$TMP/repo" --subject "bad commit"
+  run --separate-stderr bash "$TRY_COMMIT" --target "$TMP/repo" --subject "bad commit"
   [ "$status" -eq 0 ]
   result=$(echo "$output" | jq -r '.result')
   [ "$result" = "rejected" ]

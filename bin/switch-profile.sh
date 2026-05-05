@@ -58,11 +58,14 @@ target="$(cd "$target" && pwd)"
 
 # --- Load both profiles via load-profile.sh ---------------------------------
 
-# load-profile.sh emits profile JSON to stdout, logs source to stderr.
-# We need the JSON content, not the file path.
-from_json=$("${_script_dir}/load-profile.sh" "$from_name" 2>/dev/null) \
+# load-profile.sh emits profile JSON to stdout; logs source resolution
+# AND any schema validation errors (with line numbers) to stderr.
+# Letting stderr through turns "cannot resolve source profile: foo"
+# (useless) into the actual jsonschema diagnostic that pinpoints what
+# field is malformed.
+from_json=$("${_script_dir}/load-profile.sh" "$from_name") \
   || nyann::die "cannot resolve source profile: $from_name"
-to_json=$("${_script_dir}/load-profile.sh" "$to_name" 2>/dev/null) \
+to_json=$("${_script_dir}/load-profile.sh" "$to_name") \
   || nyann::die "cannot resolve target profile: $to_name"
 
 # --- Compute diff -----------------------------------------------------------
@@ -242,7 +245,9 @@ if [[ -f "$target/.stack.json" ]]; then
   stack_path="$target/.stack.json"
 else
   stack_tmp=$(mktemp -t nyann-stack.XXXXXX)
-  "${_script_dir}/detect-stack.sh" --path "$target" > "$stack_tmp" 2>/dev/null || true
+  # stderr passes through so detection failures or warnings reach the
+  # user; `|| true` keeps the script alive for the empty-stack fallback.
+  "${_script_dir}/detect-stack.sh" --path "$target" > "$stack_tmp" || true
   stack_path="$stack_tmp"
 fi
 
@@ -250,7 +255,9 @@ to_profile_tmp=$(mktemp -t nyann-to-profile.XXXXXX)
 printf '%s\n' "$to_json" > "$to_profile_tmp"
 
 doc_plan_tmp=$(mktemp -t nyann-docplan.XXXXXX)
-"${_script_dir}/route-docs.sh" --profile "$to_profile_tmp" > "$doc_plan_tmp" 2>/dev/null || true
+# Same rationale as above: surface route-docs warnings / errors instead
+# of silently writing an empty plan.
+"${_script_dir}/route-docs.sh" --profile "$to_profile_tmp" > "$doc_plan_tmp" || true
 
 # Build a plan that re-generates only what the new profile actually opts
 # into. Earlier this hardcoded `[CLAUDE.md, ci.yml, PR template]`, which

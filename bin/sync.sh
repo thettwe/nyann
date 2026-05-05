@@ -99,6 +99,11 @@ fi
 if git -C "$target" remote get-url origin >/dev/null 2>&1; then
   if ! $dry_run; then
     fetch_err=$(mktemp -t nyann-sync-fetch.XXXXXX)
+    # `--quiet` is intentional — sync runs many times a day and per-ref
+    # progress is noise. The stage log above gives a single signal that
+    # we're about to do network work; on slow links the user knows the
+    # script isn't hung. Failure path keeps captured stderr for redaction.
+    nyann::log "sync: fetching origin..."
     if ! git -C "$target" fetch --quiet origin 2>"$fetch_err"; then
       err=$(nyann::redact_url "$(head -c 500 "$fetch_err" | tr '\n' ' ')")
       nyann::warn "git fetch origin failed (continuing): $err"
@@ -171,15 +176,28 @@ fi
 # On conflict: rebase leaves the working tree in a rebase state; the caller
 # can `git rebase --continue` or `--abort` manually. Merge leaves an unresolved
 # merge commit staged.
-
-sync_err=$(mktemp -t nyann-sync.XXXXXX)
-trap 'rm -f "$sync_err"' EXIT
+#
+# Both git rebase and git merge stream their own status output (auto-merging
+# X.txt, Successfully rebased, CONFLICT in ...) to the user terminal — that's
+# the right kind of feedback. Earlier versions captured to $sync_err but
+# never read the file on either path, so the capture was pure dead code.
+# Drop it; let git speak for itself.
 
 nyann::resolve_identity "$target"
+nyann::log "sync: $strategy onto $base_ref..."
 
 if [[ "$strategy" == "rebase" ]]; then
+  # `1>&2` here is defensive: modern `git rebase` writes status
+  # entirely to stderr ("Successfully rebased and updated...",
+  # "CONFLICT in ..."), so this redirect is currently a no-op. Kept
+  # so that any future git version that splits status onto stdout
+  # can't pollute sync.sh's JSON contract on stdout. The merge
+  # branch below has the same redirect for the SAME reason but
+  # actively rerouting — `git merge` does write its summary to
+  # stdout.
   if ! git -C "$target" -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
-         rebase -- "$base_ref" >"$sync_err" 2>&1; then
+         rebase -- "$base_ref" 1>&2; then
+    nyann::warn "rebase paused with conflicts; resolve them and run 'git rebase --continue' (or --abort to bail)"
     # Collect unmerged paths.
     while IFS= read -r p; do
       [[ -z "$p" ]] && continue
@@ -189,8 +207,12 @@ if [[ "$strategy" == "rebase" ]]; then
     exit 0
   fi
 else
+  # `1>&2` here actively reroutes — git merge writes "Merge made by
+  # 'ort' strategy" + diffstat to stdout, which would corrupt sync.sh's
+  # JSON contract.
   if ! git -C "$target" -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
-         merge --no-edit -- "$base_ref" >"$sync_err" 2>&1; then
+         merge --no-edit -- "$base_ref" 1>&2; then
+    nyann::warn "merge paused with conflicts; resolve them, then run 'git merge --continue' (or --abort to bail)"
     while IFS= read -r p; do
       [[ -z "$p" ]] && continue
       conflicts_json=$(jq --arg p "$p" '. + [$p]' <<<"$conflicts_json")

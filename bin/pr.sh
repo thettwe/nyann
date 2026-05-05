@@ -93,6 +93,11 @@ target="$(cd "$target" && pwd)"
 [[ -d "$target/.git" ]] || { nyann::warn "$target is not a git repo"; exit 2; }
 
 skip() {
+  # Always emit a stderr log line before the JSON so callers (and humans
+  # watching the terminal) see WHY a skip happened. Earlier callers
+  # forgot to nyann::warn on every path, leading to ship.sh seeing a
+  # silent skip with no diagnostic.
+  nyann::warn "pr: skipped — $1"
   jq -n --arg reason "$1" '{skipped:"pr", reason:$reason}'
   exit 0
 }
@@ -221,7 +226,23 @@ git_safe_push=(-c protocol.allow=user -c protocol.ext.allow=never \
 
 push_err=$(mktemp -t nyann-pr-push.XXXXXX)
 trap 'rm -f "$push_err"' EXIT
-if ! git "${git_safe_push[@]}" -C "$target" push -u origin "$head_branch" >"$push_err" 2>&1; then
+nyann::log "pr: pushing $head_branch to origin..."
+# git push prints virtually all of its output to stderr (Counting,
+# Writing, Total %). Tee stderr to BOTH the user's terminal (>&2)
+# and a captured file, so:
+#   - the user sees live progress during the 2-30s network op;
+#   - on failure we still have the captured bytes available for
+#     nyann::redact_url before surfacing the error.
+# Stdout is sent to /dev/null because (a) git push rarely uses it,
+# and (b) without an explicit redirect, a tee'd stdout would leak
+# into pr.sh's own stdout and corrupt the JSON contract that ship.sh
+# captures.
+if ! git "${git_safe_push[@]}" -C "$target" push -u origin "$head_branch" \
+       >/dev/null 2> >(tee -a "$push_err" >&2); then
+  # `wait` flushes the tee process substitution before we read
+  # $push_err — without it, on fast-failing pushes the cat could
+  # observe a partially-written buffer.
+  wait
   # Git push errors can include the remote URL (with tokens). Redact
   # before surfacing.
   err=$(nyann::redact_url "$(cat "$push_err")")
@@ -239,7 +260,14 @@ $draft && gh_args+=(--draft)
 create_err=$(mktemp -t nyann-pr-create.XXXXXX)
 am_err=$(mktemp -t nyann-pr-am.XXXXXX)
 trap 'rm -f "$push_err" "$create_err" "$am_err"' EXIT
-if ! url="$( ( cd "$target" && "$gh_bin" "${gh_args[@]}" ) 2>"$create_err")"; then
+nyann::log "pr: creating PR ($head_branch → $base) via gh..."
+# `gh pr create` prints status to stderr ("Creating pull request for X
+# into Y", template-fill, "Opening URL"). We tee stderr to the user
+# terminal so they see those signals live, and still capture into
+# $create_err so a failure surfaces a clean error message. Stdout is
+# the URL on success.
+if ! url="$( ( cd "$target" && "$gh_bin" "${gh_args[@]}" ) 2> >(tee "$create_err" >&2) )"; then
+  wait   # let tee process-sub flush before we read $create_err
   err="$(cat "$create_err")"
   nyann::die "gh pr create failed: $err"
 fi

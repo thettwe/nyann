@@ -717,8 +717,13 @@ if $wait_for_checks; then
       nyann::die "--wait-for-checks: no PR found for HEAD ($head_sha); refusing to tag without a verified CI signal. Re-run with --allow-no-pr to release anyway (legitimate for first-cut or local-only commits), or push your commit to a PR first."
     fi
   else
+    nyann::log "--wait-for-checks: polling PR #$pr_num CI (timeout=${wait_timeout}s, interval=${wait_interval}s)..."
+    # Stderr passes through to user terminal — wait-for-pr-checks.sh
+    # emits one progress tick per poll specifically so a long wait
+    # doesn't look hung. Earlier `2>/dev/null` was the same bug shape
+    # we just fixed in bin/ship.sh.
     checks_out=$("${_script_dir}/wait-for-pr-checks.sh" --target "$target" \
-      --pr "$pr_num" --gh "$gh_bin" --timeout "$wait_timeout" --interval "$wait_interval" 2>/dev/null) || true
+      --pr "$pr_num" --gh "$gh_bin" --timeout "$wait_timeout" --interval "$wait_interval") || true
     checks_outcome=$(jq -r '.outcome // "skipped"' <<<"$checks_out" 2>/dev/null || echo "skipped")
     case "$checks_outcome" in
       pass)
@@ -878,7 +883,13 @@ if $push; then
                  -c core.hooksPath=/dev/null)
 
   push_err=$(mktemp -t nyann-release-push.XXXXXX)
-  if ! git "${git_safe_push[@]}" -C "$target" push origin -- "$tag" 2>"$push_err"; then
+  nyann::log "release: pushing tag $tag to origin..."
+  # Tee stderr to user terminal AND captured file so git's
+  # Counting/Writing progress is visible during slow network ops,
+  # while the captured bytes stay available for redact-on-failure.
+  if ! git "${git_safe_push[@]}" -C "$target" push origin -- "$tag" \
+       2> >(tee "$push_err" >&2); then
+    wait   # let tee flush before we read $push_err
     # Git's push failure output can include the remote URL (with
     # tokens). Redact before surfacing the warning.
     err=$(nyann::redact_url "$(cat "$push_err")")
@@ -901,7 +912,14 @@ if $push; then
     cur=$(git -C "$target" branch --show-current 2>/dev/null || echo "")
     if [[ -n "$cur" ]]; then
       branch_push_err=$(mktemp -t nyann-release-branch-push.XXXXXX)
-      if ! git "${git_safe_push[@]}" -C "$target" push origin -- "$cur" >/dev/null 2>"$branch_push_err"; then
+      nyann::log "release: pushing release commit on branch $cur to origin..."
+      # Tee stderr (where git's progress lands) to user terminal AND
+      # captured file. Stdout stays /dev/null'd because git push
+      # rarely writes to it and we don't want it polluting any
+      # surrounding capture.
+      if ! git "${git_safe_push[@]}" -C "$target" push origin -- "$cur" \
+           >/dev/null 2> >(tee "$branch_push_err" >&2); then
+        wait   # let tee flush before we read $branch_push_err
         err=$(nyann::redact_url "$(cat "$branch_push_err")")
         nyann::warn "push of branch $cur failed (tag $tag still pushed): $err"
         add_next_step "git push origin $cur   # release commit is local-only; push after fixing the cause above"
@@ -956,12 +974,22 @@ if $gh_release; then
       gh_args+=(--prerelease)
     fi
     gh_create_err=$(mktemp -t nyann-gh-rel.XXXXXX)
-    if gh_url=$("$gh_bin" "${gh_args[@]}" 2>"$gh_create_err"); then
-      # gh prints the release URL on success. When --notes-file is large
-      # or assets are attached, gh may also print upload progress on
-      # stdout; pick the first http(s) line rather than blindly
-      # `head -1` the buffer.
-      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' | grep -m1 -E '^https?://' || true)
+    nyann::log "--gh-release: creating release for $tag via gh..."
+    # Tee stderr to the user terminal AND a captured file so live
+    # gh output (auth prompts, upload progress for --notes-file or
+    # assets, rate-limit warnings) reaches the user, while the
+    # captured bytes stay available for the failure-reason path
+    # below. Same pattern as bin/pr.sh's gh-pr-create call.
+    if gh_url=$("$gh_bin" "${gh_args[@]}" 2> >(tee "$gh_create_err" >&2)); then
+      # gh prints the release URL on success. When --notes-file is
+      # large or assets are attached, gh may also print upload
+      # progress on stdout — including pre-signed `uploads.github.com`
+      # URLs that we MUST NOT surface as the canonical release URL.
+      # Anchor on the `/releases/tag/<tag>` path so we match the
+      # right line even if the buffer carries decoration / progress
+      # URLs ahead of it.
+      gh_url=$(printf '%s' "$gh_url" | tr -d '\r' \
+        | grep -m1 -E '^https?://[^[:space:]]+/releases/tag/' || true)
       # Schema marks `url` as optional under outcome:created — when the
       # extraction yielded nothing (a future gh version that prints
       # decoration before the URL, or no URL at all), emit the success
@@ -976,6 +1004,7 @@ if $gh_release; then
           '{outcome:"created", prerelease:$pre}')
       fi
     else
+      wait   # let tee flush before we read $gh_create_err
       err=$(nyann::redact_url "$(head -c 1000 "$gh_create_err" | tr '\n' ' ')")
       gh_release_json=$(jq -n --arg err "$err" --argjson pre "$is_prerelease" \
         '{outcome:"failed", error:$err, prerelease:$pre}')
