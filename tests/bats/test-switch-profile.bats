@@ -1,6 +1,12 @@
 #!/usr/bin/env bats
 # bin/switch-profile.sh — profile migration diff and apply tests.
 
+# `run --separate-stderr` requires bats 1.5+. We use it on the diff
+# tests that pipe $output to jq because switch-profile.sh now lets
+# load-profile.sh's stderr through (resolution + schema-validation
+# diagnostics) — earlier those were silenced by `2>/dev/null`.
+bats_require_minimum_version 1.5.0
+
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   SWITCH="${REPO_ROOT}/bin/switch-profile.sh"
@@ -15,7 +21,7 @@ teardown() { rm -rf "$TMP"; }
 # --- Diff computation ---
 
 @test "diff between nextjs-prototype and python-cli shows hook changes" {
-  run bash "$SWITCH" --from nextjs-prototype --to python-cli --target "$REPO" --dry-run
+  run --separate-stderr bash "$SWITCH" --from nextjs-prototype --to python-cli --target "$REPO" --dry-run
   [ "$status" -eq 0 ]
   # Should show additions (ruff added) and removals (eslint removed)
   echo "$output" | jq -e '.additions | length > 0' >/dev/null
@@ -23,14 +29,14 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "diff between same profile → zero modifications" {
-  run bash "$SWITCH" --from nextjs-prototype --to nextjs-prototype --target "$REPO" --dry-run
+  run --separate-stderr bash "$SWITCH" --from nextjs-prototype --to nextjs-prototype --target "$REPO" --dry-run
   [ "$status" -eq 0 ]
   total=$(echo "$output" | jq -r '.total_modifications')
   [ "$total" -eq 0 ]
 }
 
 @test "branching strategy change is detected" {
-  run bash "$SWITCH" --from nextjs-prototype --to nextjs-prototype --target "$REPO" --dry-run
+  run --separate-stderr bash "$SWITCH" --from nextjs-prototype --to nextjs-prototype --target "$REPO" --dry-run
   # These use the same strategy; let's create a custom test
   # Use go-service (github-flow) vs a profile with different strategy — all are github-flow in starters
   # So we just verify the field exists in output
@@ -39,7 +45,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "hook additions include category and action fields" {
-  run bash "$SWITCH" --from default --to python-cli --target "$REPO" --dry-run
+  run --separate-stderr bash "$SWITCH" --from default --to python-cli --target "$REPO" --dry-run
   [ "$status" -eq 0 ]
   # default has minimal hooks; python-cli adds ruff, ruff-format, commitizen
   first_addition=$(echo "$output" | jq -r '.additions[0]')
@@ -47,7 +53,7 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "hook removals include before value" {
-  run bash "$SWITCH" --from nextjs-prototype --to default --target "$REPO" --dry-run
+  run --separate-stderr bash "$SWITCH" --from nextjs-prototype --to default --target "$REPO" --dry-run
   [ "$status" -eq 0 ]
   # nextjs has eslint, prettier; default doesn't
   echo "$output" | jq -e '.removals | length > 0' >/dev/null
@@ -57,7 +63,7 @@ teardown() { rm -rf "$TMP"; }
 # --- JSON output ---
 
 @test "--json emits valid MigrationPlan JSON" {
-  run bash "$SWITCH" --from nextjs-prototype --to python-cli --target "$REPO" --json
+  run --separate-stderr bash "$SWITCH" --from nextjs-prototype --to python-cli --target "$REPO" --json
   [ "$status" -eq 0 ]
   echo "$output" | jq -e 'has("from_profile") and has("to_profile") and has("additions") and has("removals") and has("changes") and has("total_modifications")' >/dev/null
 }
