@@ -1,3 +1,8 @@
+## [1.5.1] — 2026-05-06
+
+### Fixes
+
+- surface progress + errors across ship/pr/release/doctor/sync (UX feedback) (#15) (844da84)
 # Changelog
 
 All notable changes to **nyann** are documented here.
