@@ -889,6 +889,7 @@ if $push; then
   # while the captured bytes stay available for redact-on-failure.
   if ! git "${git_safe_push[@]}" -C "$target" push origin -- "$tag" \
        2> >(tee "$push_err" >&2); then
+    wait   # let tee flush before we read $push_err
     # Git's push failure output can include the remote URL (with
     # tokens). Redact before surfacing the warning.
     err=$(nyann::redact_url "$(cat "$push_err")")
@@ -918,6 +919,7 @@ if $push; then
       # surrounding capture.
       if ! git "${git_safe_push[@]}" -C "$target" push origin -- "$cur" \
            >/dev/null 2> >(tee "$branch_push_err" >&2); then
+        wait   # let tee flush before we read $branch_push_err
         err=$(nyann::redact_url "$(cat "$branch_push_err")")
         nyann::warn "push of branch $cur failed (tag $tag still pushed): $err"
         add_next_step "git push origin $cur   # release commit is local-only; push after fixing the cause above"
@@ -998,6 +1000,7 @@ if $gh_release; then
           '{outcome:"created", prerelease:$pre}')
       fi
     else
+      wait   # let tee flush before we read $gh_create_err
       err=$(nyann::redact_url "$(head -c 1000 "$gh_create_err" | tr '\n' ' ')")
       gh_release_json=$(jq -n --arg err "$err" --argjson pre "$is_prerelease" \
         '{outcome:"failed", error:$err, prerelease:$pre}')

@@ -239,6 +239,10 @@ nyann::log "pr: pushing $head_branch to origin..."
 # captures.
 if ! git "${git_safe_push[@]}" -C "$target" push -u origin "$head_branch" \
        >/dev/null 2> >(tee -a "$push_err" >&2); then
+  # `wait` flushes the tee process substitution before we read
+  # $push_err — without it, on fast-failing pushes the cat could
+  # observe a partially-written buffer.
+  wait
   # Git push errors can include the remote URL (with tokens). Redact
   # before surfacing.
   err=$(nyann::redact_url "$(cat "$push_err")")
@@ -263,6 +267,7 @@ nyann::log "pr: creating PR ($head_branch → $base) via gh..."
 # $create_err so a failure surfaces a clean error message. Stdout is
 # the URL on success.
 if ! url="$( ( cd "$target" && "$gh_bin" "${gh_args[@]}" ) 2> >(tee "$create_err" >&2) )"; then
+  wait   # let tee process-sub flush before we read $create_err
   err="$(cat "$create_err")"
   nyann::die "gh pr create failed: $err"
 fi

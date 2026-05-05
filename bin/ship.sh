@@ -310,6 +310,7 @@ nyann::log "ship: checks green ($checks_passing passing, $checks_failing failing
 if ( cd "$target" && "$gh_bin" "${merge_args[@]}" ) >/dev/null 2> >(tee "$merge_err" >&2); then
   emit_with_checks "shipped"
 else
+  wait   # let tee flush before we read $merge_err
   reason=$(head -c 500 "$merge_err" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
   emit_with_checks "merge-failed" "$reason"
 fi

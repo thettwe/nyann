@@ -2,6 +2,13 @@
 # bin/sync-team-profiles.sh + bin/add-team-source.sh + team drift. Uses a
 # local file:// source so tests never hit the network.
 
+# `run --separate-stderr` requires bats 1.5+. The SYNC tests pipe
+# $output to jq; sync-team-profiles.sh now emits per-source stage
+# logs + tee'd git progress to stderr (so a multi-source first-run
+# clone doesn't look frozen), and we want $output to stay
+# stdout-only for the JSON contract.
+bats_require_minimum_version 1.5.0
+
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   ADD="${REPO_ROOT}/bin/add-team-source.sh"
@@ -38,19 +45,19 @@ teardown() { rm -rf "$TMP"; }
 
 @test "sync first run clones; second within interval skips; --force re-syncs" {
   bash "$ADD" --user-root "$UR" --name ours --url "file://$SRC" >/dev/null 2>&1
-  run bash "$SYNC" --user-root "$UR"
+  run --separate-stderr bash "$SYNC" --user-root "$UR"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq '.synced | length')" -eq 1 ]
   [ "$(echo "$output" | jq '.registered | length')" -eq 1 ]
 
   # Second run: within the default 24h interval → skipped.
-  run bash "$SYNC" --user-root "$UR"
+  run --separate-stderr bash "$SYNC" --user-root "$UR"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq '.synced | length')" -eq 0 ]
   [ "$(echo "$output" | jq -r '.skipped[0].reason')" = "within-interval" ]
 
   # --force → syncs again.
-  run bash "$SYNC" --user-root "$UR" --force
+  run --separate-stderr bash "$SYNC" --user-root "$UR" --force
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq '.synced | length')" -eq 1 ]
 }
@@ -159,7 +166,7 @@ EOF
   chmod +x "$SHIM_DIR/jq"
 
   config="$UR/config.json"
-  run env PATH="$SHIM_DIR:$PATH" bash "$SYNC" --user-root "$UR"
+  run --separate-stderr env PATH="$SHIM_DIR:$PATH" bash "$SYNC" --user-root "$UR"
   # Script exits non-zero — the simulated jq failure inside the
   # critical section triggers `set -e`.
   [ "$status" -ne 0 ]
