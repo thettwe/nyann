@@ -329,7 +329,7 @@ ${ws_section}
 ${docs_rows%$'\n'}
 
 ## Memory
-Session notes and persistent scratch live in [\`${mem_path}/\`](./${mem_path_target}/README.md). TODOs Claude should remember, open questions, mid-session decisions.
+Ephemeral team-shared scratch lives in [\`${mem_path}/\`](./${mem_path_target}/README.md): mid-session decisions, running TODOs, open questions. Promote to \`docs/\` (Project Memory) when they stabilize.
 
 ## Conventions
 | Area | Rule |

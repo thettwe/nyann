@@ -219,9 +219,23 @@ bin/sync-team-profiles.sh [--force]
 
 When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding.
 
-## Documentation routing
+## Project Memory
 
-By default `CLAUDE.md` links to local `docs/architecture.md`, `docs/decisions/`, and `memory/`.
+nyann scaffolds and maintains your project's **Project Memory** — a documentation layer designed for AI agents to retrieve, sized to fit their context, and kept in sync as your code evolves.
+
+Five properties define it:
+
+1. **AI-retrieval-first** — bounded scope per doc, predictable structure, decision rationale captured.
+2. **Size-budgeted** — docs fit in context windows. CLAUDE.md is router-mode (≤3 KB soft cap), not a content dump.
+3. **Drift-aware** — broken links, orphans, and staleness surfaced automatically by `doctor` and CI.
+4. **Storage-agnostic** — local Markdown, Obsidian (MCP), or Notion (MCP). Equal citizens.
+5. **Dual-audience** — high-signal structure works for AI agents AND humans reading reference docs.
+
+See [`docs/principles/documentation.md`](docs/principles/documentation.md) for the full definition.
+
+### Storage routing
+
+By default `CLAUDE.md` links to local `docs/` and `memory/`.
 
 When Claude Code has an Obsidian or Notion MCP configured, nyann asks where each doc type should live:
 
