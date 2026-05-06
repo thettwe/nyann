@@ -100,6 +100,16 @@ staleness_days="$(jq '.staleness_days // null' <<<"$doc_json")"
 # documentation.use_archetype_scaffolds flag.
 profile_archetype=$(jq -r '.archetype // ""' <<<"$profile_json")
 profile_use_archetype=$(jq -r '.documentation.use_archetype_scaffolds // false' <<<"$profile_json")
+# Profile schema validation rejects non-boolean values for this field,
+# but if validation was bypassed somewhere upstream (test fixtures,
+# hand-edited profiles, future --no-validate code paths), normalise
+# defensively so the downstream `--argjson use_archetype "$value"` jq
+# call doesn't die with a parse error mid-emit.
+case "$profile_use_archetype" in
+  true|false) ;;
+  *) nyann::warn "documentation.use_archetype_scaffolds is not a boolean ('${profile_use_archetype}'); coercing to false"
+     profile_use_archetype=false ;;
+esac
 resolved_archetype="${cli_archetype:-$profile_archetype}"
 case "$cli_use_archetype" in
   true|false) resolved_use_archetype="$cli_use_archetype" ;;

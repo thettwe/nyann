@@ -136,6 +136,38 @@ JSON
   grep -q "USER WROTE THIS" "$TMP/docs/api-reference.md"
 }
 
+@test "robustness: plan with targets:null tolerates the missing object" {
+  # Hand-crafted plan with .targets explicitly null — must not fail
+  # silently via process-substitution swallow. Should succeed with
+  # zero scaffolds and zero MCP-skip warnings.
+  cat > "$TMP/.plan.json" <<'JSON'
+{
+  "storage_strategy": "local",
+  "targets": null,
+  "claude_md_mode": "router",
+  "size_budget_kb": 3,
+  "staleness_days": null
+}
+JSON
+  run bash "$SCAFFOLD" --plan "$TMP/.plan.json" --target "$TMP" --project-name svc
+  [ "$status" -eq 0 ]
+  [ ! -d "$TMP/docs" ]
+}
+
+@test "robustness: plan with targets field omitted entirely tolerates the gap" {
+  cat > "$TMP/.plan.json" <<'JSON'
+{
+  "storage_strategy": "local",
+  "claude_md_mode": "router",
+  "size_budget_kb": 3,
+  "staleness_days": null
+}
+JSON
+  run bash "$SCAFFOLD" --plan "$TMP/.plan.json" --target "$TMP" --project-name svc
+  [ "$status" -eq 0 ]
+  [ ! -d "$TMP/docs" ]
+}
+
 @test "unknown archetype skips archetype expansion entirely (sentinel semantics)" {
   # archetype="unknown" is the sentinel for "no archetype declared".
   # use_archetype_scaffolds:true + archetype:"unknown" is a contradictory

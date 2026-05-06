@@ -118,3 +118,41 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 1 ]
   [[ "$output" == *"is not one of"* ]]
 }
+
+# v1.6.0 robustness — non-boolean use_archetype_scaffolds coerced to false
+# with a warning rather than dying mid-emit on jq --argjson parse error.
+# The profile schema rejects this case at load time, but the defensive
+# coercion guards against bypassed validation paths.
+@test "non-boolean use_archetype_scaffolds in profile is coerced to false" {
+  # Hand-craft a profile that passes top-level shape but has the wrong
+  # type for the v1.6.0 boolean field. Schema validation isn't invoked
+  # by route-docs directly (load-profile.sh does that upstream), so a
+  # bypassed-validation scenario hits this path.
+  cat > "$TMP/bad-profile.json" <<'JSON'
+{
+  "name": "bad-bool",
+  "schemaVersion": 1,
+  "stack": {"primary_language": "unknown"},
+  "branching": {"strategy": "github-flow", "base_branches": ["main"]},
+  "conventions": {"commit_format": "conventional-commits"},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false, "claude_md": false, "github_actions_ci": false, "commit_message_template": false, "github_templates": false},
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {"broken_internal_links": false, "broken_mcp_links": false, "orphans": false, "staleness": false},
+    "use_archetype_scaffolds": "yes"
+  }
+}
+JSON
+  run bash "$ROUTE" --profile "$TMP/bad-profile.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"is not a boolean"* ]] || [[ "$stderr" == *"is not a boolean"* ]]
+  # Output is still valid JSON
+  echo "$output" | grep -v "coercing" | jq -e '.targets' >/dev/null
+}

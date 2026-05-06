@@ -217,8 +217,8 @@ if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" && "$plan_archetyp
   ' <<<"$plan_json")"
 fi
 
-target_type() { jq -r --arg k "$1" '.targets[$k].type // ""' <<<"$plan_json"; }
-target_path() { jq -r --arg k "$1" '.targets[$k].path // ""' <<<"$plan_json"; }
+target_type() { jq -r --arg k "$1" '(.targets // {})[$k].type // ""' <<<"$plan_json"; }
+target_path() { jq -r --arg k "$1" '(.targets // {})[$k].path // ""' <<<"$plan_json"; }
 
 # safe_target_path <key>
 # Resolves .targets[<key>].path against $target_root and verifies the
@@ -323,8 +323,12 @@ if [[ "$(target_type memory)" == "local" ]]; then
   [[ -e "$mem_dir/.gitkeep" ]] || : > "$mem_dir/.gitkeep"
 fi
 
-# Surface a note for any MCP targets we're skipping.
+# Surface a note for any MCP targets we're skipping. The `.targets //
+# {}` guard tolerates a hand-crafted plan that omits targets or sets
+# it to null — without it, jq exits non-zero and the process
+# substitution silently swallows the failure (set -e doesn't propagate
+# from process subs), leaving the loop to no-op without a warning.
 while IFS= read -r key; do
   t="$(target_type "$key")"
   case "$t" in local|"") ;; *) nyann::warn "skipped non-local target $key (type=$t); MCP routing planned for a future release" ;; esac
-done < <(jq -r '.targets | keys[]' <<<"$plan_json")
+done < <(jq -r '(.targets // {}) | keys[]' <<<"$plan_json")
