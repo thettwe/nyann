@@ -196,16 +196,19 @@ plan_use_archetype="$(jq -r '.use_archetype_scaffolds // false' <<<"$plan_json")
 # nyann::archetype_scaffold_map — single source of truth shared with
 # bin/route-docs.sh. Adding a new archetype or doc type in one place
 # updates both planner and materializer.
+#
+# Single jq reduce: take the map as TSV, fold each row into targets
+# only if the key isn't already present. Replaces the per-entry
+# bash-loop + 2-jq-fork-per-iteration pattern (~12 forks for
+# api-service) with one fork.
 if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" ]]; then
-  while IFS=: read -r ak ap; do
-    [[ -z "$ak" ]] && continue
-    # Add only if not already present in plan targets[].
-    has=$(jq -r --arg k "$ak" '.targets | has($k)' <<<"$plan_json")
-    if [[ "$has" != "true" ]]; then
-      plan_json="$(jq --arg k "$ak" --arg p "$ap" \
-        '.targets[$k] = {type:"local", path:$p}' <<<"$plan_json")"
-    fi
-  done < <(nyann::archetype_scaffold_map "$plan_archetype")
+  arch_tsv="$(nyann::archetype_scaffold_map "$plan_archetype" | tr ':' '\t')"
+  plan_json="$(jq --arg tsv "$arch_tsv" '
+    reduce ($tsv | split("\n") | map(select(length>0) | split("\t"))[]) as $row
+      (.;
+        if (.targets | has($row[0])) then .
+        else .targets[$row[0]] = {type:"local", path:$row[1]} end)
+  ' <<<"$plan_json")"
 fi
 
 target_type() { jq -r --arg k "$1" '.targets[$k].type // ""' <<<"$plan_json"; }

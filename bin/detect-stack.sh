@@ -1003,13 +1003,38 @@ archetype="unknown"
 # Strip framework's surrounding JSON quotes for plain string comparisons.
 _fw="${framework//\"/}"
 
+# Read manifests ONCE at the top of the archetype block, stash the
+# archetype-relevant booleans, then reuse across the precedence
+# ladder. Replaces 3 jq + 3 grep + ~6 file reads scattered through
+# the branches with 1 jq + 2 greps + 2 file reads.
+arch_pkg_has_bin=false
+arch_pkg_has_engines_vscode=false
+arch_pkg_has_lib_signal=false
+if [[ -f "${path}/package.json" ]]; then
+  if pkg_arch_tsv=$(jq -r '[
+        (.bin != null),
+        (.engines.vscode != null),
+        ((.main // .module // .exports) != null and .bin == null)
+      ] | @tsv' "${path}/package.json" 2>/dev/null); then
+    IFS=$'\t' read -r arch_pkg_has_bin arch_pkg_has_engines_vscode arch_pkg_has_lib_signal <<<"$pkg_arch_tsv"
+  fi
+fi
+
+arch_cargo_has_bin=false
+arch_cargo_has_lib=false
+if [[ -f "${path}/Cargo.toml" ]]; then
+  cargo_blob="$(<"${path}/Cargo.toml")"
+  if grep -qE '^\[\[bin\]\]' <<<"$cargo_blob"; then arch_cargo_has_bin=true; fi
+  if grep -qE '^\[lib\]'     <<<"$cargo_blob"; then arch_cargo_has_lib=true; fi
+fi
+
 # 1. plugin — unambiguous manifest signals
 #    - .claude-plugin/plugin.json — Claude Code plugins (this repo's own manifest)
 #    - manifest.json with manifest_version — browser extensions (Chrome/Firefox/Edge)
 #    - package.json with engines.vscode — VS Code extensions; the manifest IS
 #      package.json with the engines.vscode field, not a separate file
 if [[ -f "${path}/.claude-plugin/plugin.json" ]] || \
-   ( [[ -f "${path}/package.json" ]] && jq -e '.engines.vscode' "${path}/package.json" >/dev/null 2>&1 ) || \
+   [[ "$arch_pkg_has_engines_vscode" == "true" ]] || \
    ( [[ -f "${path}/manifest.json" ]] && jq -e '.manifest_version' "${path}/manifest.json" >/dev/null 2>&1 ); then
   archetype="plugin"
 fi
@@ -1079,9 +1104,10 @@ if [[ "$archetype" == "unknown" ]]; then
   esac
 fi
 
-# 6. cli-tool — entry-point binary signals
+# 6. cli-tool — entry-point binary signals (uses cached package.json /
+#    Cargo.toml booleans from the top of the archetype block).
 if [[ "$archetype" == "unknown" ]]; then
-  if [[ -f "${path}/package.json" ]] && jq -e '.bin' "${path}/package.json" >/dev/null 2>&1; then
+  if [[ "$arch_pkg_has_bin" == "true" ]]; then
     archetype="cli-tool"
   elif [[ -f "${path}/cmd/main.go" ]] || compgen -G "${path}/cmd/*/main.go" >/dev/null 2>&1; then
     archetype="cli-tool"
@@ -1090,19 +1116,17 @@ if [[ "$archetype" == "unknown" ]]; then
     archetype="cli-tool"
   elif [[ -f "${path}/setup.py" ]] && grep -q "console_scripts" "${path}/setup.py" 2>/dev/null; then
     archetype="cli-tool"
-  elif [[ -f "${path}/Cargo.toml" ]] && grep -qE '^\[\[bin\]\]' "${path}/Cargo.toml" 2>/dev/null; then
+  elif [[ "$arch_cargo_has_bin" == "true" ]]; then
     archetype="cli-tool"
   fi
 fi
 
 # 7. library — published-package signals without entry-point binary
+#    (uses cached booleans).
 if [[ "$archetype" == "unknown" ]]; then
-  if [[ -f "${path}/package.json" ]] && \
-     jq -e '(.main // .module // .exports) and (.bin | not)' "${path}/package.json" >/dev/null 2>&1; then
+  if [[ "$arch_pkg_has_lib_signal" == "true" ]]; then
     archetype="library"
-  elif [[ -f "${path}/Cargo.toml" ]] && \
-       grep -qE '^\[lib\]' "${path}/Cargo.toml" 2>/dev/null && \
-       ! grep -qE '^\[\[bin\]\]' "${path}/Cargo.toml" 2>/dev/null; then
+  elif [[ "$arch_cargo_has_lib" == "true" && "$arch_cargo_has_bin" == "false" ]]; then
     archetype="library"
   elif [[ -f "${path}/Package.swift" ]]; then
     # SwiftPM project without an .xcodeproj / .xcworkspace at this point

@@ -211,10 +211,13 @@ emit_target() {
 # bin/scaffold-docs.sh.
 iter_types_json="$scaffold_types_json"
 if [[ "$resolved_use_archetype" == "true" && -n "$resolved_archetype" ]]; then
-  arch_types_json=$(nyann::archetype_scaffold_types "$resolved_archetype" | jq -R . | jq -s .)
-  # Union of profile-declared scaffold_types + archetype defaults (dedup, preserve order:
-  # archetype defaults first since they're the considered set; profile additions follow).
-  iter_types_json=$(jq -n --argjson a "$arch_types_json" --argjson p "$scaffold_types_json" '$a + $p | unique')
+  # Single jq fork: read archetype types as line-input via -R, fold
+  # against profile-declared scaffold_types, dedup. Replaces a
+  # 3-fork pipeline (jq -R | jq -s | jq -n) with one. Order:
+  # archetype defaults first since they're the considered set;
+  # profile additions follow.
+  iter_types_json=$(nyann::archetype_scaffold_types "$resolved_archetype" \
+    | jq -nR --argjson p "$scaffold_types_json" '[inputs] + $p | unique')
 fi
 
 # Iterate the resolved scaffold-type set.
