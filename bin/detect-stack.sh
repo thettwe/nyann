@@ -992,8 +992,9 @@ confidence=$(awk -v m="$signal_manifest" -v c="$signal_claudemd" -v l="$signal_l
 # Codebase archetype — what kind of system is this? Drives archetype-aware
 # Project Memory scaffolding when documentation.use_archetype_scaffolds is
 # true. Detection is signal-based; profile-declared archetype overrides this
-# at scaffold time. See docs/proposals/v1.6.0-project-memory.md for the
-# precedence rationale.
+# at scaffold time. The precedence ladder below codifies the rule "the
+# user-visible primary surface wins" (frontend over server, mobile over
+# generic library, plugin manifest over everything).
 #
 # Precedence (first match wins, descending specificity):
 #   1. plugin       — unambiguous manifest at the repo root

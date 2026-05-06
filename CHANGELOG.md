@@ -16,7 +16,6 @@
 - **`bin/session-check.sh --flow=<commit|release|pr|ship>`** — flag that appends a flow-specific suffix ("(non-blocking — proceeding with the X flow.)") to the drift nudge. The four caller skills now pass `--flow` instead of duplicating an 8-line preamble each.
 - 2 new schemas updated with archetype fields: `schemas/stack-descriptor.schema.json`, `schemas/documentation-plan.schema.json`. Profile schema (`profiles/_schema.json`) extended with top-level `archetype` and `documentation.use_archetype_scaffolds`.
 - 6 new bats files: `test-claudemd-self-compliance.bats`, `test-memory-readme-content.bats`, `test-session-check-flow.bats`, `test-detect-archetype.bats`, `test-archetype-scaffolds.bats`, `test-templates-archetype.bats`.
-- **`docs/proposals/v1.6.0-project-memory.md`** — design doc captured before implementation (mirrors v1.5.0 pattern).
 
 ### Changed
 
@@ -57,7 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`ReleaseSuccess.bumped_files[]`** + **`ReleaseSuccess.gh_release`** — output schema additions emitted only when the corresponding flag was active. `bumped_files[]` records each declared file with `from_version` + `action`. `gh_release` carries `outcome` (`created`/`skipped`/`failed`), `url` on success, `prerelease`, and `error`/`skipped_reason` on the unhappy paths.
 - **`profiles/default.json`** — declares `release.bump_files[]` for `.claude-plugin/plugin.json` (`.version` key) and `.claude-plugin/marketplace.json` (`.plugins[0].version` key), so nyann itself dogfoods the new flags.
 - **`skills/release/SKILL.md`** — new section 5.1 documenting when to default `--bump-manifests` and `--gh-release` based on profile + user signals. Output interpretation in section 6 covers the new fields.
-- **`docs/proposals/v1.5.0-release-automation.md`** — design doc captured before implementation. Documents the problem (six manual release steps, marketplace.json staleness empirical proof), goals/non-goals, schema additions, three-phase rollout, four open questions resolved during the cut, and the acceptance-criteria checklist.
 
 ### Changed
 

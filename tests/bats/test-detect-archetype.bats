@@ -2,7 +2,7 @@
 # v1.6.0 archetype detection: bin/detect-stack.sh emits StackDescriptor.archetype
 # for every supported codebase type.
 #
-# Precedence (per docs/proposals/v1.6.0-project-memory.md):
+# Precedence (first match wins):
 #   plugin > mobile-app > api-service (artifacts) > web-app (frontend fw)
 #   > api-service (server fw) > cli-tool > library > unknown
 #

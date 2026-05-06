@@ -16,9 +16,9 @@
 # When --flow=<verb> is passed, the emitted message includes a
 # flow-specific suffix so the calling skill (commit/release/pr/ship) can
 # surface the output verbatim without per-skill boilerplate. This is the
-# v1.6.0 drift-check dedup contract — see
-# docs/proposals/v1.6.0-project-memory.md § Drift-check dedup. Unknown
-# flow values are rejected with a clear error.
+# v1.6.0 drift-check dedup contract: skills pass --flow=<verb>, the
+# script prints one self-contained line, the skill surfaces it as-is.
+# Unknown flow values are rejected with a clear error.
 #
 # Designed to run as a background monitor — must never block, never
 # prompt, never write to the filesystem.
