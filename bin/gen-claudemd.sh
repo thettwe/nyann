@@ -186,12 +186,16 @@ while IFS= read -r key; do
   esac
 
   case "$key" in
-    architecture) label="Architecture" ;;
-    prd)          label="PRD" ;;
-    adrs)         label="Decisions (ADRs)" ;;
-    research)     label="Research" ;;
-    memory)       label="Memory" ;;
-    *)            label="$key" ;;
+    architecture)  label="Architecture" ;;
+    prd)           label="PRD" ;;
+    adrs)          label="Decisions (ADRs)" ;;
+    research)      label="Research" ;;
+    api_reference) label="API Reference" ;;
+    runbook)       label="Runbook" ;;
+    deployment)    label="Deployment" ;;
+    glossary)      label="Glossary" ;;
+    memory)        label="Memory" ;;
+    *)             label="$key" ;;
   esac
 
   # Sanitize the $link cell — DocumentationPlan's
@@ -329,7 +333,7 @@ ${ws_section}
 ${docs_rows%$'\n'}
 
 ## Memory
-Session notes and persistent scratch live in [\`${mem_path}/\`](./${mem_path_target}/README.md). TODOs Claude should remember, open questions, mid-session decisions.
+Ephemeral team-shared scratch lives in [\`${mem_path}/\`](./${mem_path_target}/README.md): mid-session decisions, running TODOs, open questions. Promote to \`docs/\` (Project Memory) when they stabilize.
 
 ## Conventions
 | Area | Rule |

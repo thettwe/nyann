@@ -183,8 +183,21 @@ write_if_missing() {
 
 plan_json="$(cat "$plan_path")"
 
-target_type() { jq -r --arg k "$1" '.targets[$k].type // ""' <<<"$plan_json"; }
-target_path() { jq -r --arg k "$1" '.targets[$k].path // ""' <<<"$plan_json"; }
+# Archetype expansion happens upstream in bin/route-docs.sh (the
+# planner). scaffold-docs.sh is a pure materializer: it iterates the
+# .targets[] it receives. This separation keeps the
+# preview-before-mutate contract intact — what's in the SHA-bound
+# ActionPlan is what gets written. A thin DocumentationPlan with
+# use_archetype_scaffolds:true but empty targets[] produces zero
+# scaffolds here; callers must run route-docs first to get a fully
+# expanded plan.
+#
+# If the plan still carries archetype + use_archetype_scaffolds
+# fields (route-docs propagates them for downstream visibility),
+# they're informational only — scaffold-docs ignores them.
+
+target_type() { jq -r --arg k "$1" '(.targets // {})[$k].type // ""' <<<"$plan_json"; }
+target_path() { jq -r --arg k "$1" '(.targets // {})[$k].path // ""' <<<"$plan_json"; }
 
 # safe_target_path <key>
 # Resolves .targets[<key>].path against $target_root and verifies the
@@ -207,9 +220,10 @@ safe_target_path() {
     "documentation plan target '$key'"
 }
 
-# docs/ README always lands when any docs/* target is local.
+# docs/ README always lands when any docs/* target is local. v1.6.0
+# adds api_reference, runbook, deployment, glossary to the trigger set.
 any_docs=false
-for key in architecture prd adrs research; do
+for key in architecture prd adrs research api_reference runbook deployment glossary; do
   if [[ "$(target_type "$key")" == "local" ]]; then
     any_docs=true
     break
@@ -217,7 +231,21 @@ for key in architecture prd adrs research; do
 done
 
 if $any_docs; then
-  write_if_missing "$template_root/docs/README.tmpl" "$target_root/docs/README.md" "doc index"
+  # Derive the doc-index location from the architecture target's
+  # path when it's local (the architecture doc is the most universal
+  # cross-archetype anchor — its parent dir is the right home for
+  # the doc README). Falls back to the conventional `docs/README.md`
+  # when architecture is non-local or unset, preserving pre-v1.6.x
+  # behaviour.
+  readme_dir="docs"
+  if [[ "$(target_type architecture)" == "local" ]]; then
+    arch_path="$(target_path architecture)"
+    if [[ -n "$arch_path" ]]; then
+      arch_parent="$(dirname "$arch_path")"
+      [[ -n "$arch_parent" && "$arch_parent" != "." ]] && readme_dir="$arch_parent"
+    fi
+  fi
+  write_if_missing "$template_root/docs/README.tmpl" "$target_root/$readme_dir/README.md" "doc index"
 fi
 
 # architecture
@@ -253,6 +281,32 @@ if [[ "$(target_type research)" == "local" ]]; then
   [[ -e "$rs_dir/.gitkeep" ]] || : > "$rs_dir/.gitkeep"
 fi
 
+# v1.6.0 archetype-aware doc types ------------------------------------------
+
+# api-reference — API service / library endpoint catalog
+if [[ "$(target_type api_reference)" == "local" ]]; then
+  write_if_missing "$template_root/docs/api-reference.tmpl" \
+    "$(safe_target_path api_reference)" "API reference"
+fi
+
+# runbook — operational playbook (api-service / cli / web-app / mobile-app)
+if [[ "$(target_type runbook)" == "local" ]]; then
+  write_if_missing "$template_root/docs/runbook.tmpl" \
+    "$(safe_target_path runbook)" "runbook"
+fi
+
+# deployment — how the system ships
+if [[ "$(target_type deployment)" == "local" ]]; then
+  write_if_missing "$template_root/docs/deployment.tmpl" \
+    "$(safe_target_path deployment)" "deployment doc"
+fi
+
+# glossary — domain-term reference (sleeper hit for AI second-brain)
+if [[ "$(target_type glossary)" == "local" ]]; then
+  write_if_missing "$template_root/docs/glossary.tmpl" \
+    "$(safe_target_path glossary)" "glossary"
+fi
+
 # memory — always local by invariant
 if [[ "$(target_type memory)" == "local" ]]; then
   mem_dir="$(safe_target_path memory)"
@@ -262,8 +316,12 @@ if [[ "$(target_type memory)" == "local" ]]; then
   [[ -e "$mem_dir/.gitkeep" ]] || : > "$mem_dir/.gitkeep"
 fi
 
-# Surface a note for any MCP targets we're skipping.
+# Surface a note for any MCP targets we're skipping. The `.targets //
+# {}` guard tolerates a hand-crafted plan that omits targets or sets
+# it to null — without it, jq exits non-zero and the process
+# substitution silently swallows the failure (set -e doesn't propagate
+# from process subs), leaving the loop to no-op without a warning.
 while IFS= read -r key; do
   t="$(target_type "$key")"
   case "$t" in local|"") ;; *) nyann::warn "skipped non-local target $key (type=$t); MCP routing planned for a future release" ;; esac
-done < <(jq -r '.targets | keys[]' <<<"$plan_json")
+done < <(jq -r '(.targets // {}) | keys[]' <<<"$plan_json")

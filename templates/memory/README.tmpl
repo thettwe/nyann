@@ -1,22 +1,37 @@
 # Memory
 
-Session-scratch for Claude. What Claude should remember between turns or across sessions, without polluting versioned docs.
+Ephemeral team-shared scratch. Mid-session decisions, running TODOs, open questions — anything Claude or the team needs to remember between turns but isn't yet a stable doc.
 
 ## What lives here
 
-* Open questions the team is still working on.
-* Mid-session decisions too small to be an ADR but too load-bearing to lose.
-* Running TODOs Claude should pick up next time.
-* Notes about *context* that don't belong in code or docs.
+* Open questions still being worked.
+* Decisions too small to be an ADR but too load-bearing to lose.
+* Running TODOs the next session should pick up.
+* Notes about *context* that don't belong in code or docs yet.
 
 ## What doesn't
 
-* Anything that's a spec or a decision — that goes in `../docs/` (see [README](../docs/README.md)).
-* Secrets — this folder is committed like any other.
-* Long-form research — that goes in `../docs/research/`.
+* **Stable knowledge** — that's [Project Memory](../docs/) (architecture, ADRs, runbooks, glossary). When a memory note matures, promote it.
+* **Claude Code's own session memory** — Claude Code maintains a separate per-user memory at `~/.claude/projects/<encoded>/memory/`, hidden from the team. nyann does not manage that; this folder is the team-visible counterpart.
+* **Secrets** — this folder is committed like any other.
+* **Long-form research** — promote it to `../docs/` when it stabilises.
 
 ## Conventions
 
-* Files are free-form Markdown.
-* If a memory outgrows this folder (large, structured, referenced), promote it to a doc and delete the memory note.
-* This folder is intentionally in the repo so every contributor sees the same "what's in Claude's head" state.
+* Free-form Markdown. One file per topic.
+* If a memory note grows up (large, structured, referenced from elsewhere), promote it to `../docs/` and delete the memory note.
+* This folder is intentionally in the repo so every contributor sees the same team-visible "what we're holding in mind" state.
+
+## How this fits
+
+nyann's documentation has three knowledge layers:
+
+| Layer | Purpose | Loaded by AI |
+|---|---|---|
+| `CLAUDE.md` (repo root) | Router into Project Memory | Every conversation |
+| `docs/` (Project Memory) | Durable, structured knowledge | On demand, via CLAUDE.md links |
+| `memory/` (this folder) | Ephemeral team-shared scratch | When explicitly read |
+
+For the full Project Memory model, see nyann's documentation principles
+(`docs/principles/documentation.md` if you've scaffolded one, otherwise
+the [nyann project](https://github.com/thettwe/nyann)).

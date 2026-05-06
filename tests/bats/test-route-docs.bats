@@ -94,3 +94,93 @@ teardown() { rm -rf "$TMP"; }
     rm -f "$out"
   done
 }
+
+# v1.6.0 — --archetype CLI flag enum guard. The profile schema validates
+# archetype values at load time, but the CLI flag bypasses that path.
+# Without explicit guard a typo silently produced an under-populated
+# DocumentationPlan via nyann::archetype_scaffold_map's `*` fallback.
+@test "--archetype with valid enum value succeeds" {
+  for a in api-service cli-tool library web-app mobile-app plugin unknown; do
+    run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" --archetype "$a"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "--archetype with invalid value dies with clear error" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" --archetype "future-arch"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"future-arch"* ]]
+  [[ "$output" == *"is not one of"* ]]
+}
+
+@test "--archetype with shell-injection-style value is rejected (not executed)" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" --archetype 'evil; rm -rf /tmp/x'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"is not one of"* ]]
+}
+
+# v1.6.0 robustness — non-boolean use_archetype_scaffolds coerced to false
+# with a warning rather than dying mid-emit on jq --argjson parse error.
+# The profile schema rejects this case at load time, but the defensive
+# coercion guards against bypassed validation paths.
+@test "non-boolean use_archetype_scaffolds in profile is coerced to false" {
+  # Hand-craft a profile that passes top-level shape but has the wrong
+  # type for the v1.6.0 boolean field. Schema validation isn't invoked
+  # by route-docs directly (load-profile.sh does that upstream), so a
+  # bypassed-validation scenario hits this path.
+  cat > "$TMP/bad-profile.json" <<'JSON'
+{
+  "name": "bad-bool",
+  "schemaVersion": 1,
+  "stack": {"primary_language": "unknown"},
+  "branching": {"strategy": "github-flow", "base_branches": ["main"]},
+  "conventions": {"commit_format": "conventional-commits"},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false, "claude_md": false, "github_actions_ci": false, "commit_message_template": false, "github_templates": false},
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {"broken_internal_links": false, "broken_mcp_links": false, "orphans": false, "staleness": false},
+    "use_archetype_scaffolds": "yes"
+  }
+}
+JSON
+  run bash "$ROUTE" --profile "$TMP/bad-profile.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"is not a boolean"* ]] || [[ "$stderr" == *"is not a boolean"* ]]
+  # Output is still valid JSON
+  echo "$output" | grep -v "coercing" | jq -e '.targets' >/dev/null
+}
+
+# Obsidian URL space encoding — vault names / folder paths with spaces
+# must percent-encode to %20 in the link_in_claude_md field. Bare
+# spaces terminate the URL in many Markdown parsers.
+@test "obsidian link_in_claude_md percent-encodes spaces in vault name" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" \
+    --mcp-targets "$TMP/.obs.json" --routing all:obsidian \
+    --obsidian-vault "My Vault" --project-name myproj
+  [ "$status" -eq 0 ]
+  link=$(echo "$output" | jq -r '.targets.architecture.link_in_claude_md')
+  # Encoded link must NOT contain a literal space and MUST contain %20
+  [[ "$link" != *" "* ]]
+  [[ "$link" == *"My%20Vault"* ]]
+  # The raw vault field stays unchanged for downstream MCP tooling
+  [ "$(echo "$output" | jq -r '.targets.architecture.vault')" = "My Vault" ]
+}
+
+@test "obsidian link_in_claude_md percent-encodes spaces in folder path" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" \
+    --mcp-targets "$TMP/.obs.json" --routing all:obsidian \
+    --obsidian-vault work --obsidian-folder "team docs" \
+    --project-name "my project"
+  [ "$status" -eq 0 ]
+  link=$(echo "$output" | jq -r '.targets.architecture.link_in_claude_md')
+  [[ "$link" != *" "* ]]
+  [[ "$link" == *"team%20docs"* ]]
+  [[ "$link" == *"my%20project"* ]]
+}

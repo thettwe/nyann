@@ -219,9 +219,30 @@ bin/sync-team-profiles.sh [--force]
 
 When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding.
 
-## Documentation routing
+## Project Memory
 
-By default `CLAUDE.md` links to local `docs/architecture.md`, `docs/decisions/`, and `memory/`.
+nyann scaffolds and maintains your project's **Project Memory** — a documentation layer designed for AI agents to retrieve, sized to fit their context, and kept in sync as your code evolves.
+
+```
+   CLAUDE.md  ──→  docs/        (durable Project Memory)
+       │      ──→  memory/      (ephemeral team scratch)
+       │
+       └─ router-mode (≤ 3 KB), points into both.
+```
+
+Five properties define it:
+
+1. **AI-retrieval-first** — bounded scope per doc, predictable structure, decision rationale captured.
+2. **Size-budgeted** — docs fit in context windows. CLAUDE.md is router-mode (≤3 KB soft cap), not a content dump.
+3. **Drift-aware** — broken links, orphans, and staleness surfaced automatically by `doctor` and CI.
+4. **Storage-agnostic** — local Markdown, Obsidian (MCP), or Notion (MCP). Equal citizens.
+5. **Dual-audience** — high-signal structure works for AI agents AND humans reading reference docs.
+
+See [`docs/principles/documentation.md`](docs/principles/documentation.md) for the full definition.
+
+### Storage routing
+
+By default `CLAUDE.md` links to local `docs/` and `memory/`.
 
 When Claude Code has an Obsidian or Notion MCP configured, nyann asks where each doc type should live:
 
@@ -229,7 +250,7 @@ When Claude Code has an Obsidian or Notion MCP configured, nyann asks where each
 adrs:obsidian, research:local, architecture:local
 ```
 
-`memory/` is **always** local.
+`memory/` is **always** local — it's the ephemeral team-shared scratch layer, distinct from Project Memory itself.
 
 ## Prereqs
 
@@ -258,109 +279,6 @@ Run `/nyann:check-prereqs` (or `bin/check-prereqs.sh`) for a live inventory.
 | Dev loop | `shellcheck`, `bats-core` |
 
 Nyann never prompts for credentials. `gh auth status` is a passive read; missing auth surfaces as a skip, not a prompt.
-
-## Roadmap
-
-### Shipped in v1.0.0
-
-- [x] 31 skills with natural-language triggers and slash commands
-- [x] 18 starter profiles covering JS/TS, Python, Go, Rust, Swift, Kotlin, Shell, Java, C#, PHP, Dart, Ruby
-- [x] Stack detection (frameworks, monorepos, polyglot)
-- [x] Hook installation (core + per-stack + pre-push)
-- [x] Branching strategy recommender (GitHub Flow / GitFlow / trunk-based)
-- [x] GitHub branch protection, tag rulesets, signing, and repo settings audit + apply
-- [x] Combined PR + merge (`/nyann:ship`) with auto-merge and client-side modes
-- [x] Release with CI-gated tagging (`--wait-for-checks`)
-- [x] Doc routing (local / Obsidian / Notion / split)
-- [x] CLAUDE.md generation, standalone regeneration, and usage-based optimization
-- [x] Team profile sync with drift detection
-- [x] 43 JSON schemas locking every cross-layer contract
-- [x] 820 bats tests, shellcheck, SKILL.md length enforcement
-- [x] Preview-before-mutate with SHA256 integrity binding
-
-### Shipped in v1.1.0
-
-- [x] Interactive selection menus (`AskUserQuestion`) across 8 skills
-- [x] Inline drift checks at point-of-use (commit, PR, ship, release) instead of session-start monitors
-- [x] Friendly error handling — JSON-emitting scripts exit 0, skill layer presents human-readable messages
-- [x] Nightly eval regression fix (plan integrity binding)
-- [x] CI stability improvements (flaky timing tests, duplicate run prevention)
-
-### Shipped in v1.1.1
-
-- [x] Plugin hook path resolution (`${CLAUDE_PLUGIN_ROOT}`) — hooks work from any cwd
-- [x] AskUserQuestion reliability — exact JSON structures, no plain-text fallback
-- [x] Setup fast path — quick-setup in 1 picker, categorized prereqs tables
-- [x] Plugin discovery preamble in all 30 command files — no wasted `which`/`npm list` searches
-
-### Shipped in v1.2.0
-
-- [x] 5 new stack detections and profiles: Java/Spring Boot, C#/.NET, PHP/Laravel, Dart/Flutter, Ruby/Rails
-- [x] Framework inference for Spring Boot, Quarkus, Micronaut, ASP.NET, Blazor, MAUI, Laravel, Symfony, Flutter, Rails, Sinatra
-- [x] Extension-count fallback and CLAUDE.md hint parser for all new languages
-
-### Shipped in v1.2.1
-
-- [x] Missing hook blurbs for v1.2.0 profiles (`checkstyle`, `dotnet-format`, `pint`, `dart-format`, `dart-analyze`, `rubocop`)
-
-### Shipped in v1.3.0
-
-- [x] Semver version recommendation from Conventional Commits history (`recommend-version.sh`)
-- [x] CI governance gate with drift-aware PR health checks (`doctor-ci.sh`)
-- [x] Health trending with sparkline, trajectory, and per-category deltas
-- [x] Profile suggestion scoring against detected stack (primary + secondary)
-- [x] Structured profile diff (10-section comparison)
-- [x] 43 JSON schemas (was 38)
-- [x] 820 bats tests (was 702)
-
-### Shipped in v1.5.0
-
-Release automation pass. Closes the gap that v1.4.0 surfaced (manifest
-versions could go stale silently — the v1.3.0 cut shipped with
-`marketplace.json` still at `1.2.1`).
-
-- [x] `bin/release.sh --bump-manifests` — profile-driven version bumps in
-      `json-version-key`, `toml-version-key`, and `script` formats; bumps
-      land in the same release commit as `CHANGELOG.md`; idempotent re-runs
-- [x] `bin/release.sh --gh-release` — auto-creates the GitHub release
-      attached to the pushed tag with notes from the rendered CHANGELOG
-      block; `--prerelease` flag for SemVer suffixes; soft-skip when `gh`
-      is missing or unauthed
-- [x] `profile.release.bump_files[]` schema field, with three discriminated
-      formats; nyann's own `default` profile dogfoods it for `plugin.json`
-      and `marketplace.json`
-- [x] `skills/release/SKILL.md` defaults to both flags when the active
-      profile declares `bump_files`
-- [x] 22 new bats covering every format, idempotency, validation errors,
-      `--push` / `--strategy manual` conflicts, and `gh` mock paths
-
-### Shipped in v1.4.0
-
-Performance + reliability hardening pass. No new user-facing features; existing
-flows are noticeably faster and more robust.
-
-- [x] Doctor text mode loads the profile once and calls `compute-drift` directly (~50% faster)
-- [x] Documentation subsystems (`check-claude-md-size`, `check-links`, `find-orphans`, `check-staleness`) run in parallel
-- [x] `detect-stack` collapsed 13 per-language `find` calls + 14 `grep` calls into single awk passes
-- [x] `suggest-profile` scores all profiles in one `jq -n inputs` pass (~108 forks → 1 for 18 profiles)
-- [x] `check-stale-branches` uses one `git branch --merged` pass; bash 3.2 compatible
-- [x] `session-check` caches stale-branch results, HEAD + `refs/heads` keyed, 60s TTL, atomic write
-- [x] Workspace `lint-staged` config built in one `jq` reduce instead of per-workspace loops
-- [x] `path_under_target` is bash-native (no python3 fork per path validation)
-- [x] Per-profile sentinel keyed on `(plugin_version, sha256)` — survives downgrades and detects mid-version edits
-- [x] `check-links` extracts links via one python3 call (vs N) with NUL-delimited source records (path-safe)
-- [x] `find-orphans` + `check-staleness` accumulate via TSV reduced in a single trailing `jq`
-- [x] `release.sh` renders the entire CHANGELOG block in one `jq` program instead of 12 separate calls
-- [x] Five rounds of independent code review caught and fixed 1 P0, 4 P1, and 13 P2 latent bugs along the way
-
-### Planned
-
-- [ ] **More stacks:** Elixir/Phoenix, Scala/Play
-- [ ] **GitLab and Bitbucket** support for remote integration (currently GitHub only)
-- [ ] **Windows support:** `.ps1` hook variants for native Windows workflows
-- [ ] **ActionPlan `remote[]` dispatcher** for server-side automation beyond branch protection
-
-See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Repository layout
 

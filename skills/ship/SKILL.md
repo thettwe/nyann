@@ -25,11 +25,8 @@ single ShipResult. The output schema is at
 
 ## 0. Drift check (quick, non-blocking)
 
-Run `bin/session-check.sh` before starting. If it produces output,
-show the one-line drift summary to the user as an informational note
-(e.g. "Heads up: nyann detected drift vs your profile. Run
-`/nyann:retrofit` when you get a chance."). Do not block the ship
-flow — this is a nudge, not a gate.
+Run `bash bin/session-check.sh --flow=ship`. If it produces output,
+surface the line to the user verbatim. Do not block the flow.
 
 ## 1. Pick the mode up front
 

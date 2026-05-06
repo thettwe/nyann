@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# session-check.sh — lightweight drift check for session-start monitor.
+# session-check.sh — lightweight drift check for session-start monitor
+# and inline drift checks at point-of-use (commit / release / pr / ship).
 #
-# Usage: session-check.sh [--user-root <dir>]
+# Usage:
+#   session-check.sh [--user-root <dir>] [--flow=<commit|release|pr|ship>]
 #
 # Resolves the active profile from preferences.json, runs doctor --json
 # against the current directory, and emits a single notification line to
@@ -10,6 +12,13 @@
 #   - current directory is not a git repo
 #   - no drift detected
 #   - any dependency is missing (jq, etc.)
+#
+# When --flow=<verb> is passed, the emitted message includes a
+# flow-specific suffix so the calling skill (commit/release/pr/ship) can
+# surface the output verbatim without per-skill boilerplate. This is the
+# v1.6.0 drift-check dedup contract: skills pass --flow=<verb>, the
+# script prints one self-contained line, the skill surfaces it as-is.
+# Unknown flow values are rejected with a clear error.
 #
 # Designed to run as a background monitor — must never block, never
 # prompt, never write to the filesystem.
@@ -25,14 +34,39 @@ fi
 command -v jq >/dev/null 2>&1 || exit 0
 
 user_root="${HOME}/.claude/nyann"
+flow=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user-root)   user_root="${2:-}"; shift 2 ;;
     --user-root=*) user_root="${1#--user-root=}"; shift ;;
+    --flow)        flow="${2:-}"; shift 2 ;;
+    --flow=*)      flow="${1#--flow=}"; shift ;;
     *) shift ;;
   esac
 done
+
+# Validate --flow when set. Per design: keep the four canonical verbs
+# matching the SKILL.md callers; reject anything else loudly so a typo
+# in a skill (e.g. --flow=commits) surfaces immediately rather than
+# silently degrading to no-suffix output.
+case "$flow" in
+  ""|commit|release|pr|ship) ;;
+  *)
+    echo "[nyann] error: --flow value '${flow}' is not one of commit|release|pr|ship" >&2
+    exit 2
+    ;;
+esac
+
+# Map flow verb to the user-facing noun used in the suffix. Mostly
+# identity, but pr → PR for casing.
+case "$flow" in
+  commit)  flow_noun="commit" ;;
+  release) flow_noun="release" ;;
+  pr)      flow_noun="PR" ;;
+  ship)    flow_noun="ship" ;;
+  *)       flow_noun="" ;;
+esac
 
 prefs="$user_root/preferences.json"
 [[ -f "$prefs" ]] || exit 0
@@ -158,6 +192,12 @@ if [[ -f "memory/health.json" ]]; then
   fi
 fi
 
+# Flow-context suffix — appended only when --flow was passed by a
+# skill caller. Communicates that the drift is informational and the
+# in-flight skill flow is continuing.
+flow_suffix=""
+[[ -n "$flow_noun" ]] && flow_suffix=" (non-blocking — proceeding with the ${flow_noun} flow.)"
+
 if (( drift_total > 0 )); then
   # Drift line — when merged branches are also over threshold, fold
   # the cleanup CTA into the same notification rather than
@@ -170,12 +210,12 @@ if (( drift_total > 0 )); then
   msg=$(IFS=", "; echo "${parts[*]}")
 
   if (( need_cleanup_nudge == 1 )); then
-    echo "[nyann] drift detected vs '${profile}' profile: ${msg}.${health_suffix} Run /nyann:retrofit to fix; /nyann:cleanup-branches to prune ${n_merged} merged branches."
+    echo "[nyann] drift detected vs '${profile}' profile: ${msg}.${health_suffix} Run /nyann:retrofit to fix; /nyann:cleanup-branches to prune ${n_merged} merged branches.${flow_suffix}"
   else
-    echo "[nyann] drift detected vs '${profile}' profile: ${msg}.${health_suffix} Run /nyann:retrofit to fix."
+    echo "[nyann] drift detected vs '${profile}' profile: ${msg}.${health_suffix} Run /nyann:retrofit to fix.${flow_suffix}"
   fi
 else
   # Cleanup-only line — no profile drift, but enough merged branches
   # piled up that it's worth a top-level ping.
-  echo "[nyann] hygiene: ${n_merged} merged branches sitting locally.${health_suffix} Run /nyann:cleanup-branches to prune."
+  echo "[nyann] hygiene: ${n_merged} merged branches sitting locally.${health_suffix} Run /nyann:cleanup-branches to prune.${flow_suffix}"
 fi

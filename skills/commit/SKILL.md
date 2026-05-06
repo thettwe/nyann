@@ -23,11 +23,8 @@ in phases. Never run `git commit` until the user has confirmed the message.
 
 ## 0. Drift check (quick, non-blocking)
 
-Run `bin/session-check.sh` before starting. If it produces output,
-show the one-line drift summary to the user as an informational note
-(e.g. "Heads up: nyann detected 2 missing hooks. Run `/nyann:retrofit`
-when you get a chance."). Do not block the commit flow — this is a
-nudge, not a gate.
+Run `bash bin/session-check.sh --flow=commit`. If it produces output,
+surface the line to the user verbatim. Do not block the flow.
 
 ## 1. Gather context
 

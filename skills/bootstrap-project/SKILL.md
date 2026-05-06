@@ -91,14 +91,45 @@ Three branches:
 
 ## 4. Route docs
 
+### 4a. Archetype prompt (v1.6.0+)
+
+The StackDescriptor from step 1 carries an `archetype` field
+(`api-service` / `cli-tool` / `library` / `web-app` / `mobile-app` /
+`plugin` / `unknown`). When it's anything other than `unknown` AND
+the resolved profile does not already declare
+`documentation.use_archetype_scaffolds: true`, prompt the user via
+`AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Detected archetype: <archetype>. Enable archetype-aware Project Memory scaffolding?",
+    "header": "Project Memory",
+    "options": [
+      {"label": "Yes (recommended)", "description": "Scaffold api-reference, runbook, deployment, glossary as appropriate for this system."},
+      {"label": "No", "description": "Use the profile's flat scaffold list (pre-v1.6.0 behaviour)."}
+    ],
+    "multiSelect": false
+  }]
+}
+```
+
+If the user picks **Yes**, pass `--archetype <archetype>
+--use-archetype-scaffolds` to `bin/route-docs.sh` in the next step.
+If **No**, pass nothing extra (current behaviour). Skip the prompt
+entirely when archetype is `unknown` or when the profile already
+sets `use_archetype_scaffolds: true`.
+
+### 4b. Run route-docs
+
 1. Run `bin/detect-mcp-docs.sh` to discover Obsidian / Notion connectors. Capture the JSON.
-2. If `available[]` is empty, run `bin/route-docs.sh --profile <path>` with no routing flags —
-   plan is local-only.
+2. If `available[]` is empty, run `bin/route-docs.sh --profile <path>` with no MCP flags —
+   plan is local-only. Pass the archetype flags from 4a if the user opted in.
 3. If any MCP connector is available, load `references/mcp-routing.md` and walk the user through
    local vs MCP vs split. It covers the questions to ask, how to compose the `--routing` string,
    the connector-target inputs (`--obsidian-vault`, `--obsidian-folder`, `--notion-parent`),
    and the post-route creation flow (MCP tool calls per non-local target + plan update with
-   returned identifiers).
+   returned identifiers). Archetype flags from 4a propagate the same way.
 
 Capture the resulting `DocumentationPlan`. `memory/` stays local by invariant regardless of
 any routing choice.

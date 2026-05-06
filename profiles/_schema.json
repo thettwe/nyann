@@ -43,6 +43,11 @@
       "minimum": 1,
       "description": "Profile schema version. Incremented on breaking changes."
     },
+    "archetype": {
+      "$comment": "v1.6.0 — codebase archetype. When set, overrides detect-stack.sh's auto-detected archetype during scaffolding. Drives archetype-aware Project Memory scaffolding when documentation.use_archetype_scaffolds is true. Optional.",
+      "type": "string",
+      "enum": ["api-service", "cli-tool", "library", "web-app", "mobile-app", "plugin", "unknown"]
+    },
     "stack": {
       "type": "object",
       "additionalProperties": false,
@@ -357,9 +362,14 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["architecture", "prd", "adrs", "research"]
+            "enum": ["architecture", "prd", "adrs", "research", "api_reference", "runbook", "deployment", "glossary"]
           },
           "uniqueItems": true
+        },
+        "use_archetype_scaffolds": {
+          "$comment": "v1.6.0 — opt-in flag for archetype-aware Project Memory scaffolding. When true, scaffold_types is replaced by the per-archetype map at scaffold time (api-service → architecture/api-reference/runbook/deployment/adrs/glossary, cli-tool → architecture/runbook/adrs/glossary, etc.). When false or absent, the flat scaffold_types list is used (pre-v1.6.0 behavior).",
+          "type": "boolean",
+          "default": false
         },
         "storage_strategy": {
           "type": "string",

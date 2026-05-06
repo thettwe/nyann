@@ -1,0 +1,82 @@
+# Runbook
+
+> Operational playbook. AI agents debugging an outage retrieve by
+> *symptom*, not by cause — section headers below follow that pattern
+> intentionally.
+
+## Operational invariants
+
+> What MUST be true for this system to be healthy. Each invariant
+> reads as a single declarative sentence.
+
+* **<Invariant 1>** — one sentence.
+* **<Invariant 2>** — one sentence.
+* **<Invariant 3>** — one sentence.
+
+A break of any invariant is an incident, even if no user has reported.
+
+## Routine procedures
+
+### Deploy
+
+> Standard deploy command + expected duration + how to verify success.
+
+### Rollback
+
+> Rollback command + criteria for triggering it + verification.
+
+### Restart
+
+> Service restart procedure (graceful + forceful).
+
+### Scale up / scale down
+
+> Procedure + capacity ceilings + cost notes.
+
+## Incident response
+
+> Each subsection here starts with a *symptom* the on-call would
+> observe (alert text, dashboard reading, user report) — never with a
+> root cause. Agents and humans both retrieve by symptom.
+
+### Symptom: <observable problem>
+
+**Likely causes.**
+
+1. <Cause 1> — quick check command.
+2. <Cause 2> — quick check command.
+
+**Diagnostic commands.**
+
+```bash
+# Paste the actual commands here.
+```
+
+**Mitigation.**
+
+> Step-by-step remediation. Order matters.
+
+**Rollback criteria.**
+
+> When to give up on mitigation and roll back.
+
+---
+
+> Add more `### Symptom:` sections above as new incident shapes
+> emerge from real on-call experience.
+
+## Monitoring
+
+* **Dashboards.** Where the live charts are.
+* **Alerts.** What fires, where it routes, severity tiers.
+* **Logs.** Where to grep for what.
+* **On-call rotation.** Where the schedule lives.
+
+## See also
+
+* [Architecture](./architecture.md) — system context.
+* `deployment.md` — how the system ships (scaffolded for
+  api-service / web-app / mobile-app archetypes; cli-tool runbooks
+  cover deploy procedures inline above).
+* `api-reference.md` — endpoint catalog (api-service archetype
+  only).

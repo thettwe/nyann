@@ -1,0 +1,57 @@
+# Deployment
+
+> How this system ships. Bounded scope: deployment shape,
+> configuration, rollout. Operational *response* lives in
+> [`runbook.md`](./runbook.md).
+
+## Topology
+
+> Where this runs in production. Hosts / regions / replicas /
+> orchestration. Include a diagram only if it carries information
+> the prose can't.
+
+| Component | Where it runs | Replicas |
+|---|---|---|
+| <component> | <host/cluster> | <n> |
+
+## Pipeline
+
+> How code reaches production. CI steps, gates, manual approvals.
+
+1. Push to `<branch>` → CI runs (`<workflow>`).
+2. CI passes → <next step>.
+3. <Next step> → production.
+
+## Configuration
+
+> Where each kind of config lives.
+
+| Kind | Location | Who sets it |
+|---|---|---|
+| Env vars | <where> | <who> |
+| Secrets | <where> | <who> |
+| Feature flags | <where> | <who> |
+| Static config | <where> | <who> |
+
+## Rollout model
+
+> Blue/green, canary, rolling, immediate. Be specific.
+
+* **Default rollout:** <model>.
+* **Canary criteria:** <when canary fires>.
+* **Rollback procedure:** see [`runbook.md`](./runbook.md#rollback).
+
+## Local-to-prod parity
+
+> What's the same between local dev and prod. What's different.
+> Why each difference exists.
+
+* **Same.** <list>
+* **Different.** <list> (with reason)
+* **Faked locally.** <list> (mocks, stubs, in-memory backends)
+
+## See also
+
+* [Runbook](./runbook.md) — operational procedures + incident
+  response.
+* [Architecture](./architecture.md) — what's being deployed.

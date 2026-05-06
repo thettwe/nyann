@@ -254,10 +254,26 @@ fi
 to_profile_tmp=$(mktemp -t nyann-to-profile.XXXXXX)
 printf '%s\n' "$to_json" > "$to_profile_tmp"
 
+# v1.6.0 — propagate the detected archetype to route-docs so a
+# destination profile that opts into archetype-aware scaffolding
+# (use_archetype_scaffolds:true) without pinning a top-level
+# archetype still gets the right per-archetype doc set. If the
+# destination profile pins archetype itself, route-docs's CLI
+# resolution gives the CLI flag precedence — pass detection result
+# only when the destination doesn't already declare one.
+route_docs_args=(--profile "$to_profile_tmp")
+to_profile_archetype=$(jq -r '.archetype // ""' "$to_profile_tmp")
+if [[ -z "$to_profile_archetype" ]]; then
+  detected_archetype=$(jq -r '.archetype // ""' "$stack_path" 2>/dev/null || echo "")
+  if [[ -n "$detected_archetype" ]]; then
+    route_docs_args+=(--archetype "$detected_archetype")
+  fi
+fi
+
 doc_plan_tmp=$(mktemp -t nyann-docplan.XXXXXX)
 # Same rationale as above: surface route-docs warnings / errors instead
 # of silently writing an empty plan.
-"${_script_dir}/route-docs.sh" --profile "$to_profile_tmp" > "$doc_plan_tmp" || true
+"${_script_dir}/route-docs.sh" "${route_docs_args[@]}" > "$doc_plan_tmp" || true
 
 # Build a plan that re-generates only what the new profile actually opts
 # into. Earlier this hardcoded `[CLAUDE.md, ci.yml, PR template]`, which
