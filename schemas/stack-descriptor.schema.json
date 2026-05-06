@@ -102,6 +102,11 @@
     "contributor_count": { "type": "integer", "minimum": 0 },
     "has_changelog": { "type": "boolean" },
     "has_semver_tags": { "type": "boolean" },
+    "archetype": {
+      "$comment": "v1.6.0 — codebase archetype. What kind of system is this? Drives archetype-aware Project Memory scaffolding when documentation.use_archetype_scaffolds is true. Optional — emitted by detect-stack.sh; absent on legacy descriptors.",
+      "type": "string",
+      "enum": ["api-service", "cli-tool", "library", "web-app", "mobile-app", "plugin", "unknown"]
+    },
     "confidence": {
       "type": "number",
       "minimum": 0.0,

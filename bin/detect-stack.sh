@@ -981,6 +981,132 @@ confidence=$(awk -v m="$signal_manifest" -v c="$signal_claudemd" -v l="$signal_l
      printf "%.2f", s;
    }')
 
+# --- archetype detection (v1.6.0) --------------------------------------------
+# Codebase archetype — what kind of system is this? Drives archetype-aware
+# Project Memory scaffolding when documentation.use_archetype_scaffolds is
+# true. Detection is signal-based; profile-declared archetype overrides this
+# at scaffold time. See docs/proposals/v1.6.0-project-memory.md for the
+# precedence rationale.
+#
+# Precedence (first match wins, descending specificity):
+#   1. plugin       — unambiguous manifest at the repo root
+#   2. mobile-app   — language + framework signals
+#   3. api-service  — OpenAPI/proto files; OR server framework w/o frontend
+#   4. web-app      — frontend framework
+#   5. cli-tool     — entry-point binaries (package.json bin, cmd/main.go,
+#                     console_scripts, [[bin]] in Cargo.toml)
+#   6. library      — published-package signals without entry-point binary
+#   7. unknown      — fallback
+
+archetype="unknown"
+
+# Strip framework's surrounding JSON quotes for plain string comparisons.
+_fw="${framework//\"/}"
+
+# 1. plugin — unambiguous manifest signals
+if [[ -f "${path}/.claude-plugin/plugin.json" ]] || \
+   [[ -f "${path}/.vscode-test/extension.json" ]] || \
+   ( [[ -f "${path}/manifest.json" ]] && jq -e '.manifest_version' "${path}/manifest.json" >/dev/null 2>&1 ); then
+  archetype="plugin"
+fi
+
+# 2. mobile-app — language/framework signals
+if [[ "$archetype" == "unknown" ]]; then
+  case "$primary_language" in
+    swift)
+      # Swift is overwhelmingly iOS/macOS/watchOS app territory in nyann's
+      # supported stacks. SwiftPM libraries are detected as `library` below
+      # if no app signals are present.
+      if [[ -d "${path}/Pods" ]] || [[ -f "${path}/Podfile" ]] || \
+         compgen -G "${path}/*.xcodeproj" >/dev/null 2>&1 || \
+         compgen -G "${path}/*.xcworkspace" >/dev/null 2>&1; then
+        archetype="mobile-app"
+      fi
+      ;;
+    kotlin)
+      # Android signals: Gradle + AndroidManifest.xml or app/ module layout.
+      if [[ -f "${path}/app/src/main/AndroidManifest.xml" ]] || \
+         [[ -f "${path}/AndroidManifest.xml" ]]; then
+        archetype="mobile-app"
+      fi
+      ;;
+    dart)
+      # Flutter is the only Dart framework nyann supports today; presence of
+      # pubspec.yaml + flutter dependency is enough.
+      if [[ "$_fw" == "flutter" ]] || \
+         { [[ -f "${path}/pubspec.yaml" ]] && grep -q "^  flutter:" "${path}/pubspec.yaml" 2>/dev/null; }; then
+        archetype="mobile-app"
+      fi
+      ;;
+  esac
+fi
+
+# 3. api-service — OpenAPI / proto / swagger artifacts, or server framework
+if [[ "$archetype" == "unknown" ]]; then
+  if [[ -f "${path}/openapi.yaml" ]] || [[ -f "${path}/openapi.yml" ]] || \
+     [[ -f "${path}/openapi.json" ]] || [[ -f "${path}/swagger.json" ]] || \
+     [[ -f "${path}/api/openapi.yaml" ]] || [[ -f "${path}/spec/openapi.yaml" ]] || \
+     compgen -G "${path}/*.proto" >/dev/null 2>&1 || \
+     compgen -G "${path}/proto/*.proto" >/dev/null 2>&1; then
+    archetype="api-service"
+  fi
+fi
+
+# 4. web-app — frontend framework signals (covers SPA + full-stack;
+#    full-stack is a dual-archetype case the v1.6.0 design defers — we
+#    classify it as web-app here on the principle that frontend presence
+#    is the user-visible primary surface).
+if [[ "$archetype" == "unknown" ]]; then
+  case "$_fw" in
+    next|nuxt|remix|sveltekit|react|vue)
+      archetype="web-app"
+      ;;
+  esac
+fi
+
+# 5. api-service — server framework with no frontend (re-checked after
+#    web-app step so frontend frameworks win the tie-break)
+if [[ "$archetype" == "unknown" ]]; then
+  case "$_fw" in
+    express|fastify|fastapi|flask|django|gin|echo|actix|axum|rocket| \
+    spring-boot|quarkus|micronaut|aspnet|blazor|laravel|symfony|rails|sinatra)
+      archetype="api-service"
+      ;;
+  esac
+fi
+
+# 6. cli-tool — entry-point binary signals
+if [[ "$archetype" == "unknown" ]]; then
+  if [[ -f "${path}/package.json" ]] && jq -e '.bin' "${path}/package.json" >/dev/null 2>&1; then
+    archetype="cli-tool"
+  elif [[ -f "${path}/cmd/main.go" ]] || compgen -G "${path}/cmd/*/main.go" >/dev/null 2>&1; then
+    archetype="cli-tool"
+  elif [[ -f "${path}/pyproject.toml" ]] && \
+       grep -qE '^\[project\.scripts\]|^\[tool\.poetry\.scripts\]|console_scripts' "${path}/pyproject.toml" 2>/dev/null; then
+    archetype="cli-tool"
+  elif [[ -f "${path}/setup.py" ]] && grep -q "console_scripts" "${path}/setup.py" 2>/dev/null; then
+    archetype="cli-tool"
+  elif [[ -f "${path}/Cargo.toml" ]] && grep -qE '^\[\[bin\]\]' "${path}/Cargo.toml" 2>/dev/null; then
+    archetype="cli-tool"
+  fi
+fi
+
+# 7. library — published-package signals without entry-point binary
+if [[ "$archetype" == "unknown" ]]; then
+  if [[ -f "${path}/package.json" ]] && \
+     jq -e '(.main // .module // .exports) and (.bin | not)' "${path}/package.json" >/dev/null 2>&1; then
+    archetype="library"
+  elif [[ -f "${path}/Cargo.toml" ]] && \
+       grep -qE '^\[lib\]' "${path}/Cargo.toml" 2>/dev/null && \
+       ! grep -qE '^\[\[bin\]\]' "${path}/Cargo.toml" 2>/dev/null; then
+    archetype="library"
+  elif [[ -f "${path}/Package.swift" ]]; then
+    # SwiftPM project without an .xcodeproj / .xcworkspace at this point
+    # is almost always a library distribution.
+    archetype="library"
+  fi
+fi
+
 # --- emit JSON ----------------------------------------------------------------
 
 jq -n \
@@ -1001,6 +1127,7 @@ jq -n \
   --argjson confidence "$confidence" \
   --arg reasoning_raw "$_reasons" \
   --argjson workspaces "$workspaces_json" \
+  --arg archetype "$archetype" \
   '{
     primary_language: $primary_language,
     secondary_languages: $secondary_languages,
@@ -1016,6 +1143,7 @@ jq -n \
     contributor_count: $contributor_count,
     has_changelog: $has_changelog,
     has_semver_tags: $has_semver_tags,
+    archetype: $archetype,
     confidence: $confidence,
     reasoning: ($reasoning_raw | split("\n") | map(select(. != ""))),
     workspaces: $workspaces
