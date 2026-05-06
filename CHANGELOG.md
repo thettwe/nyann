@@ -15,7 +15,7 @@
 - **Bootstrap archetype prompt** — `skills/bootstrap-project/SKILL.md` now prompts the user via `AskUserQuestion` when detection emits a non-`unknown` archetype, defaulting to "enable archetype-aware scaffolds (recommended)".
 - **`bin/session-check.sh --flow=<commit|release|pr|ship>`** — flag that appends a flow-specific suffix ("(non-blocking — proceeding with the X flow.)") to the drift nudge. The four caller skills now pass `--flow` instead of duplicating an 8-line preamble each.
 - 2 new schemas updated with archetype fields: `schemas/stack-descriptor.schema.json`, `schemas/documentation-plan.schema.json`. Profile schema (`profiles/_schema.json`) extended with top-level `archetype` and `documentation.use_archetype_scaffolds`.
-- 5 new bats files: `test-claudemd-self-compliance.bats`, `test-memory-readme-content.bats`, `test-session-check-flow.bats`, `test-detect-archetype.bats`, `test-archetype-scaffolds.bats`, `test-templates-archetype.bats` (912 → 912+ tests).
+- 6 new bats files: `test-claudemd-self-compliance.bats`, `test-memory-readme-content.bats`, `test-session-check-flow.bats`, `test-detect-archetype.bats`, `test-archetype-scaffolds.bats`, `test-templates-archetype.bats`.
 - **`docs/proposals/v1.6.0-project-memory.md`** — design doc captured before implementation (mirrors v1.5.0 pattern).
 
 ### Changed

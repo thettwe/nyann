@@ -228,6 +228,23 @@ JS
   [ "$result" = "web-app" ]
 }
 
+@test "precedence: web-app wins over api-service when frontend fw + OpenAPI both present" {
+  # A Next.js app with a backend OpenAPI spec for its route handlers.
+  # The artifact-based api-service check must defer when a frontend
+  # framework is detected — the user-visible surface is the web app,
+  # not the API.
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"fullstack-with-spec","version":"1.0.0","dependencies":{"next":"14.0.0"}}
+JSON
+  cat > "$TMP/next.config.js" <<'JS'
+module.exports = {};
+JS
+  echo 'openapi: 3.0.0' > "$TMP/openapi.yaml"
+  result=$(arch_for "$TMP")
+  [ "$result" = "web-app" ]
+}
+
 # ---- backward compat -------------------------------------------------------
 
 @test "legacy DescriptorJSON consumers see archetype field present (not absent)" {

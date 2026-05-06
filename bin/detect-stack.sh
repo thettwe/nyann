@@ -1076,21 +1076,32 @@ if [[ "$archetype" == "unknown" ]]; then
   esac
 fi
 
-# 3. api-service — OpenAPI / proto / swagger artifacts, or server framework
+# 3. api-service — OpenAPI / proto / swagger artifacts, EXCEPT when a
+#    frontend framework is also detected. Full-stack repos
+#    (e.g., Next.js + an OpenAPI spec for the backend route handlers)
+#    classify as web-app, not api-service: the frontend is the
+#    user-visible primary surface, and the proposal puts web-app
+#    ahead of artifact-based api-service for that case.
 if [[ "$archetype" == "unknown" ]]; then
-  if [[ -f "${path}/openapi.yaml" ]] || [[ -f "${path}/openapi.yml" ]] || \
-     [[ -f "${path}/openapi.json" ]] || [[ -f "${path}/swagger.json" ]] || \
-     [[ -f "${path}/api/openapi.yaml" ]] || [[ -f "${path}/spec/openapi.yaml" ]] || \
-     compgen -G "${path}/*.proto" >/dev/null 2>&1 || \
-     compgen -G "${path}/proto/*.proto" >/dev/null 2>&1; then
-    archetype="api-service"
-  fi
+  case "$_fw" in
+    next|nuxt|remix|sveltekit|react|vue)
+      # Frontend framework present — defer to web-app at step 4.
+      ;;
+    *)
+      if [[ -f "${path}/openapi.yaml" ]] || [[ -f "${path}/openapi.yml" ]] || \
+         [[ -f "${path}/openapi.json" ]] || [[ -f "${path}/swagger.json" ]] || \
+         [[ -f "${path}/api/openapi.yaml" ]] || [[ -f "${path}/spec/openapi.yaml" ]] || \
+         compgen -G "${path}/*.proto" >/dev/null 2>&1 || \
+         compgen -G "${path}/proto/*.proto" >/dev/null 2>&1; then
+        archetype="api-service"
+      fi
+      ;;
+  esac
 fi
 
 # 4. web-app — frontend framework signals (covers SPA + full-stack;
-#    full-stack is a dual-archetype case the v1.6.0 design defers — we
-#    classify it as web-app here on the principle that frontend presence
-#    is the user-visible primary surface).
+#    full-stack reaches here when step 3 deferred because it detected
+#    a frontend framework alongside artifact signals).
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
     next|nuxt|remix|sveltekit|react|vue)
