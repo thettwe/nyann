@@ -1,3 +1,40 @@
+## [1.6.0] — 2026-05-06
+
+### Added
+
+- **Project Memory** — nyann's documentation system has a named concept now. [`docs/principles/documentation.md`](docs/principles/documentation.md) defines the five properties (AI-retrieval-first, size-budgeted, drift-aware, storage-agnostic, dual-audience) and the layered model (`CLAUDE.md` router → `docs/` Project Memory → `memory/` ephemeral scratch). Every future doc-related feature is justified against this principles doc.
+- **Codebase archetype detection** — `bin/detect-stack.sh` emits a new `archetype` field on the StackDescriptor: one of `api-service`, `cli-tool`, `library`, `web-app`, `mobile-app`, `plugin`, `unknown`. Detection uses signals already in the repo (OpenAPI/proto files, `package.json` `bin` field, `cmd/main.go`, server/frontend frameworks, `.claude-plugin/`, etc.). Profile-declared `archetype` overrides detection.
+- **4 new doc templates** aligned to Project Memory principles:
+  - `templates/docs/api-reference.tmpl` — endpoint catalog with bounded scope per endpoint, predictable structure
+  - `templates/docs/runbook.tmpl` — operational playbook organized by *symptom* (not cause) so AI agents debugging outages retrieve naturally
+  - `templates/docs/deployment.tmpl` — topology / pipeline / configuration / rollout, separated from architecture
+  - `templates/docs/glossary.tmpl` — domain-term reference with definitions, invariants, and cross-links (the sleeper hit for AI second-brain disambiguation)
+- **Per-archetype scaffold maps** — `bin/scaffold-docs.sh` maps each archetype to the right doc set: api-service → architecture+api-reference+runbook+deployment+adrs+glossary, cli-tool → architecture+runbook+adrs+glossary, library → architecture+api-reference+adrs+glossary, web-app/mobile-app → architecture+runbook+deployment+adrs+glossary, plugin → architecture+adrs+glossary, unknown → architecture+adrs (matches pre-v1.6.0 default).
+- **`profile.archetype` and `profile.documentation.use_archetype_scaffolds`** — opt-in profile fields. When `use_archetype_scaffolds: true`, `bin/route-docs.sh` and `bin/scaffold-docs.sh` produce/consume the per-archetype expanded plan. Default is `false` — existing v1.5.x users see zero scaffold changes on upgrade.
+- **`bin/route-docs.sh --archetype <name> --use-archetype-scaffolds`** — CLI flags so bootstrap and retrofit can drive archetype-aware planning without modifying the profile. Output `DocumentationPlan` carries `archetype` and `use_archetype_scaffolds` for downstream `scaffold-docs.sh` consumption.
+- **Bootstrap archetype prompt** — `skills/bootstrap-project/SKILL.md` now prompts the user via `AskUserQuestion` when detection emits a non-`unknown` archetype, defaulting to "enable archetype-aware scaffolds (recommended)".
+- **`bin/session-check.sh --flow=<commit|release|pr|ship>`** — flag that appends a flow-specific suffix ("(non-blocking — proceeding with the X flow.)") to the drift nudge. The four caller skills now pass `--flow` instead of duplicating an 8-line preamble each.
+- 2 new schemas updated with archetype fields: `schemas/stack-descriptor.schema.json`, `schemas/documentation-plan.schema.json`. Profile schema (`profiles/_schema.json`) extended with top-level `archetype` and `documentation.use_archetype_scaffolds`.
+- 5 new bats files: `test-claudemd-self-compliance.bats`, `test-memory-readme-content.bats`, `test-session-check-flow.bats`, `test-detect-archetype.bats`, `test-archetype-scaffolds.bats`, `test-templates-archetype.bats` (912 → 912+ tests).
+- **`docs/proposals/v1.6.0-project-memory.md`** — design doc captured before implementation (mirrors v1.5.0 pattern).
+
+### Changed
+
+- **`templates/memory/README.tmpl` reframed** — drops the misleading "Session-scratch for Claude" framing that conflated nyann's `memory/` folder with Claude Code's per-user auto-memory (`~/.claude/projects/<encoded>/memory/`). Now positioned as the ephemeral team-shared scratch layer, distinct from Project Memory (`docs/`) and from Claude's auto-memory. Includes a layered-model table.
+- **`bin/gen-claudemd.sh`** — memory paragraph reframed to match. Row labels added for new doc types (`api_reference`, `runbook`, `deployment`, `glossary`).
+- **`bin/session-check.sh`** — `--flow=<verb>` argument added for skill callers. Unknown flow values rejected with rc 2.
+- **`skills/{commit,release,pr,ship}/SKILL.md` § 0** — drift-check preamble trimmed from 8 lines to 2 (~370 B saved per skill, ~1.5 KB total). Future drift-check wording changes need 1 edit, not 4.
+- **This repo's own `CLAUDE.md`** brought under the 3 KB router-mode soft cap (4748 B → 2333 B). "Architecture at a glance" extracted to [`docs/architecture.md`](docs/architecture.md); "Non-negotiable conventions" extracted to [`docs/principles/conventions.md`](docs/principles/conventions.md). CLAUDE.md is now a router into Project Memory, per its own rule.
+- **`README.md`** — new "Project Memory" section with the five-property summary and a link to the principles doc. "Documentation routing" subsection rolled under it.
+- **`bin/route-docs.sh`** — accepts `--archetype` and `--use-archetype-scaffolds` flags; expanded path catalog covers the four new doc types; obsidian leaf-name mapping extended.
+- **`bin/scaffold-docs.sh`** — reads `archetype` and `use_archetype_scaffolds` from the plan; expands targets via the archetype map when the flag is set; explicit `targets[]` entries override the map.
+- **`skills/retrofit/SKILL.md`** — section 5 explains archetype-aware retrofit: when the profile sets `use_archetype_scaffolds: true`, missing per-archetype docs surface as drift. Retrofit does NOT auto-flip the flag — opt-in stays opt-in per the v1.6.0 design.
+- **`skills/route-docs/SKILL.md`** — preview section mentions the four new archetype-aware doc types.
+
+### Fixes
+
+- nyann's own `doctor` audit no longer flags `CLAUDE.md` as `warn` — physician heal thyself.
+
 ## [1.5.1] — 2026-05-06
 
 ### Fixes

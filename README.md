@@ -243,7 +243,7 @@ When Claude Code has an Obsidian or Notion MCP configured, nyann asks where each
 adrs:obsidian, research:local, architecture:local
 ```
 
-`memory/` is **always** local.
+`memory/` is **always** local — it's the ephemeral team-shared scratch layer, distinct from Project Memory itself.
 
 ## Prereqs
 
@@ -366,6 +366,43 @@ flows are noticeably faster and more robust.
 - [x] `find-orphans` + `check-staleness` accumulate via TSV reduced in a single trailing `jq`
 - [x] `release.sh` renders the entire CHANGELOG block in one `jq` program instead of 12 separate calls
 - [x] Five rounds of independent code review caught and fixed 1 P0, 4 P1, and 13 P2 latent bugs along the way
+
+### Shipped in v1.6.0
+
+Project Memory release. Names nyann's documentation system, makes
+scaffolding codebase-aware, and ships the framing as a foundational
+principles doc that informs every future doc-related feature.
+
+- [x] **Project Memory** named concept + 5-property definition in
+      [`docs/principles/documentation.md`](docs/principles/documentation.md):
+      AI-retrieval-first, size-budgeted, drift-aware,
+      storage-agnostic, dual-audience
+- [x] **Codebase archetype detection** — `StackDescriptor.archetype`
+      covers 7 values (api-service, cli-tool, library, web-app,
+      mobile-app, plugin, unknown); detection signals from manifests,
+      framework, and entry-point patterns
+- [x] **4 new templates aligned to AI retrieval** —
+      `api-reference`, `runbook` (Symptom: pattern), `deployment`,
+      `glossary` (the sleeper hit for AI domain disambiguation)
+- [x] **Per-archetype scaffold maps** — opt-in via
+      `documentation.use_archetype_scaffolds`; existing v1.5.x users
+      see zero scaffold changes on upgrade
+- [x] **`bin/route-docs.sh --archetype + --use-archetype-scaffolds`**
+      flags; `bin/scaffold-docs.sh` reads them from the plan
+- [x] **Bootstrap archetype prompt** via `AskUserQuestion` when
+      detection emits a non-`unknown` archetype
+- [x] **Memory framing fix** — `templates/memory/README.tmpl` no
+      longer conflates the `memory/` folder with Claude Code's
+      per-user auto-memory; new layered-model table makes the
+      three knowledge layers explicit
+- [x] **Drift-check dedup** — `bin/session-check.sh --flow=<verb>`
+      replaces 8-line preambles in commit/release/pr/ship SKILL.md
+      files (1.5 KB total saved, single-source wording)
+- [x] **CLAUDE.md self-fix** — nyann's own CLAUDE.md trimmed from
+      4748 B to 2333 B; "Architecture at a glance" extracted to
+      `docs/architecture.md`, "Non-negotiable conventions" to
+      `docs/principles/conventions.md`
+- [x] 6 new bats files; total now 912+ tests
 
 ### Planned
 
