@@ -205,20 +205,16 @@ emit_target() {
 # DocumentationPlan that scaffold-docs.sh can consume in one shot.
 # When disabled, only profile-declared scaffold_types are iterated
 # (pre-v1.6.0 behavior, preserves backward compat).
+#
+# The per-archetype map lives in bin/_lib.sh as
+# nyann::archetype_scaffold_types — single source of truth shared with
+# bin/scaffold-docs.sh.
 iter_types_json="$scaffold_types_json"
 if [[ "$resolved_use_archetype" == "true" && -n "$resolved_archetype" ]]; then
-  case "$resolved_archetype" in
-    api-service)  arch_types='["architecture","api_reference","runbook","deployment","adrs","glossary"]' ;;
-    cli-tool)     arch_types='["architecture","runbook","adrs","glossary"]' ;;
-    library)      arch_types='["architecture","api_reference","adrs","glossary"]' ;;
-    web-app)      arch_types='["architecture","runbook","deployment","adrs","glossary"]' ;;
-    mobile-app)   arch_types='["architecture","runbook","deployment","adrs","glossary"]' ;;
-    plugin)       arch_types='["architecture","adrs","glossary"]' ;;
-    *)            arch_types='["architecture","adrs"]' ;;
-  esac
+  arch_types_json=$(nyann::archetype_scaffold_types "$resolved_archetype" | jq -R . | jq -s .)
   # Union of profile-declared scaffold_types + archetype defaults (dedup, preserve order:
   # archetype defaults first since they're the considered set; profile additions follow).
-  iter_types_json=$(jq -n --argjson a "$arch_types" --argjson p "$scaffold_types_json" '$a + $p | unique')
+  iter_types_json=$(jq -n --argjson a "$arch_types_json" --argjson p "$scaffold_types_json" '$a + $p | unique')
 fi
 
 # Iterate the resolved scaffold-type set.

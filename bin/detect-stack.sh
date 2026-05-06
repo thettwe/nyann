@@ -1004,8 +1004,12 @@ archetype="unknown"
 _fw="${framework//\"/}"
 
 # 1. plugin — unambiguous manifest signals
+#    - .claude-plugin/plugin.json — Claude Code plugins (this repo's own manifest)
+#    - manifest.json with manifest_version — browser extensions (Chrome/Firefox/Edge)
+#    - package.json with engines.vscode — VS Code extensions; the manifest IS
+#      package.json with the engines.vscode field, not a separate file
 if [[ -f "${path}/.claude-plugin/plugin.json" ]] || \
-   [[ -f "${path}/.vscode-test/extension.json" ]] || \
+   ( [[ -f "${path}/package.json" ]] && jq -e '.engines.vscode' "${path}/package.json" >/dev/null 2>&1 ) || \
    ( [[ -f "${path}/manifest.json" ]] && jq -e '.manifest_version' "${path}/manifest.json" >/dev/null 2>&1 ); then
   archetype="plugin"
 fi

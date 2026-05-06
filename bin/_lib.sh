@@ -333,3 +333,73 @@ nyann::is_excluded() {
 # Single source of truth for the current profile schemaVersion.
 # shellcheck disable=SC2034
 readonly NYANN_CURRENT_SCHEMA=1
+
+# --- Archetype scaffold map (v1.6.0) -----------------------------------------
+# Single source of truth for the per-archetype Project Memory scaffold
+# set. Both bin/route-docs.sh (planner) and bin/scaffold-docs.sh
+# (materializer) consume this so the two stay in lockstep when a new
+# archetype or doc type is introduced.
+#
+# Output: lines of `<doc-type>:<conventional-local-path>` for the
+# requested archetype. Callers iterate via `IFS=:`.
+nyann::archetype_scaffold_map() {
+  case "$1" in
+    api-service)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'api_reference:docs/api-reference.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    cli-tool)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    library)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'api_reference:docs/api-reference.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    web-app)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    mobile-app)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    plugin)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    *)
+      # unknown / unset → match pre-v1.6.0 default (architecture + adrs)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'adrs:docs/decisions'
+      ;;
+  esac
+}
+
+# Convenience: emit just the type list (no paths) for callers that
+# need to iterate scaffold types only (e.g., route-docs.sh's iter set).
+nyann::archetype_scaffold_types() {
+  nyann::archetype_scaffold_map "$1" | cut -d: -f1
+}

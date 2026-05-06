@@ -37,7 +37,7 @@
       "enum": ["api-service", "cli-tool", "library", "web-app", "mobile-app", "plugin", "unknown"]
     },
     "use_archetype_scaffolds": {
-      "$comment": "v1.6.0 — when true, scaffold-docs.sh uses the per-archetype map instead of the flat scaffold_types list. Mirrors the profile field of the same name; route-docs.sh and bootstrap propagate it from profile.documentation.use_archetype_scaffolds.",
+      "$comment": "v1.6.0 — when true, scaffold-docs.sh uses the per-archetype map instead of the flat scaffold_types list. Mirrors the profile field of the same name; route-docs.sh propagates it from profile.documentation.use_archetype_scaffolds. Omitted from emitted plans when false; consumers MUST treat the absent field as false.",
       "type": "boolean",
       "default": false
     }

@@ -192,67 +192,10 @@ plan_json="$(cat "$plan_path")"
 plan_archetype="$(jq -r '.archetype // ""' <<<"$plan_json")"
 plan_use_archetype="$(jq -r '.use_archetype_scaffolds // false' <<<"$plan_json")"
 
-# Per-archetype scaffold maps (data, not code — see
-# docs/proposals/v1.6.0-project-memory.md § Per-archetype scaffold
-# maps). Each entry's path is the conventional local-Markdown
-# location; route-docs.sh callers can override these by populating
-# targets[] explicitly before reaching scaffold-docs.
-archetype_scaffold_map() {
-  case "$1" in
-    api-service)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'api_reference:docs/api-reference.md' \
-        'runbook:docs/runbook.md' \
-        'deployment:docs/deployment.md' \
-        'adrs:docs/decisions' \
-        'glossary:docs/glossary.md'
-      ;;
-    cli-tool)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'runbook:docs/runbook.md' \
-        'adrs:docs/decisions' \
-        'glossary:docs/glossary.md'
-      ;;
-    library)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'api_reference:docs/api-reference.md' \
-        'adrs:docs/decisions' \
-        'glossary:docs/glossary.md'
-      ;;
-    web-app)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'runbook:docs/runbook.md' \
-        'deployment:docs/deployment.md' \
-        'adrs:docs/decisions' \
-        'glossary:docs/glossary.md'
-      ;;
-    mobile-app)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'runbook:docs/runbook.md' \
-        'deployment:docs/deployment.md' \
-        'adrs:docs/decisions' \
-        'glossary:docs/glossary.md'
-      ;;
-    plugin)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'adrs:docs/decisions' \
-        'glossary:docs/glossary.md'
-      ;;
-    *)
-      # unknown / unset → match pre-v1.6.0 default (architecture + adrs)
-      printf '%s\n' \
-        'architecture:docs/architecture.md' \
-        'adrs:docs/decisions'
-      ;;
-  esac
-}
-
+# Per-archetype scaffold map lives in bin/_lib.sh as
+# nyann::archetype_scaffold_map — single source of truth shared with
+# bin/route-docs.sh. Adding a new archetype or doc type in one place
+# updates both planner and materializer.
 if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" ]]; then
   while IFS=: read -r ak ap; do
     [[ -z "$ak" ]] && continue
@@ -262,7 +205,7 @@ if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" ]]; then
       plan_json="$(jq --arg k "$ak" --arg p "$ap" \
         '.targets[$k] = {type:"local", path:$p}' <<<"$plan_json")"
     fi
-  done < <(archetype_scaffold_map "$plan_archetype")
+  done < <(nyann::archetype_scaffold_map "$plan_archetype")
 fi
 
 target_type() { jq -r --arg k "$1" '.targets[$k].type // ""' <<<"$plan_json"; }
