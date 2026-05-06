@@ -136,11 +136,18 @@ JSON
   grep -q "USER WROTE THIS" "$TMP/docs/api-reference.md"
 }
 
-@test "unknown archetype falls back to default (architecture + adrs only)" {
+@test "unknown archetype skips archetype expansion entirely (sentinel semantics)" {
+  # archetype="unknown" is the sentinel for "no archetype declared".
+  # use_archetype_scaffolds:true + archetype:"unknown" is a contradictory
+  # combination — opt-in is on but no archetype was identified. The
+  # expected behaviour is: skip the archetype path, leaving the plan's
+  # targets[] alone (in this fixture, empty → nothing scaffolded). This
+  # avoids silent fallback writes that would surprise users who
+  # explicitly opted in expecting a real archetype to drive scaffolding.
   write_plan "unknown" "true" "$TMP/.plan.json"
   bash "$SCAFFOLD" --plan "$TMP/.plan.json" --target "$TMP" --project-name svc >/dev/null 2>&1
-  [ -f "$TMP/docs/architecture.md" ]
-  [ -d "$TMP/docs/decisions" ]
+  [ ! -f "$TMP/docs/architecture.md" ]
+  [ ! -d "$TMP/docs/decisions" ]
   [ ! -f "$TMP/docs/api-reference.md" ]
   [ ! -f "$TMP/docs/runbook.md" ]
   [ ! -f "$TMP/docs/glossary.md" ]

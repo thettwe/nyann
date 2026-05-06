@@ -1011,10 +1011,16 @@ arch_pkg_has_bin=false
 arch_pkg_has_engines_vscode=false
 arch_pkg_has_lib_signal=false
 if [[ -f "${path}/package.json" ]]; then
+  # `.bin` is detected via `length > 0` rather than `!= null` so that
+  # an empty object `"bin": {}` (the npm convention for "no binaries
+  # yet" — generators emit it routinely) does not misclassify the
+  # repo as cli-tool. `length` on null is 0; on a non-empty object
+  # or string it's > 0. Same shape applied to .main/.module/.exports
+  # so an empty entry-point hint doesn't masquerade as a library.
   if pkg_arch_tsv=$(jq -r '[
-        (.bin != null),
-        (.engines.vscode != null),
-        ((.main // .module // .exports) != null and .bin == null)
+        ((.bin | length) > 0),
+        ((.engines.vscode // "") | length > 0),
+        ((((.main // .module // .exports) // "") | length > 0) and ((.bin | length) == 0))
       ] | @tsv' "${path}/package.json" 2>/dev/null); then
     IFS=$'\t' read -r arch_pkg_has_bin arch_pkg_has_engines_vscode arch_pkg_has_lib_signal <<<"$pkg_arch_tsv"
   fi

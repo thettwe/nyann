@@ -94,3 +94,27 @@ teardown() { rm -rf "$TMP"; }
     rm -f "$out"
   done
 }
+
+# v1.6.0 — --archetype CLI flag enum guard. The profile schema validates
+# archetype values at load time, but the CLI flag bypasses that path.
+# Without explicit guard a typo silently produced an under-populated
+# DocumentationPlan via nyann::archetype_scaffold_map's `*` fallback.
+@test "--archetype with valid enum value succeeds" {
+  for a in api-service cli-tool library web-app mobile-app plugin unknown; do
+    run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" --archetype "$a"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "--archetype with invalid value dies with clear error" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" --archetype "future-arch"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"future-arch"* ]]
+  [[ "$output" == *"is not one of"* ]]
+}
+
+@test "--archetype with shell-injection-style value is rejected (not executed)" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" --archetype 'evil; rm -rf /tmp/x'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"is not one of"* ]]
+}

@@ -96,6 +96,36 @@ JSON
   [ "$result" = "cli-tool" ]
 }
 
+@test "cli-tool archetype: package.json with bin as a string (npm allows)" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"my-cli","version":"1.0.0","bin":"./bin/cli.js"}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "cli-tool" ]
+}
+
+@test "library archetype: empty bin object (\"bin\":{}) does NOT trigger cli-tool" {
+  # Empty bin object is the npm-scaffolder convention for "no binaries
+  # declared yet". The detector must check length, not just nullness:
+  # `(.bin | length) > 0` rejects {}/[]/"" while accepting real entries.
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"my-lib","version":"1.0.0","main":"./dist/index.js","bin":{}}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "library" ]
+}
+
+@test "unknown archetype: empty bin object alone (no main/exports either)" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"weird","version":"1.0.0","bin":{}}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "unknown" ]
+}
+
 @test "cli-tool archetype: Go cmd/main.go" {
   mkdir -p "$TMP/cmd"
   echo 'package main' > "$TMP/cmd/main.go"

@@ -201,7 +201,13 @@ plan_use_archetype="$(jq -r '.use_archetype_scaffolds // false' <<<"$plan_json")
 # only if the key isn't already present. Replaces the per-entry
 # bash-loop + 2-jq-fork-per-iteration pattern (~12 forks for
 # api-service) with one fork.
-if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" ]]; then
+# archetype="unknown" is the sentinel meaning "no archetype declared"
+# and resolves to nyann::archetype_scaffold_map's `*` fallback. The
+# fallback is the pre-v1.6.0 default (architecture + adrs); applying
+# it via the archetype path is a no-op in v1.6.0 but would silently
+# expand if the fallback ever changes. Skip the path entirely so
+# behaviour stays explicit.
+if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" && "$plan_archetype" != "unknown" ]]; then
   arch_tsv="$(nyann::archetype_scaffold_map "$plan_archetype" | tr ':' '\t')"
   plan_json="$(jq --arg tsv "$arch_tsv" '
     reduce ($tsv | split("\n") | map(select(length>0) | split("\t"))[]) as $row

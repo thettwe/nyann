@@ -71,6 +71,18 @@ done
 [[ -n "$profile_path" ]] || nyann::die "--profile is required"
 [[ -f "$profile_path" ]] || nyann::die "profile not found: $profile_path"
 
+# v1.6.0 — validate --archetype against the enum. The profile schema
+# rejects bad archetype values at load time, but the CLI flag bypasses
+# that path. Without this guard a typo silently produces an
+# under-populated DocumentationPlan via the `*` fallback in
+# nyann::archetype_scaffold_map.
+if [[ -n "$cli_archetype" ]]; then
+  case "$cli_archetype" in
+    api-service|cli-tool|library|web-app|mobile-app|plugin|unknown) ;;
+    *) nyann::die "--archetype '${cli_archetype}' is not one of api-service, cli-tool, library, web-app, mobile-app, plugin, unknown" ;;
+  esac
+fi
+
 # --- pull doc config from profile -------------------------------------------
 
 profile_json="$(cat "$profile_path")"
@@ -210,7 +222,9 @@ emit_target() {
 # nyann::archetype_scaffold_types — single source of truth shared with
 # bin/scaffold-docs.sh.
 iter_types_json="$scaffold_types_json"
-if [[ "$resolved_use_archetype" == "true" && -n "$resolved_archetype" ]]; then
+# archetype="unknown" is the sentinel meaning "no archetype declared";
+# skip the expansion (same reasoning as scaffold-docs.sh's guard).
+if [[ "$resolved_use_archetype" == "true" && -n "$resolved_archetype" && "$resolved_archetype" != "unknown" ]]; then
   # Single jq fork: read archetype types as line-input via -R, fold
   # against profile-declared scaffold_types, dedup. Replaces a
   # 3-fork pipeline (jq -R | jq -s | jq -n) with one. Order:
