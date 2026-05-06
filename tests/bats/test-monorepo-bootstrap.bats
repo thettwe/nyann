@@ -156,3 +156,35 @@ EOF
     [ "$status" -eq 0 ]
   done
 }
+
+@test "workspace pattern with spaces (\"apps and libs/*\") doesn't word-split" {
+  # Regression guard: an unquoted glob expansion in detect-stack.sh
+  # was word-splitting workspace patterns like "apps and libs/*" into
+  # three separate globs (apps / and / libs/*), failing to find the
+  # workspaces. Scoping IFS to newline-only fixes it.
+  WS_REPO="$TMP/spaced-monorepo"
+  mkdir -p "$WS_REPO/apps and libs/foo"
+  mkdir -p "$WS_REPO/apps and libs/bar"
+  cat > "$WS_REPO/package.json" <<'JSON'
+{
+  "name": "spaced-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps and libs/*"]
+}
+JSON
+  # Each workspace needs its own package.json for detect-stack to recurse.
+  echo '{"name":"foo","version":"1.0.0"}' > "$WS_REPO/apps and libs/foo/package.json"
+  echo '{"name":"bar","version":"1.0.0"}' > "$WS_REPO/apps and libs/bar/package.json"
+  # Mark as turbo (turbo/nx/lerna share the same package.json.workspaces path).
+  cat > "$WS_REPO/turbo.json" <<'JSON'
+{"$schema":"https://turbo.build/schema.json","pipeline":{}}
+JSON
+
+  stack=$("${REPO_ROOT}/bin/detect-stack.sh" --path "$WS_REPO" 2>/dev/null)
+  [ "$(jq -r '.is_monorepo' <<<"$stack")" = "true" ]
+  [ "$(jq -r '.monorepo_tool' <<<"$stack")" = "turbo" ]
+  # Both workspace dirs (with the space in their parent) should be found.
+  ws_count=$(jq '.workspaces | length' <<<"$stack")
+  [ "$ws_count" -eq 2 ]
+}

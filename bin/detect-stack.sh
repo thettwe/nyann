@@ -375,7 +375,7 @@ detect_claudemd_hints() {
     BEGIN { IGNORECASE=1; lang=""; fw="" }
     /python|py3/      { if (!lang) lang="python" }
     /typescript|tsconfig/ { if (!lang) lang="typescript" }
-    /javascript|node\.?js/ { if (!lang && !lang) lang="javascript" }
+    /javascript|node\.?js/ { if (!lang) lang="javascript" }
     /golang|go [0-9]/ { if (!lang) lang="go" }
     /rust|cargo/      { if (!lang) lang="rust" }
     /swift|swiftui|uikit|xcode/ { if (!lang) lang="swift" }
@@ -933,9 +933,16 @@ PY
         ' "$path/package.json" 2>/dev/null | while IFS= read -r pat; do
           [[ -z "$pat" ]] && continue
           [[ "$pat" == /* || "$pat" == *".."* ]] && continue
+          # Scope IFS to newline-only so a workspace pattern like
+          # "apps and libs/*" doesn't get word-split on spaces during
+          # the unquoted glob expansion. Default IFS=$' \t\n' would
+          # split the single pattern into three globs.
+          local saved_ifs="$IFS"
+          IFS=$'\n'
           for match in "$path"/$pat; do
             [[ -d "$match" ]] && echo "${match#"$path"/}"
           done
+          IFS="$saved_ifs"
         done
       fi
       ;;

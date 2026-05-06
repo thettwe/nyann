@@ -156,3 +156,31 @@ JSON
   # Output is still valid JSON
   echo "$output" | grep -v "coercing" | jq -e '.targets' >/dev/null
 }
+
+# Obsidian URL space encoding — vault names / folder paths with spaces
+# must percent-encode to %20 in the link_in_claude_md field. Bare
+# spaces terminate the URL in many Markdown parsers.
+@test "obsidian link_in_claude_md percent-encodes spaces in vault name" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" \
+    --mcp-targets "$TMP/.obs.json" --routing all:obsidian \
+    --obsidian-vault "My Vault" --project-name myproj
+  [ "$status" -eq 0 ]
+  link=$(echo "$output" | jq -r '.targets.architecture.link_in_claude_md')
+  # Encoded link must NOT contain a literal space and MUST contain %20
+  [[ "$link" != *" "* ]]
+  [[ "$link" == *"My%20Vault"* ]]
+  # The raw vault field stays unchanged for downstream MCP tooling
+  [ "$(echo "$output" | jq -r '.targets.architecture.vault')" = "My Vault" ]
+}
+
+@test "obsidian link_in_claude_md percent-encodes spaces in folder path" {
+  run bash "$ROUTE" --profile "$PROFILES/nextjs-prototype.json" \
+    --mcp-targets "$TMP/.obs.json" --routing all:obsidian \
+    --obsidian-vault work --obsidian-folder "team docs" \
+    --project-name "my project"
+  [ "$status" -eq 0 ]
+  link=$(echo "$output" | jq -r '.targets.architecture.link_in_claude_md')
+  [[ "$link" != *" "* ]]
+  [[ "$link" == *"team%20docs"* ]]
+  [[ "$link" == *"my%20project"* ]]
+}

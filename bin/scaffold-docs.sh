@@ -252,7 +252,21 @@ for key in architecture prd adrs research api_reference runbook deployment gloss
 done
 
 if $any_docs; then
-  write_if_missing "$template_root/docs/README.tmpl" "$target_root/docs/README.md" "doc index"
+  # Derive the doc-index location from the architecture target's
+  # path when it's local (the architecture doc is the most universal
+  # cross-archetype anchor — its parent dir is the right home for
+  # the doc README). Falls back to the conventional `docs/README.md`
+  # when architecture is non-local or unset, preserving pre-v1.6.x
+  # behaviour.
+  readme_dir="docs"
+  if [[ "$(target_type architecture)" == "local" ]]; then
+    arch_path="$(target_path architecture)"
+    if [[ -n "$arch_path" ]]; then
+      arch_parent="$(dirname "$arch_path")"
+      [[ -n "$arch_parent" && "$arch_parent" != "." ]] && readme_dir="$arch_parent"
+    fi
+  fi
+  write_if_missing "$template_root/docs/README.tmpl" "$target_root/$readme_dir/README.md" "doc index"
 fi
 
 # architecture

@@ -136,6 +136,47 @@ JSON
   grep -q "USER WROTE THIS" "$TMP/docs/api-reference.md"
 }
 
+@test "doc README lands in architecture target's parent dir for custom paths" {
+  # When the plan routes architecture to a custom path like
+  # `wiki/architecture.md`, the doc README must follow it to
+  # `wiki/README.md` instead of falling back to `docs/README.md`.
+  cat > "$TMP/.plan.json" <<'JSON'
+{
+  "storage_strategy": "local",
+  "targets": {
+    "architecture": {"type": "local", "path": "wiki/architecture.md"},
+    "adrs":         {"type": "local", "path": "wiki/decisions"}
+  },
+  "claude_md_mode": "router",
+  "size_budget_kb": 3,
+  "staleness_days": null
+}
+JSON
+  bash "$SCAFFOLD" --plan "$TMP/.plan.json" --target "$TMP" --project-name svc >/dev/null 2>&1
+  [ -f "$TMP/wiki/README.md" ]
+  [ -f "$TMP/wiki/architecture.md" ]
+  [ ! -f "$TMP/docs/README.md" ]
+}
+
+@test "doc README falls back to docs/ when architecture is non-local or absent" {
+  # Pre-v1.6.x default behaviour: any local doc target triggers
+  # docs/README.md. With architecture absent (only adrs scaffolded
+  # at default paths), the README must still land in docs/.
+  cat > "$TMP/.plan.json" <<'JSON'
+{
+  "storage_strategy": "local",
+  "targets": {
+    "adrs": {"type": "local", "path": "docs/decisions"}
+  },
+  "claude_md_mode": "router",
+  "size_budget_kb": 3,
+  "staleness_days": null
+}
+JSON
+  bash "$SCAFFOLD" --plan "$TMP/.plan.json" --target "$TMP" --project-name svc >/dev/null 2>&1
+  [ -f "$TMP/docs/README.md" ]
+}
+
 @test "robustness: plan with targets:null tolerates the missing object" {
   # Hand-crafted plan with .targets explicitly null — must not fail
   # silently via process-substitution swallow. Should succeed with

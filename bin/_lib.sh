@@ -334,6 +334,21 @@ nyann::is_excluded() {
 # shellcheck disable=SC2034
 readonly NYANN_CURRENT_SCHEMA=1
 
+# --- URL encoding helper -----------------------------------------------------
+# Percent-encode the common path-unsafe characters we routinely see in
+# Obsidian vault names and folder paths (spaces, hash, question mark,
+# percent). NOT a full RFC 3986 encoder — kept narrow so it's
+# deterministic and bash 3.2-portable. Order matters: encode `%` first
+# so the substitutions for other chars don't get re-encoded.
+nyann::url_encode_path() {
+  local s="$1"
+  s="${s//%/%25}"
+  s="${s// /%20}"
+  s="${s//\#/%23}"
+  s="${s//\?/%3F}"
+  printf '%s' "$s"
+}
+
 # --- Archetype scaffold map (v1.6.0) -----------------------------------------
 # Single source of truth for the per-archetype Project Memory scaffold
 # set. Both bin/route-docs.sh (planner) and bin/scaffold-docs.sh

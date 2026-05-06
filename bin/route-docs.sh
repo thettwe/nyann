@@ -209,7 +209,16 @@ emit_target() {
         glossary)      leaf="glossary" ;;
       esac
       folder_path="${obsidian_folder:+${obsidian_folder}/}${project_name}/${leaf}"
-      link_base="obsidian://vault/${obsidian_vault}/${folder_path}"
+      # Percent-encode unsafe characters in vault names and folder
+      # paths. Spaces are the realistic case (vault names like "My
+      # Vault") — without encoding, the bare space terminates the URL
+      # in many Markdown parsers, breaking the link. The raw `vault`
+      # and `folder` fields stay unchanged for downstream MCP tooling
+      # that expects the literal name.
+      local vault_enc folder_enc
+      vault_enc=$(nyann::url_encode_path "$obsidian_vault")
+      folder_enc=$(nyann::url_encode_path "$folder_path")
+      link_base="obsidian://vault/${vault_enc}/${folder_enc}"
       targets_json=$(jq --arg t "$t" --arg vault "$obsidian_vault" --arg folder "$folder_path" --arg link "$link_base" '
         . + { ($t): { "type":"obsidian", "vault":$vault, "folder":$folder, "link_in_claude_md":$link } }
       ' <<<"$targets_json")
