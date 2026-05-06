@@ -110,22 +110,46 @@ Memory.
 
 ## The layered model
 
-A nyann-bootstrapped repo has three knowledge layers:
+A nyann-bootstrapped repo has three knowledge layers, plus a
+fourth layer Claude Code manages on its own.
 
-| Layer | Location | Curated by | Loaded into AI context |
-|---|---|---|---|
-| **CLAUDE.md** | repo root | nyann + maintainer | every conversation, automatically |
-| **Project Memory** | `docs/` (or MCP) | team | on-demand, via CLAUDE.md links |
-| **`memory/`** | repo (always local) | Claude + team | when explicitly read |
+```
+                    ┌──────────────────────────────┐
+                    │  CLAUDE.md (router)          │
+                    │  ≤ 3 KB soft / 8 KB hard     │
+                    │  Loaded every conversation   │
+                    └──────────────┬───────────────┘
+                                   │ links to
+              ┌────────────────────┼────────────────────┐
+              ▼                                         ▼
+   ┌──────────────────────┐            ┌─────────────────────────────┐
+   │  docs/               │            │  memory/                    │
+   │  Project Memory      │            │  Ephemeral team scratch     │
+   │  Durable knowledge   │            │  Mid-session decisions,     │
+   │  Loaded on demand    │            │  TODOs, open questions      │
+   │  via CLAUDE.md links │            │  Loaded when read           │
+   └──────────────────────┘            └─────────────────────────────┘
+
+   Out of nyann's scope but worth knowing:
+   ┌───────────────────────────────────────────────────────────────┐
+   │  ~/.claude/projects/<encoded>/memory/  (per-user, hidden)     │
+   │  Claude Code curates this across conversations automatically. │
+   │  Distinct from nyann's memory/, which is team-shared in git.  │
+   └───────────────────────────────────────────────────────────────┘
+```
 
 CLAUDE.md is the router. Project Memory is the durable brain.
 `memory/` is the ephemeral scratch where mid-session decisions live
-until they're promoted to Project Memory or forgotten.
+until they're promoted to Project Memory or forgotten. Claude
+Code's per-user auto-memory is its own private working memory —
+nyann does not manage it.
 
-A fourth layer — Claude Code's per-user auto-memory
-(`~/.claude/projects/<encoded>/memory/`) — is outside nyann's scope.
-Claude curates it privately across conversations; nyann does not
-manage it.
+| Layer | Location | Curated by |
+|---|---|---|
+| **CLAUDE.md** | repo root | nyann + maintainer |
+| **Project Memory** | `docs/` (or MCP) | team |
+| **`memory/`** | repo (always local) | Claude + team |
+| **Claude auto-memory** | `~/.claude/projects/<encoded>/memory/` | Claude Code (private) |
 
 ## What Project Memory is not
 

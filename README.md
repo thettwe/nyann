@@ -223,6 +223,13 @@ When a team profile updates upstream, nyann checks for staleness at point-of-use
 
 nyann scaffolds and maintains your project's **Project Memory** — a documentation layer designed for AI agents to retrieve, sized to fit their context, and kept in sync as your code evolves.
 
+```
+   CLAUDE.md  ──→  docs/        (durable Project Memory)
+       │      ──→  memory/      (ephemeral team scratch)
+       │
+       └─ router-mode (≤ 3 KB), points into both.
+```
+
 Five properties define it:
 
 1. **AI-retrieval-first** — bounded scope per doc, predictable structure, decision rationale captured.

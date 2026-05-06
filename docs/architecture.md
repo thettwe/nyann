@@ -4,6 +4,44 @@ nyann is a Claude Code plugin. All decisions and mutations live in
 shell scripts so the plugin is testable without Claude Code. Scripts
 communicate via JSON schemas in `schemas/`.
 
+## At a glance
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Skill layer            skills/<name>/SKILL.md           │
+│                         UX only — trigger, confirm,      │
+│                         report. No business logic.       │
+└────────────────────────┬─────────────────────────────────┘
+                         │ calls (one direction only)
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│  Orchestrator layer     bin/{bootstrap,doctor,release,   │
+│                         retrofit,pr,ship,commit,…}.sh    │
+│                         Top-level coordinators.          │
+│                         Own the user-facing JSON.        │
+└────────────────────────┬─────────────────────────────────┘
+                         │ composes
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│  Subsystem layer        bin/{detect-stack,compute-drift, │
+│                         install-hooks,gen-claudemd,      │
+│                         _lib,session-check,…}.sh         │
+│                         Focused utilities.               │
+│                         Subsystems do NOT call           │
+│                         orchestrators.                   │
+└────────────────────────┬─────────────────────────────────┘
+                         │ reads
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│  Data + templates       profiles/  schemas/  templates/  │
+│                         + ~/.claude/nyann/profiles/      │
+└──────────────────────────────────────────────────────────┘
+        ▲
+        │ JSON contracts (StackDescriptor, Profile,
+        │ ActionPlan, DriftReport, DocumentationPlan, …)
+        │ flow between every adjacent pair of layers
+```
+
 ## Layers
 
 Four logical layers. Keep the boundaries clean.
