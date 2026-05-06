@@ -126,6 +126,50 @@ JSON
   [ "$result" = "unknown" ]
 }
 
+@test "numeric .bin (\"bin\": 1) does NOT trigger cli-tool false-positive" {
+  # Type guard: `.bin: 1` has length 1 but isn't a real entry-point
+  # declaration. Without the type guard the length-only check would
+  # classify the repo as cli-tool.
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"weird","version":"1.0.0","bin":1,"main":"./index.js"}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "library" ]
+}
+
+@test "numeric .main (\"main\": 1) does NOT trigger library false-positive" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"weird","version":"1.0.0","main":1}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "unknown" ]
+}
+
+@test "non-object .engines does NOT crash the jq read (signals preserved)" {
+  # Some packages set "engines" to a string like ">=18" instead of
+  # an object. A bare .engines.vscode access errors out, which
+  # would drop ALL three boolean signals (bin / engines.vscode /
+  # main). The type guard isolates the access so the .bin signal
+  # still fires and the repo classifies as cli-tool.
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"my-cli","version":"1.0.0","bin":{"my-cli":"./bin/cli.js"},"engines":">=18"}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "cli-tool" ]
+}
+
+@test "non-object .engines on a library still resolves correctly" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"my-lib","version":"1.0.0","main":"./dist/index.js","engines":">=18"}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "library" ]
+}
+
 @test "cli-tool archetype: Go cmd/main.go" {
   mkdir -p "$TMP/cmd"
   echo 'package main' > "$TMP/cmd/main.go"

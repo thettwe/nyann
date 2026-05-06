@@ -1011,16 +1011,29 @@ arch_pkg_has_bin=false
 arch_pkg_has_engines_vscode=false
 arch_pkg_has_lib_signal=false
 if [[ -f "${path}/package.json" ]]; then
-  # `.bin` is detected via `length > 0` rather than `!= null` so that
-  # an empty object `"bin": {}` (the npm convention for "no binaries
-  # yet" — generators emit it routinely) does not misclassify the
-  # repo as cli-tool. `length` on null is 0; on a non-empty object
-  # or string it's > 0. Same shape applied to .main/.module/.exports
-  # so an empty entry-point hint doesn't masquerade as a library.
+  # Each boolean below is type-guarded so a malformed-but-valid
+  # package.json does not produce false positives or crash the whole
+  # jq program:
+  #
+  # - `.bin` is treated as a real entry-point only when it's a
+  #   non-empty object or non-empty string. A numeric `"bin": 1`
+  #   has length 1 but isn't a binary declaration; the type guard
+  #   rejects it. Same shape on `.main / .module / .exports` so an
+  #   empty entry-point hint or numeric value doesn't masquerade
+  #   as a library.
+  # - `.engines.vscode` is read only when `.engines` is an object.
+  #   Some packages set `"engines": ">=18"` (a string); a bare
+  #   `.engines.vscode` access on a non-object errors out and kills
+  #   the entire jq program, dropping ALL three boolean signals.
+  #   Wrapping in a type check isolates the access.
   if pkg_arch_tsv=$(jq -r '[
-        ((.bin | length) > 0),
-        ((.engines.vscode // "") | length > 0),
-        ((((.main // .module // .exports) // "") | length > 0) and ((.bin | length) == 0))
+        ((.bin | type) as $t | ($t == "object" or $t == "string") and (.bin | length > 0)),
+        ((.engines | type == "object") and (.engines.vscode | type == "string") and (.engines.vscode | length > 0)),
+        (
+          ((.main // .module // .exports) | type == "string") and
+          ((.main // .module // .exports) | length > 0) and
+          (((.bin | type) as $t | ($t == "object" or $t == "string") and (.bin | length > 0)) | not)
+        )
       ] | @tsv' "${path}/package.json" 2>/dev/null); then
     IFS=$'\t' read -r arch_pkg_has_bin arch_pkg_has_engines_vscode arch_pkg_has_lib_signal <<<"$pkg_arch_tsv"
   fi
