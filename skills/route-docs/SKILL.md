@@ -92,8 +92,10 @@ bin/route-docs.sh \
 Output is a DocumentationPlan JSON
 (`schemas/documentation-plan.schema.json`). Show the user:
 
-- Each doc type (architecture, prd, adrs, research, memory) and its
-  target (local path, obsidian, notion).
+- Each doc type (architecture, prd, adrs, research, memory, plus
+  any v1.6.0+ archetype-aware types — api_reference, runbook,
+  deployment, glossary — when `use_archetype_scaffolds` is enabled
+  on the profile) and its target (local path, obsidian, notion).
 - The computed `storage_strategy` (local / obsidian / notion / split).
 - Which local files will be created by the scaffolder.
 - Which MCP targets require skill-layer creation (Obsidian pages,

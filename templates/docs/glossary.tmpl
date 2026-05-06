@@ -1,0 +1,56 @@
+# Glossary
+
+> Domain terms with definitions, invariants, and cross-references.
+> AI agents retrieve domain context one term at a time — bounded
+> scope per entry matters even within a single doc.
+
+## Conventions
+
+* One entry per term, alphabetical within sections.
+* Lead each entry with a one-sentence definition.
+* Invariants are declarative ("X is always Y") — not procedural.
+* "Used in" lists modules, files, or other docs where the term
+  appears, so agents can navigate to usage.
+* "Related" links to other glossary entries for disambiguation.
+
+## Terms
+
+### <Term>
+
+**Definition.** One sentence.
+
+**Invariants.**
+
+* <Invariant 1>
+* <Invariant 2>
+
+**Used in.** `<file or module>`, `<file or module>`, [Architecture](./architecture.md).
+
+**Related.** [`<Other term>`](#other-term).
+
+---
+
+### <Another term>
+
+**Definition.** One sentence.
+
+**Invariants.**
+
+* <Invariant>
+
+**Used in.** `<file or module>`.
+
+**Related.** —
+
+---
+
+> Add new entries alphabetically. Keep entries short — link out for
+> detail. If an entry grows past ~30 lines it probably wants its own
+> doc (architecture, ADR, etc.) — promote it and leave a one-line
+> stub here pointing to the new doc.
+
+## See also
+
+* [Architecture](./architecture.md) — domain model in context.
+* [Decisions](./decisions/) — why specific terms were chosen
+  over alternatives.

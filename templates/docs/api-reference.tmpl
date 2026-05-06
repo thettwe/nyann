@@ -1,0 +1,74 @@
+# API Reference
+
+> Bounded scope per endpoint. AI agents debugging endpoint behaviour
+> retrieve this doc for a specific call site, not the whole catalog.
+
+## Overview
+
+> One paragraph: what this API does, the base URL pattern, the auth
+> model. Cross-link to [`architecture.md`](./architecture.md) for
+> system context.
+
+## Conventions
+
+* **HTTP methods.** Which verbs this API uses for which intents.
+* **Error envelope.** Shape of error responses, status code → meaning.
+* **Pagination.** Token / offset / cursor; default page size.
+* **Content types.** Request / response media types.
+* **Rate limits.** Per-token / per-IP, headers used to surface them.
+* **Idempotency.** Which methods are idempotent, how retry-safety
+  is communicated.
+
+## Endpoints
+
+> One subsection per endpoint OR per resource group. Each entry is
+> AI-retrievable on its own.
+
+### `<METHOD> <path>`
+
+**Purpose.** One sentence.
+
+**Auth.** What token / scope / role is required.
+
+**Request.**
+
+```http
+<METHOD> <path>
+Content-Type: application/json
+
+{
+  "field": "value"
+}
+```
+
+**Response.**
+
+```json
+{
+  "ok": true
+}
+```
+
+**Errors.** Status codes this endpoint can return and what causes each.
+
+**Idempotency.** Safe to retry? Idempotency key required?
+
+**Notes.** Edge cases, gotchas, version-specific behavior.
+
+---
+
+> Add new endpoints above. Keep each entry under 50 lines — agents
+> retrieve one endpoint at a time; bounded scope matters.
+
+## Versioning
+
+> Compatibility model. How breaking changes ship (URL prefix?
+> header? deprecation window?). What "breaking" means here.
+
+## See also
+
+* [Architecture](./architecture.md) — how the API fits into the
+  broader system.
+* [Runbook](./runbook.md) — operational procedures (deploy, scale,
+  rollback).
+* [Glossary](./glossary.md) — domain terms.

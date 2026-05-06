@@ -37,6 +37,11 @@ obsidian_vault=""
 obsidian_folder=""
 notion_parent=""
 project_name=""
+# v1.6.0 — archetype + opt-in flag (override profile defaults when set).
+# When unset, derived from profile.archetype and
+# profile.documentation.use_archetype_scaffolds.
+cli_archetype=""
+cli_use_archetype="auto"   # "auto" → fall back to profile flag
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +59,10 @@ while [[ $# -gt 0 ]]; do
     --notion-parent=*)  notion_parent="${1#--notion-parent=}"; shift ;;
     --project-name)     project_name="${2:-}"; shift 2 ;;
     --project-name=*)   project_name="${1#--project-name=}"; shift ;;
+    --archetype)        cli_archetype="${2:-}"; shift 2 ;;
+    --archetype=*)      cli_archetype="${1#--archetype=}"; shift ;;
+    --use-archetype-scaffolds)   cli_use_archetype="true"; shift ;;
+    --no-use-archetype-scaffolds) cli_use_archetype="false"; shift ;;
     -h|--help)          sed -n '3,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
@@ -74,14 +83,29 @@ size_budget_kb="$(jq '.claude_md_size_budget_kb // 3' <<<"$doc_json")"
 staleness_days="$(jq '.staleness_days // null' <<<"$doc_json")"
 [[ -z "$project_name" ]] && project_name=$(jq -r '.name // "project"' <<<"$profile_json")
 
+# v1.6.0 — resolve archetype + opt-in flag. CLI flags win; otherwise
+# fall back to the profile's declared archetype and
+# documentation.use_archetype_scaffolds flag.
+profile_archetype=$(jq -r '.archetype // ""' <<<"$profile_json")
+profile_use_archetype=$(jq -r '.documentation.use_archetype_scaffolds // false' <<<"$profile_json")
+resolved_archetype="${cli_archetype:-$profile_archetype}"
+case "$cli_use_archetype" in
+  true|false) resolved_use_archetype="$cli_use_archetype" ;;
+  auto)       resolved_use_archetype="$profile_use_archetype" ;;
+esac
+
 # --- per-type path catalog --------------------------------------------------
 
 declare_paths='{
-  "architecture": "docs/architecture.md",
-  "prd":          "docs/prd.md",
-  "adrs":         "docs/decisions",
-  "research":     "docs/research",
-  "memory":       "memory"
+  "architecture":   "docs/architecture.md",
+  "prd":            "docs/prd.md",
+  "adrs":           "docs/decisions",
+  "research":       "docs/research",
+  "api_reference":  "docs/api-reference.md",
+  "runbook":        "docs/runbook.md",
+  "deployment":     "docs/deployment.md",
+  "glossary":       "docs/glossary.md",
+  "memory":         "memory"
 }'
 
 # --- parse routing spec -----------------------------------------------------
@@ -153,10 +177,14 @@ emit_target() {
       # Folder convention: <obsidian_folder>/<doc-type-friendly-name>
       local folder_path link_base leaf
       case "$t" in
-        architecture) leaf="architecture" ;;
-        prd)          leaf="prd" ;;
-        adrs)         leaf="decisions" ;;
-        research)     leaf="research" ;;
+        architecture)  leaf="architecture" ;;
+        prd)           leaf="prd" ;;
+        adrs)          leaf="decisions" ;;
+        research)      leaf="research" ;;
+        api_reference) leaf="api-reference" ;;
+        runbook)       leaf="runbook" ;;
+        deployment)    leaf="deployment" ;;
+        glossary)      leaf="glossary" ;;
       esac
       folder_path="${obsidian_folder:+${obsidian_folder}/}${project_name}/${leaf}"
       link_base="obsidian://vault/${obsidian_vault}/${folder_path}"
@@ -172,13 +200,34 @@ emit_target() {
   esac
 }
 
-# Iterate profile-declared scaffold types.
+# v1.6.0 — when archetype scaffolds are enabled, expand the iteration
+# set with the per-archetype map so route-docs emits a complete
+# DocumentationPlan that scaffold-docs.sh can consume in one shot.
+# When disabled, only profile-declared scaffold_types are iterated
+# (pre-v1.6.0 behavior, preserves backward compat).
+iter_types_json="$scaffold_types_json"
+if [[ "$resolved_use_archetype" == "true" && -n "$resolved_archetype" ]]; then
+  case "$resolved_archetype" in
+    api-service)  arch_types='["architecture","api_reference","runbook","deployment","adrs","glossary"]' ;;
+    cli-tool)     arch_types='["architecture","runbook","adrs","glossary"]' ;;
+    library)      arch_types='["architecture","api_reference","adrs","glossary"]' ;;
+    web-app)      arch_types='["architecture","runbook","deployment","adrs","glossary"]' ;;
+    mobile-app)   arch_types='["architecture","runbook","deployment","adrs","glossary"]' ;;
+    plugin)       arch_types='["architecture","adrs","glossary"]' ;;
+    *)            arch_types='["architecture","adrs"]' ;;
+  esac
+  # Union of profile-declared scaffold_types + archetype defaults (dedup, preserve order:
+  # archetype defaults first since they're the considered set; profile additions follow).
+  iter_types_json=$(jq -n --argjson a "$arch_types" --argjson p "$scaffold_types_json" '$a + $p | unique')
+fi
+
+# Iterate the resolved scaffold-type set.
 while IFS= read -r t; do
   [[ -z "$t" ]] && continue
   backend=$(backend_for_type "$t")
   validate_mcp_choice "$t" "$backend"
   emit_target "$t" "$backend"
-done < <(jq -r '.[]' <<<"$scaffold_types_json")
+done < <(jq -r '.[]' <<<"$iter_types_json")
 
 # memory: always local, regardless of spec.
 emit_target "memory" "local"
@@ -214,10 +263,14 @@ jq -n \
   --arg claude_md_mode "$claude_md_mode" \
   --argjson size_budget_kb "$size_budget_kb" \
   --argjson staleness_days "$staleness_days" \
+  --arg archetype "$resolved_archetype" \
+  --argjson use_archetype "$resolved_use_archetype" \
   '{
     storage_strategy: $storage_strategy,
     targets: $targets,
     claude_md_mode: $claude_md_mode,
     size_budget_kb: $size_budget_kb,
     staleness_days: $staleness_days
-  }'
+  }
+  + (if $archetype == "" then {} else {archetype: $archetype} end)
+  + (if $use_archetype == false then {} else {use_archetype_scaffolds: $use_archetype} end)'

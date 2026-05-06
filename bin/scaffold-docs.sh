@@ -183,6 +183,88 @@ write_if_missing() {
 
 plan_json="$(cat "$plan_path")"
 
+# v1.6.0 — archetype-aware scaffolding. When the plan declares
+# use_archetype_scaffolds:true and an archetype, expand the virtual
+# targets[] with the per-archetype scaffold map's default local paths
+# for any keys not already present. Preserves backward compat: when
+# the flag is false or absent, targets[] is used as-is (pre-v1.6.0
+# behavior).
+plan_archetype="$(jq -r '.archetype // ""' <<<"$plan_json")"
+plan_use_archetype="$(jq -r '.use_archetype_scaffolds // false' <<<"$plan_json")"
+
+# Per-archetype scaffold maps (data, not code — see
+# docs/proposals/v1.6.0-project-memory.md § Per-archetype scaffold
+# maps). Each entry's path is the conventional local-Markdown
+# location; route-docs.sh callers can override these by populating
+# targets[] explicitly before reaching scaffold-docs.
+archetype_scaffold_map() {
+  case "$1" in
+    api-service)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'api_reference:docs/api-reference.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    cli-tool)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    library)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'api_reference:docs/api-reference.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    web-app)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    mobile-app)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    plugin)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    *)
+      # unknown / unset → match pre-v1.6.0 default (architecture + adrs)
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'adrs:docs/decisions'
+      ;;
+  esac
+}
+
+if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" ]]; then
+  while IFS=: read -r ak ap; do
+    [[ -z "$ak" ]] && continue
+    # Add only if not already present in plan targets[].
+    has=$(jq -r --arg k "$ak" '.targets | has($k)' <<<"$plan_json")
+    if [[ "$has" != "true" ]]; then
+      plan_json="$(jq --arg k "$ak" --arg p "$ap" \
+        '.targets[$k] = {type:"local", path:$p}' <<<"$plan_json")"
+    fi
+  done < <(archetype_scaffold_map "$plan_archetype")
+fi
+
 target_type() { jq -r --arg k "$1" '.targets[$k].type // ""' <<<"$plan_json"; }
 target_path() { jq -r --arg k "$1" '.targets[$k].path // ""' <<<"$plan_json"; }
 
@@ -207,9 +289,10 @@ safe_target_path() {
     "documentation plan target '$key'"
 }
 
-# docs/ README always lands when any docs/* target is local.
+# docs/ README always lands when any docs/* target is local. v1.6.0
+# adds api_reference, runbook, deployment, glossary to the trigger set.
 any_docs=false
-for key in architecture prd adrs research; do
+for key in architecture prd adrs research api_reference runbook deployment glossary; do
   if [[ "$(target_type "$key")" == "local" ]]; then
     any_docs=true
     break
@@ -251,6 +334,32 @@ if [[ "$(target_type research)" == "local" ]]; then
   write_if_missing "$template_root/docs/research-README.tmpl" \
     "$rs_dir/README.md" "research index"
   [[ -e "$rs_dir/.gitkeep" ]] || : > "$rs_dir/.gitkeep"
+fi
+
+# v1.6.0 archetype-aware doc types ------------------------------------------
+
+# api-reference — API service / library endpoint catalog
+if [[ "$(target_type api_reference)" == "local" ]]; then
+  write_if_missing "$template_root/docs/api-reference.tmpl" \
+    "$(safe_target_path api_reference)" "API reference"
+fi
+
+# runbook — operational playbook (api-service / cli / web-app / mobile-app)
+if [[ "$(target_type runbook)" == "local" ]]; then
+  write_if_missing "$template_root/docs/runbook.tmpl" \
+    "$(safe_target_path runbook)" "runbook"
+fi
+
+# deployment — how the system ships
+if [[ "$(target_type deployment)" == "local" ]]; then
+  write_if_missing "$template_root/docs/deployment.tmpl" \
+    "$(safe_target_path deployment)" "deployment doc"
+fi
+
+# glossary — domain-term reference (sleeper hit for AI second-brain)
+if [[ "$(target_type glossary)" == "local" ]]; then
+  write_if_missing "$template_root/docs/glossary.tmpl" \
+    "$(safe_target_path glossary)" "glossary"
 fi
 
 # memory — always local by invariant

@@ -76,6 +76,20 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
 2. **Route docs** via `bin/route-docs.sh --profile <path>` to get the
    DocumentationPlan (needed by bootstrap for scaffold-docs and gen-claudemd).
 
+   **Archetype-aware retrofit (v1.6.0+):** if the profile sets
+   `documentation.use_archetype_scaffolds: true`, the resolved
+   DocumentationPlan will include the per-archetype doc set
+   (api-reference / runbook / deployment / glossary as applicable).
+   `compute-drift` will surface any missing files from that set as
+   `missing` entries, and remediation will scaffold them.
+
+   When the profile leaves `use_archetype_scaffolds` unset/false,
+   retrofit does NOT auto-flip it. Per the v1.6.0 design, opt-in
+   stays opt-in — surface the absent flag as informational only:
+   "This profile could enable archetype-aware scaffolds. Run
+   `/nyann:migrate-profile` or set `use_archetype_scaffolds: true`
+   in your profile to opt in."
+
 3. **Preview** the plan via `bin/preview.sh --plan <file>`. Show the user
    what will be created/merged. Respect skip requests.
 

@@ -186,12 +186,16 @@ while IFS= read -r key; do
   esac
 
   case "$key" in
-    architecture) label="Architecture" ;;
-    prd)          label="PRD" ;;
-    adrs)         label="Decisions (ADRs)" ;;
-    research)     label="Research" ;;
-    memory)       label="Memory" ;;
-    *)            label="$key" ;;
+    architecture)  label="Architecture" ;;
+    prd)           label="PRD" ;;
+    adrs)          label="Decisions (ADRs)" ;;
+    research)      label="Research" ;;
+    api_reference) label="API Reference" ;;
+    runbook)       label="Runbook" ;;
+    deployment)    label="Deployment" ;;
+    glossary)      label="Glossary" ;;
+    memory)        label="Memory" ;;
+    *)             label="$key" ;;
   esac
 
   # Sanitize the $link cell — DocumentationPlan's
