@@ -1043,8 +1043,11 @@ arch_cargo_has_bin=false
 arch_cargo_has_lib=false
 if [[ -f "${path}/Cargo.toml" ]]; then
   cargo_blob="$(<"${path}/Cargo.toml")"
-  if grep -qE '^\[\[bin\]\]' <<<"$cargo_blob"; then arch_cargo_has_bin=true; fi
-  if grep -qE '^\[lib\]'     <<<"$cargo_blob"; then arch_cargo_has_lib=true; fi
+  # `[[:space:]]*` tolerates leading whitespace on the table header
+  # (some formatters indent nested tables; cargo accepts it). Without
+  # this, an indented `  [[bin]]` would miss the cli-tool signal.
+  if grep -qE '^[[:space:]]*\[\[bin\]\]' <<<"$cargo_blob"; then arch_cargo_has_bin=true; fi
+  if grep -qE '^[[:space:]]*\[lib\]'     <<<"$cargo_blob"; then arch_cargo_has_lib=true; fi
 fi
 
 # 1. plugin — unambiguous manifest signals
@@ -1083,6 +1086,23 @@ if [[ "$archetype" == "unknown" ]]; then
       # pubspec.yaml + flutter dependency is enough.
       if [[ "$_fw" == "flutter" ]] || \
          { [[ -f "${path}/pubspec.yaml" ]] && grep -q "^  flutter:" "${path}/pubspec.yaml" 2>/dev/null; }; then
+        archetype="mobile-app"
+      fi
+      ;;
+    typescript|javascript)
+      # React Native: a JS/TS repo with `react-native` (or
+      # `@react-native-community/cli` / Expo) in package.json deps.
+      # detect_jsts classifies the framework as `react`, which would
+      # otherwise route the repo to web-app at step 4. Catch the
+      # mobile case here (before the artifact-based api-service step
+      # so RN repos with an OpenAPI spec for their backend still land
+      # as mobile-app).
+      if [[ -f "${path}/package.json" ]] && \
+         jq -e '
+           (.dependencies // {}) + (.devDependencies // {}) |
+           keys |
+           any(. == "react-native" or . == "expo" or startswith("@react-native"))
+         ' "${path}/package.json" >/dev/null 2>&1; then
         archetype="mobile-app"
       fi
       ;;

@@ -170,6 +170,66 @@ JSON
   [ "$result" = "library" ]
 }
 
+@test "mobile-app archetype: React Native (react-native dep)" {
+  # detect_jsts classifies the framework as `react`, which would
+  # otherwise route the repo to web-app. The archetype block must
+  # catch react-native deps and reclassify to mobile-app.
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"rn-app","version":"1.0.0","dependencies":{"react":"18.2.0","react-native":"0.73.0"}}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "mobile-app" ]
+}
+
+@test "mobile-app archetype: Expo (expo dep without explicit react-native)" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"expo-app","version":"1.0.0","dependencies":{"expo":"~50.0.0","react":"18.2.0"}}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "mobile-app" ]
+}
+
+@test "mobile-app archetype: @react-native-community/cli scoped package" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"rn-app","version":"1.0.0","devDependencies":{"@react-native-community/cli":"^11.0.0"},"dependencies":{"react":"18.2.0"}}
+JSON
+  result=$(arch_for "$TMP")
+  [ "$result" = "mobile-app" ]
+}
+
+@test "Next.js without react-native still classifies as web-app (no false-positive)" {
+  mkdir -p "$TMP"
+  cat > "$TMP/package.json" <<'JSON'
+{"name":"web-app","version":"1.0.0","dependencies":{"next":"14.0.0","react":"18.2.0"}}
+JSON
+  cat > "$TMP/next.config.js" <<'JS'
+module.exports = {};
+JS
+  result=$(arch_for "$TMP")
+  [ "$result" = "web-app" ]
+}
+
+@test "cli-tool archetype: Cargo.toml with indented [[bin]] table header" {
+  # Some formatters / hand-edits add leading whitespace before table
+  # headers. Cargo accepts it; the archetype detector must too.
+  mkdir -p "$TMP/src"
+  cat > "$TMP/Cargo.toml" <<'TOML'
+[package]
+name = "indented-bin"
+version = "0.1.0"
+
+  [[bin]]
+  name = "indented-bin"
+  path = "src/main.rs"
+TOML
+  echo 'fn main() {}' > "$TMP/src/main.rs"
+  result=$(arch_for "$TMP")
+  [ "$result" = "cli-tool" ]
+}
+
 @test "cli-tool archetype: Go cmd/main.go" {
   mkdir -p "$TMP/cmd"
   echo 'package main' > "$TMP/cmd/main.go"
