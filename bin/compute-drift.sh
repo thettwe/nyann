@@ -133,19 +133,42 @@ case "$hook_list" in
     ;;
 esac
 
-# Doc scaffolding: check documentation.scaffold_types.
-# Use `while read` rather than `for t in $(jq …)` so values containing
-# whitespace (or IFS-sensitive characters from team-sourced profiles)
-# don't word-split.
+# Doc scaffolding: check documentation.scaffold_types AND, when the
+# profile opts into archetype-aware scaffolding, the per-archetype
+# doc set. Use `while read` rather than `for t in $(jq …)` so values
+# containing whitespace (or IFS-sensitive characters from
+# team-sourced profiles) don't word-split.
+#
+# When profile.documentation.use_archetype_scaffolds:true AND
+# profile.archetype is set (and not "unknown"), the expected doc set
+# is the UNION of scaffold_types[] and the archetype map's types.
+# This lets retrofit surface archetype-specific doc gaps (api-reference,
+# runbook, deployment, glossary) that the flat scaffold_types list
+# alone wouldn't catch.
+prof_use_archetype=$(jq -r '.documentation.use_archetype_scaffolds // false' <<<"$profile_json")
+prof_archetype=$(jq -r '.archetype // ""' <<<"$profile_json")
+
+if [[ "$prof_use_archetype" == "true" && -n "$prof_archetype" && "$prof_archetype" != "unknown" ]]; then
+  expected_types_json=$(nyann::archetype_scaffold_types "$prof_archetype" \
+    | jq -nR --argjson p "$(jq '.documentation.scaffold_types // []' <<<"$profile_json")" \
+        '[inputs] + $p | unique')
+else
+  expected_types_json=$(jq '.documentation.scaffold_types // []' <<<"$profile_json")
+fi
+
 while IFS= read -r t; do
   [[ -z "$t" ]] && continue
   case "$t" in
-    architecture) [[ -f "$target/docs/architecture.md" ]] || add_missing "doc" "docs/architecture.md" "profile scaffolds architecture" ;;
-    prd)          [[ -f "$target/docs/prd.md" ]]          || add_missing "doc" "docs/prd.md" "profile scaffolds prd" ;;
-    adrs)         [[ -f "$target/docs/decisions/ADR-000-record-architecture-decisions.md" ]] || add_missing "doc" "docs/decisions/ADR-000-record-architecture-decisions.md" "profile scaffolds ADRs" ;;
-    research)     [[ -d "$target/docs/research" ]]        || add_missing "doc" "docs/research" "profile scaffolds research" ;;
+    architecture)  [[ -f "$target/docs/architecture.md" ]]  || add_missing "doc" "docs/architecture.md"  "profile scaffolds architecture" ;;
+    prd)           [[ -f "$target/docs/prd.md" ]]           || add_missing "doc" "docs/prd.md"           "profile scaffolds prd" ;;
+    adrs)          [[ -f "$target/docs/decisions/ADR-000-record-architecture-decisions.md" ]] || add_missing "doc" "docs/decisions/ADR-000-record-architecture-decisions.md" "profile scaffolds ADRs" ;;
+    research)      [[ -d "$target/docs/research" ]]         || add_missing "doc" "docs/research"         "profile scaffolds research" ;;
+    api_reference) [[ -f "$target/docs/api-reference.md" ]] || add_missing "doc" "docs/api-reference.md" "archetype scaffolds api-reference" ;;
+    runbook)       [[ -f "$target/docs/runbook.md" ]]       || add_missing "doc" "docs/runbook.md"       "archetype scaffolds runbook" ;;
+    deployment)    [[ -f "$target/docs/deployment.md" ]]    || add_missing "doc" "docs/deployment.md"    "archetype scaffolds deployment" ;;
+    glossary)      [[ -f "$target/docs/glossary.md" ]]      || add_missing "doc" "docs/glossary.md"      "archetype scaffolds glossary" ;;
   esac
-done < <(jq -r '.documentation.scaffold_types[]?' <<<"$profile_json")
+done < <(jq -r '.[]?' <<<"$expected_types_json")
 
 # CI workflow: detect missing .github/workflows/ci.yml when profile.ci.enabled=true
 if [[ "$(jq -r '.ci.enabled // false' <<<"$profile_json")" == "true" ]]; then

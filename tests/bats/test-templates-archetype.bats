@@ -6,6 +6,7 @@
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   SCAFFOLD="${REPO_ROOT}/bin/scaffold-docs.sh"
+  ROUTE="${REPO_ROOT}/bin/route-docs.sh"
   TMP=$(mktemp -d -t nyann-tmpl-arch.XXXXXX)
   TMP="$(cd "$TMP" && pwd -P)"
   PLAN="$TMP/.plan.json"
@@ -13,18 +14,32 @@ setup() {
 
 teardown() { rm -rf "$TMP"; }
 
+# scaffold-docs is a pure materializer — route-docs is the planner
+# that expands the archetype map into a fully-populated targets[].
+# Tests use the realistic two-step flow.
 write_api_service_plan() {
-  cat > "$PLAN" <<'JSON'
+  cat > "$TMP/.profile.json" <<'PROFILE'
 {
-  "storage_strategy": "local",
-  "targets": {},
-  "claude_md_mode": "router",
-  "size_budget_kb": 3,
-  "staleness_days": null,
-  "archetype": "api-service",
-  "use_archetype_scaffolds": true
+  "name": "stub-api-service",
+  "schemaVersion": 1,
+  "stack": {"primary_language": "unknown"},
+  "branching": {"strategy": "github-flow", "base_branches": ["main"]},
+  "conventions": {"commit_format": "conventional-commits"},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false, "claude_md": false, "github_actions_ci": false, "commit_message_template": false, "github_templates": false},
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {"broken_internal_links": false, "broken_mcp_links": false, "orphans": false, "staleness": false}
+  }
 }
-JSON
+PROFILE
+  bash "$ROUTE" --profile "$TMP/.profile.json" --archetype api-service --use-archetype-scaffolds > "$PLAN"
 }
 
 # ---- api-reference template ------------------------------------------------

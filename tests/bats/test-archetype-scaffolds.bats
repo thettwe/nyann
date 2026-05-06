@@ -1,38 +1,56 @@
 #!/usr/bin/env bats
-# v1.6.0 archetype-aware scaffolding: when DocumentationPlan declares
-# use_archetype_scaffolds:true and an archetype, scaffold-docs.sh
-# materializes the per-archetype doc set (api-service → architecture +
-# api-reference + runbook + deployment + adrs + glossary, etc.).
+# v1.6.0 archetype-aware scaffolding: per-archetype doc sets land in
+# the right files (api-service → architecture + api-reference +
+# runbook + deployment + adrs + glossary, etc.).
 #
-# When use_archetype_scaffolds is false or absent (default),
-# pre-v1.6.0 behavior is preserved — only targets[] entries already
-# present in the plan get scaffolded.
+# scaffold-docs.sh is a pure materializer — it iterates the targets[]
+# its plan declares. The archetype expansion happens upstream in
+# route-docs.sh (the planner). These tests use the realistic two-step
+# flow: a tiny stub profile → route-docs → scaffold-docs.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   SCAFFOLD="${REPO_ROOT}/bin/scaffold-docs.sh"
+  ROUTE="${REPO_ROOT}/bin/route-docs.sh"
   TMP=$(mktemp -d -t nyann-arch-scaffold.XXXXXX)
   TMP="$(cd "$TMP" && pwd -P)"
 }
 
 teardown() { rm -rf "$TMP"; }
 
-# Helper: write a minimal DocumentationPlan with the given archetype +
-# use_archetype_scaffolds flag. Empty `targets:{}` so the archetype
-# expansion is the sole driver.
+# Helper: write a minimal stub profile (the smallest schema-valid
+# shape) and call route-docs to produce a fully-expanded
+# DocumentationPlan with targets[] populated by the archetype map.
+# scaffold-docs then iterates the resolved targets — matching the
+# realistic skill → orchestrator → subsystem flow.
 write_plan() {
   local archetype="$1" use_flag="$2" plan_path="$3"
-  cat > "$plan_path" <<JSON
+  cat > "$TMP/.profile.json" <<PROFILE
 {
-  "storage_strategy": "local",
-  "targets": {},
-  "claude_md_mode": "router",
-  "size_budget_kb": 3,
-  "staleness_days": null,
-  "archetype": "${archetype}",
-  "use_archetype_scaffolds": ${use_flag}
+  "name": "stub-test",
+  "schemaVersion": 1,
+  "stack": {"primary_language": "unknown"},
+  "branching": {"strategy": "github-flow", "base_branches": ["main"]},
+  "conventions": {"commit_format": "conventional-commits"},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false, "claude_md": false, "github_actions_ci": false, "commit_message_template": false, "github_templates": false},
+  "documentation": {
+    "scaffold_types": [],
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {"broken_internal_links": false, "broken_mcp_links": false, "orphans": false, "staleness": false}
+  }
 }
-JSON
+PROFILE
+  if [[ "$use_flag" == "true" ]]; then
+    bash "$ROUTE" --profile "$TMP/.profile.json" --archetype "$archetype" --use-archetype-scaffolds > "$plan_path"
+  else
+    bash "$ROUTE" --profile "$TMP/.profile.json" --archetype "$archetype" --no-use-archetype-scaffolds > "$plan_path"
+  fi
 }
 
 @test "api-service archetype scaffolds architecture, api-reference, runbook, deployment, adrs, glossary" {
@@ -100,7 +118,13 @@ JSON
   [ ! -f "$TMP/docs/runbook.md" ]
 }
 
-@test "explicit targets[] entries override archetype map (route-docs override path)" {
+@test "scaffold-docs is a pure materializer — only iterates plan.targets[]" {
+  # The plan declares architecture (local) and api_reference (obsidian)
+  # explicitly, plus archetype + use_archetype_scaffolds for downstream
+  # informational visibility. scaffold-docs MUST iterate only what's in
+  # targets[] — it does NOT expand the archetype map at materialization
+  # time (that violates preview-before-mutate against the SHA-bound
+  # ActionPlan). Archetype expansion is route-docs.sh's job.
   cat > "$TMP/.plan.json" <<'JSON'
 {
   "storage_strategy": "local",
@@ -120,12 +144,13 @@ JSON
   [ -f "$TMP/docs/architecture.md" ]
   # api_reference is obsidian → no local file written for it.
   [ ! -f "$TMP/docs/api-reference.md" ]
-  # runbook / deployment / adrs / glossary still get materialized as local
-  # because the archetype map's defaults filled them in.
-  [ -f "$TMP/docs/runbook.md" ]
-  [ -f "$TMP/docs/deployment.md" ]
-  [ -d "$TMP/docs/decisions" ]
-  [ -f "$TMP/docs/glossary.md" ]
+  # The other archetype types (runbook / deployment / glossary / adrs)
+  # are NOT in targets[], so scaffold-docs does NOT write them.
+  # Callers wanting the full archetype set must run route-docs first.
+  [ ! -f "$TMP/docs/runbook.md" ]
+  [ ! -f "$TMP/docs/deployment.md" ]
+  [ ! -d "$TMP/docs/decisions" ]
+  [ ! -f "$TMP/docs/glossary.md" ]
 }
 
 @test "scaffolding is idempotent — re-run does not overwrite user content" {

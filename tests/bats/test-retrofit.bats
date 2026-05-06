@@ -86,3 +86,81 @@ teardown() { rm -rf "$TMP"; }
   run "${validator[@]}" --schemafile "$SCHEMA" "$TMP/report.json"
   [ "$status" -eq 0 ]
 }
+
+# v1.6.0 — archetype-aware drift surfacing
+# When profile.documentation.use_archetype_scaffolds is true and
+# profile.archetype is set, compute-drift expands the expected doc
+# set with the per-archetype map. Missing archetype-specific docs
+# (api-reference / runbook / deployment / glossary) surface as
+# `missing` entries.
+@test "archetype-aware drift surfaces missing api-reference / runbook / deployment / glossary" {
+  AT="$TMP/archetype-repo"
+  mkdir -p "$AT"
+  ( cd "$AT" && git init -q -b main && \
+    git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "chore: seed" )
+  # Profile: api-service archetype + use_archetype_scaffolds:true
+  cat > "$AT/.profile.json" <<'JSON'
+{
+  "name": "api-svc-test",
+  "schemaVersion": 1,
+  "archetype": "api-service",
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "github-flow", "base_branches": ["main"]},
+  "conventions": {"commit_format": "conventional-commits"},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false, "claude_md": false, "github_actions_ci": false, "commit_message_template": false, "github_templates": false},
+  "documentation": {
+    "scaffold_types": ["architecture", "adrs"],
+    "use_archetype_scaffolds": true,
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {"broken_internal_links": false, "broken_mcp_links": false, "orphans": false, "staleness": false}
+  }
+}
+JSON
+  report=$(bash "${REPO_ROOT}/bin/compute-drift.sh" --target "$AT" --profile "$AT/.profile.json")
+  # All four archetype-only doc types must surface as missing.
+  [ "$(echo "$report" | jq -r '[.missing[].path] | sort | join(",")')" != "" ]
+  echo "$report" | jq -e '.missing[] | select(.path == "docs/api-reference.md")' >/dev/null
+  echo "$report" | jq -e '.missing[] | select(.path == "docs/runbook.md")' >/dev/null
+  echo "$report" | jq -e '.missing[] | select(.path == "docs/deployment.md")' >/dev/null
+  echo "$report" | jq -e '.missing[] | select(.path == "docs/glossary.md")' >/dev/null
+}
+
+@test "archetype-aware drift suppressed when use_archetype_scaffolds is false" {
+  AT="$TMP/archetype-off"
+  mkdir -p "$AT"
+  ( cd "$AT" && git init -q -b main && \
+    git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "chore: seed" )
+  cat > "$AT/.profile.json" <<'JSON'
+{
+  "name": "api-svc-flagged-off",
+  "schemaVersion": 1,
+  "archetype": "api-service",
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "github-flow", "base_branches": ["main"]},
+  "conventions": {"commit_format": "conventional-commits"},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false, "claude_md": false, "github_actions_ci": false, "commit_message_template": false, "github_templates": false},
+  "documentation": {
+    "scaffold_types": ["architecture", "adrs"],
+    "use_archetype_scaffolds": false,
+    "storage_strategy": "local",
+    "preferred_mcp": null,
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3,
+    "staleness_days": null,
+    "enable_drift_checks": {"broken_internal_links": false, "broken_mcp_links": false, "orphans": false, "staleness": false}
+  }
+}
+JSON
+  report=$(bash "${REPO_ROOT}/bin/compute-drift.sh" --target "$AT" --profile "$AT/.profile.json")
+  # archetype-only docs MUST NOT surface — flag is off, so flat list applies.
+  ! echo "$report" | jq -e '.missing[] | select(.path == "docs/api-reference.md")' >/dev/null
+  ! echo "$report" | jq -e '.missing[] | select(.path == "docs/runbook.md")' >/dev/null
+}

@@ -183,39 +183,18 @@ write_if_missing() {
 
 plan_json="$(cat "$plan_path")"
 
-# v1.6.0 — archetype-aware scaffolding. When the plan declares
-# use_archetype_scaffolds:true and an archetype, expand the virtual
-# targets[] with the per-archetype scaffold map's default local paths
-# for any keys not already present. Preserves backward compat: when
-# the flag is false or absent, targets[] is used as-is (pre-v1.6.0
-# behavior).
-plan_archetype="$(jq -r '.archetype // ""' <<<"$plan_json")"
-plan_use_archetype="$(jq -r '.use_archetype_scaffolds // false' <<<"$plan_json")"
-
-# Per-archetype scaffold map lives in bin/_lib.sh as
-# nyann::archetype_scaffold_map — single source of truth shared with
-# bin/route-docs.sh. Adding a new archetype or doc type in one place
-# updates both planner and materializer.
+# Archetype expansion happens upstream in bin/route-docs.sh (the
+# planner). scaffold-docs.sh is a pure materializer: it iterates the
+# .targets[] it receives. This separation keeps the
+# preview-before-mutate contract intact — what's in the SHA-bound
+# ActionPlan is what gets written. A thin DocumentationPlan with
+# use_archetype_scaffolds:true but empty targets[] produces zero
+# scaffolds here; callers must run route-docs first to get a fully
+# expanded plan.
 #
-# Single jq reduce: take the map as TSV, fold each row into targets
-# only if the key isn't already present. Replaces the per-entry
-# bash-loop + 2-jq-fork-per-iteration pattern (~12 forks for
-# api-service) with one fork.
-# archetype="unknown" is the sentinel meaning "no archetype declared"
-# and resolves to nyann::archetype_scaffold_map's `*` fallback. The
-# fallback is the pre-v1.6.0 default (architecture + adrs); applying
-# it via the archetype path is a no-op in v1.6.0 but would silently
-# expand if the fallback ever changes. Skip the path entirely so
-# behaviour stays explicit.
-if [[ "$plan_use_archetype" == "true" && -n "$plan_archetype" && "$plan_archetype" != "unknown" ]]; then
-  arch_tsv="$(nyann::archetype_scaffold_map "$plan_archetype" | tr ':' '\t')"
-  plan_json="$(jq --arg tsv "$arch_tsv" '
-    reduce ($tsv | split("\n") | map(select(length>0) | split("\t"))[]) as $row
-      (.;
-        if (.targets | has($row[0])) then .
-        else .targets[$row[0]] = {type:"local", path:$row[1]} end)
-  ' <<<"$plan_json")"
-fi
+# If the plan still carries archetype + use_archetype_scaffolds
+# fields (route-docs propagates them for downstream visibility),
+# they're informational only — scaffold-docs ignores them.
 
 target_type() { jq -r --arg k "$1" '(.targets // {})[$k].type // ""' <<<"$plan_json"; }
 target_path() { jq -r --arg k "$1" '(.targets // {})[$k].path // ""' <<<"$plan_json"; }
