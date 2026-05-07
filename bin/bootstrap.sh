@@ -357,11 +357,24 @@ docs_in_plan=$(jq -r '
 if [[ "$docs_in_plan" == "0" ]]; then
   nyann::warn "skipping scaffold-docs: the ActionPlan's writes[] contains no docs/ or memory/ entries (plan-builder must enumerate scaffolded files for preview-before-mutate)"
 else
+  # v1.7.0 — read documentation.glossary settings from the profile so
+  # scaffold-docs can drive scaffold-glossary when opted in. Default
+  # auto_populate=false preserves v1.6.0 behaviour for existing users.
+  glossary_args=()
+  if [[ "$(jq -r '.documentation.glossary.auto_populate // false' "$profile_path")" == "true" ]]; then
+    glossary_args+=(--auto-glossary)
+    gmt=$(jq -r '.documentation.glossary.max_terms // 50' "$profile_path")
+    glossary_args+=(--glossary-max-terms "$gmt")
+    glang=$(jq -r '(.documentation.glossary.languages // ["auto"]) | join(",")' "$profile_path")
+    glossary_args+=(--glossary-languages "$glang")
+  fi
+
   maybe_run "${_script_dir}/scaffold-docs.sh" \
     --plan "$doc_plan_path" \
     ${stack_path:+--stack "$stack_path"} \
     ${project_name:+--project-name "$project_name"} \
-    --target "$target"
+    --target "$target" \
+    ${glossary_args[@]+"${glossary_args[@]}"}
 fi
 
 # --- step 5b: resolve workspace configs (monorepo support) ------------------

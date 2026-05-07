@@ -120,6 +120,34 @@ If **No**, pass nothing extra (current behaviour). Skip the prompt
 entirely when archetype is `unknown` or when the profile already
 sets `use_archetype_scaffolds: true`.
 
+### 4a-2. Glossary auto-population (v1.7.0+)
+
+When the resolved scaffold set includes `glossary` (either via the
+profile's `documentation.scaffold_types` OR via an enabled archetype
+map for `library` / `api-service` / others), prompt the user via
+`AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Auto-populate `docs/glossary.md` with detected exported types from your codebase?",
+    "header": "Glossary",
+    "options": [
+      {"label": "Yes (recommended)", "description": "Seed entries for top-level exported structs/interfaces/classes/types. Idempotent, preserves user content outside markers."},
+      {"label": "No",  "description": "Keep the empty template. You can opt in later via the profile."}
+    ],
+    "multiSelect": false
+  }]
+}
+```
+
+If **Yes**, set `documentation.glossary.auto_populate: true` in the
+resolved profile snapshot before passing it to `bootstrap.sh`. The
+bootstrap orchestrator reads the flag and forwards
+`--auto-glossary` (plus `--glossary-max-terms` /
+`--glossary-languages`) to `bin/scaffold-docs.sh`. Default Yes for
+the `library` and `api-service` archetypes; default No otherwise.
+
 ### 4b. Run route-docs
 
 1. Run `bin/detect-mcp-docs.sh` to discover Obsidian / Notion connectors. Capture the JSON.
