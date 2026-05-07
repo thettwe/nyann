@@ -160,7 +160,36 @@ refuse to materialise a file that isn't in this list (preview-before-mutate):
   `docs/decisions/ADR-000-…md`, `docs/research/README.md`) — when the profile's
   `documentation.scaffold_types` declares them
 
-Pipe the plan through `bin/preview.sh --plan <file>`. Show the stderr preview to the user. If
+### 5a. Pre-render merge previews (v1.7.0+)
+
+Before invoking `preview.sh`, run `bin/render-plan.sh` so merge actions
+on `.gitignore` and `CLAUDE.md` carry a `preview_blob` field. Preview
+diffs against the current file and shows the operator the actual lines
+about to be added — no more "234 B merged" surprises.
+
+```
+bin/render-plan.sh \
+  --plan <plan.json> \
+  --target <repo> \
+  --profile <profile.json> \
+  --doc-plan <doc-plan.json> \
+  --stack <stack.json> \
+  --templates-csv "<inferred-from-stack>" \
+  --output <plan.rendered.json>
+```
+
+Determine `--templates-csv` from the StackDescriptor exactly the way
+`bootstrap.sh` does (jsts / python / go / rust / generic, plus
+secondary languages). Skip render-plan only when the plan has zero
+merge actions for the two covered paths — render-plan is a no-op in
+that case so it's safe to always call.
+
+The rendered plan supersedes the original for both preview and execute.
+Pass it as `--plan <plan.rendered.json>` from this point on.
+
+### 5b. Preview
+
+Pipe the rendered plan through `bin/preview.sh --plan <file>`. Show the stderr preview to the user. If
 they respond with `skip <path>`, re-invoke with `--skip <path>` and reshow. If `no`, stop and
 exit.
 

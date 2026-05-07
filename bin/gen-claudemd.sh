@@ -5,11 +5,18 @@
 #   gen-claudemd.sh --profile <path> --doc-plan <path>
 #                   [--stack <path>] [--project-name <name>]
 #                   [--target <repo-root>] [--force]
+#                   [--output <path>]
 #
 # Writes (or merges into) $target/CLAUDE.md a nyann-managed block delimited
 # by `<!-- nyann:start -->` and `<!-- nyann:end -->`. Content outside the
 # markers is preserved verbatim. If the file exists without markers, the
 # generated block is appended with an explanatory note.
+#
+# --output <path> writes the merged result to <path> instead of mutating
+# $target/CLAUDE.md in place. Used by bin/render-plan.sh (v1.7.0) for
+# preview-diff rendering. The read path still seeds from
+# $target/CLAUDE.md so the output is byte-identical to what the in-place
+# mutation would produce.
 #
 # Size budgets:
 #   soft 3 KB → warn
@@ -32,6 +39,7 @@ extra_scopes_path=""
 project_name=""
 target_root="$PWD"
 force=false
+output_path=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,8 +57,10 @@ while [[ $# -gt 0 ]]; do
     --project-name=*)  project_name="${1#--project-name=}"; shift ;;
     --target)          target_root="${2:-}"; shift 2 ;;
     --target=*)        target_root="${1#--target=}"; shift ;;
+    --output)          output_path="${2:-}"; shift 2 ;;
+    --output=*)        output_path="${1#--output=}"; shift ;;
     --force)           force=true; shift ;;
-    -h|--help)         sed -n '3,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)         sed -n '3,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
@@ -349,6 +359,16 @@ EOF
 # --- merge with any existing CLAUDE.md --------------------------------------
 
 claude_path="$target_root/CLAUDE.md"
+# In --output mode, $claude_path is read-only (the source of truth for
+# existing content); $write_path is where the merged result lands.
+# In default mode the two are the same — in-place mutation.
+write_path="${output_path:-$claude_path}"
+if [[ -n "$output_path" && "$output_path" == "$claude_path" ]]; then
+  nyann::die "--output must differ from \$target/CLAUDE.md (use the in-place form: omit --output)"
+fi
+if [[ -n "$output_path" && -L "$output_path" ]]; then
+  nyann::die "refusing to write CLAUDE.md to a symlink: $output_path"
+fi
 soft_cap=3072
 # Use the plugin-wide hard-cap constant from _lib.sh so the writer
 # and the drift checker (bin/check-claude-md-size.sh) agree on the
@@ -379,8 +399,8 @@ fi
 
 if [[ ! -f "$claude_path" ]]; then
   check_size "$size_bytes" "CLAUDE.md"
-  printf '%s\n' "$block" > "$claude_path"
-  nyann::log "wrote $claude_path (${size_bytes} B)"
+  printf '%s\n' "$block" > "$write_path"
+  nyann::log "wrote $write_path (${size_bytes} B)"
   exit 0
 fi
 
@@ -414,11 +434,11 @@ if grep -Fq '<!-- nyann:start -->' "$claude_path" && grep -Fq '<!-- nyann:end --
   ' "$tmp"
   total_bytes=$(wc -c < "$tmp" | tr -d ' ')
   check_size "$total_bytes" "CLAUDE.md (merged)"
-  mv "$tmp" "$claude_path"
+  mv "$tmp" "$write_path"
   tmp=""
   rm -f "$block_file"
   block_file=""
-  nyann::log "replaced nyann block in $claude_path (block ${size_bytes} B, file ${total_bytes} B)"
+  nyann::log "replaced nyann block in $write_path (block ${size_bytes} B, file ${total_bytes} B)"
 else
   # Also trap the append path so a failing check_size doesn't orphan $merged.
   merged=$(mktemp -t nyann-claude-merged.XXXXXX)
@@ -430,7 +450,7 @@ else
   } > "$merged"
   total_bytes=$(wc -c < "$merged" | tr -d ' ')
   check_size "$total_bytes" "CLAUDE.md (appended)"
-  mv "$merged" "$claude_path"
+  mv "$merged" "$write_path"
   merged=""
-  nyann::log "appended nyann block to $claude_path (block ${size_bytes} B, file ${total_bytes} B)"
+  nyann::log "appended nyann block to $write_path (block ${size_bytes} B, file ${total_bytes} B)"
 fi

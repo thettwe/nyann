@@ -17,7 +17,16 @@
           "path":   { "type": "string", "minLength": 1 },
           "action": { "type": "string", "enum": ["create", "merge", "overwrite", "delete"] },
           "bytes":  { "type": "integer", "minimum": 0 },
-          "diff":   { "type": "string" }
+          "diff":   { "type": "string" },
+          "preview_blob": {
+            "description": "Filesystem path to a tempfile holding the would-be merged content (v1.7.0). Set by bin/render-plan.sh for merge actions whose producing subsystem supports --output (gitignore-combiner, gen-claudemd). bin/preview.sh diffs this against the current file; bin/bootstrap.sh `cp`s from it instead of re-invoking the producer, so the preview-confirmed bytes are exactly what lands on disk.",
+            "type": "string"
+          },
+          "current_bytes": {
+            "description": "Size of the existing target file (or 0 if absent). Set by render-plan.sh alongside preview_blob so the operator sees `→ merged` size deltas without preview re-stat'ing the path.",
+            "type": "integer",
+            "minimum": 0
+          }
         }
       }
     },

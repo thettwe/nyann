@@ -2,6 +2,7 @@
 # gitignore-combiner.sh — merge nyann gitignore templates into a target file.
 #
 # Usage: gitignore-combiner.sh --target <path> --templates <t1>[,<t2>,...]
+#                               [--output <path>]
 #
 # Reads the named templates from templates/gitignore/ (relative to this script)
 # and appends to --target any entries that are not already present. Comments
@@ -10,6 +11,14 @@
 # Idempotent: re-running on the same target is a no-op after the first pass.
 # Deduplicates across templates too, so a .DS_Store entry in both jsts and
 # python templates appears once in the output.
+#
+# --output <path> writes the merged result to <path> instead of mutating
+# --target in place. Used by bin/render-plan.sh (v1.7.0) to produce the
+# preview blob shown in `bin/preview.sh`'s diff for merge actions. The
+# read path still seeds the seen-set from --target so the output is the
+# same bytes the in-place mutation would have produced. Refuses if
+# --output points to --target after symlink resolution (use the
+# default form for in-place writes).
 #
 # Portability note: uses a temp file as the "seen set" instead of associative
 # arrays so macOS default bash 3.2 works.
@@ -20,18 +29,21 @@ source "${_script_dir}/_lib.sh"
 
 target=""
 templates_csv=""
+output=""
 template_root="${_script_dir}/../templates/gitignore"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)          target="${2:-}"; shift 2 ;;
     --target=*)        target="${1#--target=}"; shift ;;
+    --output)          output="${2:-}"; shift 2 ;;
+    --output=*)        output="${1#--output=}"; shift ;;
     --templates)       templates_csv="${2:-}"; shift 2 ;;
     --templates=*)     templates_csv="${1#--templates=}"; shift ;;
     --template-root)   template_root="${2:-}"; shift 2 ;;
     --template-root=*) template_root="${1#--template-root=}"; shift ;;
     -h|--help)
-      sed -n '3,17p' "${BASH_SOURCE[0]}"
+      sed -n '3,21p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *) nyann::die "unknown argument: $1" ;;
@@ -48,6 +60,17 @@ done
 # `-L` before `-f` because `-f` follows symlinks on macOS bash 3.2.
 if [[ -L "$target" ]]; then
   nyann::die "refusing to combine gitignore into a symlink: $target"
+fi
+if [[ -n "$output" && -L "$output" ]]; then
+  nyann::die "refusing to write through a symlink: $output"
+fi
+
+# In --output mode, the actual write target is $output, not $target.
+# Keep $target as the read source so seen-set seeding works the same
+# whether we're rendering for preview or writing in place.
+effective_output="${output:-$target}"
+if [[ -n "$output" && "$output" == "$target" ]]; then
+  nyann::die "--output must differ from --target (use the in-place form: omit --output)"
 fi
 
 # --- seen-set: temp file with one normalized pattern per line -----------------
@@ -78,15 +101,23 @@ if [[ -f "$target" ]]; then
   done < "$target"
 fi
 
-# Ensure target exists and ends with a newline. Command substitution would
-# strip a trailing \n, so compare the last byte's octal representation with
-# od instead.
-if [[ ! -f "$target" ]]; then
-  : > "$target"
-elif [[ -s "$target" ]]; then
-  last_byte_oct="$(tail -c 1 "$target" | od -An -b | tr -d ' ')"
+# Seed effective_output. In in-place mode this is the same file as
+# $target (the elif branch ensures it ends with a newline). In --output
+# mode we copy $target's bytes to $output (or start empty if $target
+# is absent) so the appended new entries land on top of the same base.
+if [[ "$effective_output" != "$target" ]]; then
+  if [[ -f "$target" ]]; then
+    cp "$target" "$effective_output"
+  else
+    : > "$effective_output"
+  fi
+fi
+if [[ ! -f "$effective_output" ]]; then
+  : > "$effective_output"
+elif [[ -s "$effective_output" ]]; then
+  last_byte_oct="$(tail -c 1 "$effective_output" | od -An -b | tr -d ' ')"
   if [[ "$last_byte_oct" != "012" ]]; then
-    printf '\n' >> "$target"
+    printf '\n' >> "$effective_output"
   fi
 fi
 
@@ -126,14 +157,14 @@ for name in "${templates[@]}"; do
     {
       printf '\n# --- nyann: %s ---\n' "$name"
       cat "$staged"
-    } >> "$target"
+    } >> "$effective_output"
     any_appended=true
   fi
   rm -f "$staged"
 done
 
 if $any_appended; then
-  nyann::log "gitignore updated: $target"
+  nyann::log "gitignore updated: $effective_output"
 else
-  nyann::log "gitignore already current: $target"
+  nyann::log "gitignore already current: $effective_output"
 fi

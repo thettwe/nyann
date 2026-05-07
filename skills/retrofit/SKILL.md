@@ -142,10 +142,17 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    `/nyann:migrate-profile` or set `use_archetype_scaffolds: true`
    in your profile to opt in."
 
-3. **Preview** the plan via `bin/preview.sh --plan <file>`. Show the user
-   what will be created/merged. Respect skip requests.
+3. **Render merge previews** via `bin/render-plan.sh --plan <plan.json>
+   --target <cwd> --profile <profile.json> --doc-plan <doc-plan.json>
+   --templates-csv <jsts|python|...> --output <plan.rendered.json>`
+   so `preview.sh` can diff `.gitignore` and `CLAUDE.md` merges against
+   the current files. Skip render-plan only when neither path appears
+   as a merge action in the plan.
 
-4. **Execute** via `bin/bootstrap.sh`. Capture the plan SHA-256 first
+4. **Preview** the rendered plan via `bin/preview.sh --plan <plan.rendered.json>`.
+   Show the user what will be created/merged. Respect skip requests.
+
+5. **Execute** via `bin/bootstrap.sh`. Capture the plan SHA-256 first
    via `bin/preview.sh --emit-sha256`,
    then pass it through as `--plan-sha256` so bootstrap can verify the
    plan bytes haven't changed between the user's confirmation and
@@ -164,7 +171,7 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    Bootstrap is idempotent — existing user content is preserved, hooks are
    merged (not overwritten), gitignore entries are deduplicated.
 
-5. **Re-run doctor** after remediation to confirm the drift is resolved.
+6. **Re-run doctor** after remediation to confirm the drift is resolved.
    Show the before/after delta.
 
 ## 6. What retrofit does NOT do

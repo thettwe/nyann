@@ -30,7 +30,7 @@ identifier consumers can pin against.
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
-| `action-plan.schema.json` | composed by skills + `bin/preview.sh` | `bin/bootstrap.sh` |
+| `action-plan.schema.json` | composed by skills + `bin/preview.sh` (+ `bin/render-plan.sh`) | `bin/bootstrap.sh` |
 | `branching-choice.schema.json` | `bin/recommend-branch.sh` | `bin/bootstrap.sh`, skill layer |
 | `claudemd-analysis.schema.json` | `bin/analyze-claudemd-usage.sh` | `bin/optimize-claudemd.sh`, `skills/optimize-claudemd/SKILL.md` |
 | `claudemd-size-report.schema.json` | `bin/check-claude-md-size.sh` | `bin/compute-drift.sh` |

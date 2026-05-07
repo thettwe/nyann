@@ -41,6 +41,8 @@ decision=""
 skips=()
 emit_sha_only=false
 json_out=false
+diff_mode="auto"   # auto | full | off
+diff_max_lines=20
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,8 +54,10 @@ while [[ $# -gt 0 ]]; do
     --decision=*)    decision="${1#--decision=}"; shift ;;
     --emit-sha256)   emit_sha_only=true; shift ;;
     --json)          json_out=true; shift ;;
+    --no-diff)       diff_mode="off"; shift ;;
+    --full-diff)     diff_mode="full"; shift ;;
     -h|--help)
-      sed -n '3,29p' "${BASH_SOURCE[0]}"
+      sed -n '3,32p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *) nyann::die "unknown argument: $1" ;;
@@ -117,6 +121,46 @@ if ! $json_out; then
     | "  " + (.action | ascii_upcase | (. + ":         ")[0:10]) + " " + .path
       + ( if (.bytes // null) != null then "  (" + (.bytes|tostring) + " B)" else "" end )
   ' <<<"$plan_json"
+
+  # For each merge entry that carries a preview_blob (rendered via
+  # bin/render-plan.sh), show a unified diff of what's about to change.
+  # `auto` mode truncates to the first $diff_max_lines lines per file
+  # so a 200-line CLAUDE.md regen stays readable; --full-diff lifts
+  # the cap; --no-diff skips this block entirely. Works only when the
+  # current file actually exists — diffing against /dev/null for new-
+  # file merges would just print the entire blob, which the size line
+  # already conveys.
+  if [[ "$diff_mode" != "off" ]]; then
+    while IFS=$'\t' read -r path blob current_bytes; do
+      [[ -z "$path" || -z "$blob" ]] && continue
+      [[ ! -f "$blob" ]] && continue
+      printf '\n--- %s diff (current %s B → merged) ---\n' "$path" "$current_bytes"
+      cur_file="/dev/null"
+      # The plan's `.path` is repo-relative; resolve against $PWD only
+      # if no absolute reference is encoded. preview.sh runs in the
+      # caller's cwd (the target repo) by convention.
+      if [[ -f "$path" ]]; then
+        cur_file="$path"
+      elif [[ -n "${NYANN_PREVIEW_TARGET:-}" && -f "${NYANN_PREVIEW_TARGET}/$path" ]]; then
+        cur_file="${NYANN_PREVIEW_TARGET}/$path"
+      fi
+      if [[ "$diff_mode" == "full" ]]; then
+        diff -u "$cur_file" "$blob" 2>/dev/null || true
+      else
+        diff -u "$cur_file" "$blob" 2>/dev/null | awk -v max="$diff_max_lines" '
+          NR <= max { print }
+          NR == max + 1 { print "  …(truncated; pass --full-diff to see all)" }
+        ' || true
+      fi
+    done < <(
+      jq -r '
+        .writes[]
+        | select(.action == "merge" and (.preview_blob // "") != "")
+        | [.path, .preview_blob, (.current_bytes // 0)]
+        | @tsv
+      ' <<<"$plan_json"
+    )
+  fi
 
   if [[ "$(jq '.commands | length' <<<"$plan_json")" != "0" ]]; then
     printf '\nCommands to run:\n'
