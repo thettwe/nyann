@@ -188,6 +188,16 @@ Gaps closed in v1.6.0:
 - **Self-compliance** — nyann's own `CLAUDE.md` brought under the
   3 KB router-mode budget.
 
+Gaps closed in v1.7.0:
+
+- **Glossary auto-population** — `bin/scaffold-glossary.sh` seeds
+  `docs/glossary.md` from detected exported types per language
+  (Go, TS, JS, Python, Rust, Java, Kotlin, Swift). Marker-bracketed
+  auto block; user content outside the markers is preserved.
+  Profile-gated via `documentation.glossary.auto_populate`.
+  Serves property 1 (AI-retrieval-first) — finally puts content in
+  the file we already shipped a template for.
+
 ## Adding a new doc template
 
 Before any new template ships, answer:
@@ -211,15 +221,17 @@ required to pass the four-question test retroactively.
 
 ## Open questions
 
-- **Glossary auto-population.** Could nyann seed a glossary from
-  detected domain types (Go interfaces, TypeScript types, Python
-  classes)? Likely v1.7+.
 - **Archetype-specific drift checks.** API services should validate
   "every endpoint appears in `api-reference.md`"; CLIs should match
-  documented commands against `--help`. Future.
+  documented commands against `--help`. Deferred to v1.8+.
 - **MCP-side templates.** Obsidian and Notion users get the same
-  Markdown today. Notion-block-formatted variants are a v1.7+
+  Markdown today. Notion-block-formatted variants are a v1.8+
   question.
+- **Glossary depth — comments + private types.** v1.7.0 only seeds
+  exported / public types. A future iteration could surface JSDoc /
+  docstring comments next to each entry, and optionally include
+  internal types behind a profile flag for repos that document
+  internals as part of their AI retrieval surface.
 
 ## Versioning these principles
 
