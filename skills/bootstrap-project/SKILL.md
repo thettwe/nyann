@@ -120,6 +120,34 @@ If **No**, pass nothing extra (current behaviour). Skip the prompt
 entirely when archetype is `unknown` or when the profile already
 sets `use_archetype_scaffolds: true`.
 
+### 4a-2. Glossary auto-population (v1.7.0+)
+
+When the resolved scaffold set includes `glossary` (either via the
+profile's `documentation.scaffold_types` OR via an enabled archetype
+map for `library` / `api-service` / others), prompt the user via
+`AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Auto-populate `docs/glossary.md` with detected exported types from your codebase?",
+    "header": "Glossary",
+    "options": [
+      {"label": "Yes (recommended)", "description": "Seed entries for top-level exported structs/interfaces/classes/types. Idempotent, preserves user content outside markers."},
+      {"label": "No",  "description": "Keep the empty template. You can opt in later via the profile."}
+    ],
+    "multiSelect": false
+  }]
+}
+```
+
+If **Yes**, set `documentation.glossary.auto_populate: true` in the
+resolved profile snapshot before passing it to `bootstrap.sh`. The
+bootstrap orchestrator reads the flag and forwards
+`--auto-glossary` (plus `--glossary-max-terms` /
+`--glossary-languages`) to `bin/scaffold-docs.sh`. Default Yes for
+the `library` and `api-service` archetypes; default No otherwise.
+
 ### 4b. Run route-docs
 
 1. Run `bin/detect-mcp-docs.sh` to discover Obsidian / Notion connectors. Capture the JSON.
@@ -160,9 +188,40 @@ refuse to materialise a file that isn't in this list (preview-before-mutate):
   `docs/decisions/ADR-000-…md`, `docs/research/README.md`) — when the profile's
   `documentation.scaffold_types` declares them
 
-Pipe the plan through `bin/preview.sh --plan <file>`. Show the stderr preview to the user. If
-they respond with `skip <path>`, re-invoke with `--skip <path>` and reshow. If `no`, stop and
-exit.
+### 5a. Pre-render merge previews (v1.7.0+)
+
+Before invoking `preview.sh`, run `bin/render-plan.sh` so merge actions
+on `.gitignore` and `CLAUDE.md` carry a `preview_blob` field. Preview
+diffs against the current file and shows the operator the actual lines
+about to be added — no more "234 B merged" surprises.
+
+```
+bin/render-plan.sh \
+  --plan <plan.json> \
+  --target <repo> \
+  --profile <profile.json> \
+  --doc-plan <doc-plan.json> \
+  --stack <stack.json> \
+  --templates-csv "<inferred-from-stack>" \
+  --output <plan.rendered.json>
+```
+
+Determine `--templates-csv` from the StackDescriptor exactly the way
+`bootstrap.sh` does (jsts / python / go / rust / generic, plus
+secondary languages). Skip render-plan only when the plan has zero
+merge actions for the two covered paths — render-plan is a no-op in
+that case so it's safe to always call.
+
+The rendered plan supersedes the original for both preview and execute.
+Pass it as `--plan <plan.rendered.json>` from this point on.
+
+### 5b. Preview
+
+Pipe the rendered plan through `bin/preview.sh --plan <file> --target <repo>`.
+Pass `--target` so the merge-diff renderer resolves `.path` entries
+against the actual repo (not the caller's cwd). Show the stderr
+preview to the user. If they respond with `skip <path>`, re-invoke
+with `--skip <path>` and reshow. If `no`, stop and exit.
 
 ## 6. Execute
 

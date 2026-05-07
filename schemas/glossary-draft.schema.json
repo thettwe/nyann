@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/glossary-draft/v1.json",
+  "title": "GlossaryDraft",
+  "description": "Output of bin/scaffold-glossary.sh --json. Lists the exported types the detector found in the target repo, the languages it scanned, and bookkeeping counts. Consumed by scaffold-docs.sh / the bootstrap-project skill to write the auto block of docs/glossary.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "scanned_files", "total_candidates", "selected", "languages", "terms"],
+  "properties": {
+    "target": { "type": "string", "minLength": 1 },
+    "scanned_files": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of source files inspected. `git ls-files` constrains the set so untracked build artefacts don't inflate the count."
+    },
+    "total_candidates": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of distinct exported types detected before the max_terms cap was applied."
+    },
+    "selected": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of terms in `terms[]` after sorting by external reference count and truncating to `max_terms`."
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["go", "ts", "js", "python", "rust", "java", "kotlin", "swift"]
+      },
+      "uniqueItems": true,
+      "description": "Languages the detector actually walked (after resolving `auto` against the stack)."
+    },
+    "terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "language", "kind", "defined_in"],
+        "properties": {
+          "name":     { "type": "string", "minLength": 1 },
+          "language": { "type": "string", "enum": ["go", "ts", "js", "python", "rust", "java", "kotlin", "swift"] },
+          "kind": {
+            "type": "string",
+            "description": "Per-language declarator (struct, interface, type, class, enum, trait, protocol).",
+            "enum": ["struct", "interface", "type", "class", "enum", "trait", "protocol", "dataclass"]
+          },
+          "defined_in":   { "type": "string", "description": "Repo-relative path of the file where the type is declared." },
+          "used_in": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Repo-relative paths where the term is referenced outside its own definition file. Capped to a small head set to keep the draft compact."
+          },
+          "reference_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Total external references — drives the ranking that the cap applies to."
+          }
+        }
+      }
+    }
+  }
+}

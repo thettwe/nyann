@@ -349,6 +349,66 @@ nyann::url_encode_path() {
   printf '%s' "$s"
 }
 
+# --- Drift scope categories (v1.7.0) -----------------------------------------
+# Single source of truth for the names compute-drift / retrofit / doctor /
+# bootstrap accept on --scope. The list MUST match drift-report.schema.json's
+# `scope_applied[]` enum.
+#
+# nyann::scope_includes <category> <scope_csv>
+#   Returns 0 if <scope_csv> is empty, "all", or contains <category>.
+#   The empty-string case lets callers default the variable to "" and still
+#   get the all-categories pass-through without a separate sentinel.
+nyann::scope_includes() {
+  local cat="$1" scope="${2-}"
+  [[ -z "$scope" || "$scope" == "all" ]] && return 0
+  local IFS=','
+  local s
+  # shellcheck disable=SC2206  # intentional word-split on the CSV
+  local arr=($scope)
+  for s in "${arr[@]}"; do
+    [[ "$s" == "all" || "$s" == "$cat" ]] && return 0
+  done
+  return 1
+}
+
+# nyann::valid_scope_csv <csv>
+#   Returns 0 iff every comma-separated entry is a known category.
+#   Prints the FIRST offending entry (no newline) for the caller to surface.
+#   "all" is allowed alongside other categories — semantically redundant but
+#   harmless, and rejecting it would force callers to pre-strip.
+nyann::valid_scope_csv() {
+  local csv="${1-}"
+  [[ -z "$csv" ]] && { printf '<empty>'; return 1; }
+  local IFS=','
+  local s
+  # shellcheck disable=SC2206
+  local arr=($csv)
+  for s in "${arr[@]}"; do
+    case "$s" in
+      docs|hooks|branching|gitignore|editorconfig|github|history|all) ;;
+      *) printf '%s' "$s"; return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# nyann::canonical_scope <csv>
+#   Emits the canonical scope CSV: deduplicated, sorted, with "all"
+#   collapsed to "all" (any "all" entry overrides everything else).
+#   Used to normalize compute-drift's scope_applied[] output.
+nyann::canonical_scope() {
+  local csv="${1-all}"
+  [[ -z "$csv" ]] && csv="all"
+  local IFS=','
+  local s
+  # shellcheck disable=SC2206
+  local arr=($csv)
+  for s in "${arr[@]}"; do
+    [[ "$s" == "all" ]] && { printf 'all'; return 0; }
+  done
+  printf '%s\n' "${arr[@]}" | sort -u | paste -sd, -
+}
+
 # --- Archetype scaffold map (v1.6.0) -----------------------------------------
 # Single source of truth for the per-archetype Project Memory scaffold
 # set. Both bin/route-docs.sh (planner) and bin/scaffold-docs.sh

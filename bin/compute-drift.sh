@@ -18,6 +18,7 @@ nyann::require_cmd jq
 target=""
 profile_path=""
 commit_scan=20
+scope="all"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +28,8 @@ while [[ $# -gt 0 ]]; do
     --profile=*)     profile_path="${1#--profile=}"; shift ;;
     --commit-scan)   commit_scan="${2:-20}"; shift 2 ;;
     --commit-scan=*) commit_scan="${1#--commit-scan=}"; shift ;;
+    --scope)         scope="${2:-all}"; shift 2 ;;
+    --scope=*)       scope="${1#--scope=}"; shift ;;
     -h|--help)       sed -n '3,13p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
@@ -35,6 +38,15 @@ done
 [[ -n "$target" && -d "$target" ]] || nyann::die "--target <repo> is required and must be a directory"
 [[ -n "$profile_path" && -f "$profile_path" ]] || nyann::die "--profile <path> is required"
 target="$(cd "$target" && pwd)"
+
+# Validate --scope. Reject unknown categories up front so the operator
+# sees `unknown scope: dox` instead of a quietly-empty report. Categories
+# are namespaced to subsystems (compute-drift / retrofit / bootstrap all
+# read this same set via nyann::scope_includes).
+if ! _bad_scope=$(nyann::valid_scope_csv "$scope"); then
+  nyann::die "unknown scope: $_bad_scope (want any of: docs hooks branching gitignore editorconfig github history all)"
+fi
+scope_canonical=$(nyann::canonical_scope "$scope")
 
 # Install the cleanup trap up-front. _drift_tmpdir (parallel doc
 # subsystems) is created mid-script; a SIGINT/SIGTERM between creation
@@ -98,40 +110,48 @@ add_misconfigured() {
 
 # --- MISSING: expected files from profile.extras + hooks + docs --------------
 
-if [[ "$(jq -r '.extras.gitignore // false' <<<"$profile_json")" == "true" ]]; then
-  [[ -f "$target/.gitignore" ]] || add_missing "gitignore" ".gitignore" "profile.extras.gitignore=true but no .gitignore present"
+if nyann::scope_includes gitignore "$scope"; then
+  if [[ "$(jq -r '.extras.gitignore // false' <<<"$profile_json")" == "true" ]]; then
+    [[ -f "$target/.gitignore" ]] || add_missing "gitignore" ".gitignore" "profile.extras.gitignore=true but no .gitignore present"
+  fi
 fi
-if [[ "$(jq -r '.extras.claude_md // false' <<<"$profile_json")" == "true" ]]; then
-  [[ -f "$target/CLAUDE.md" ]] || add_missing "claude-md" "CLAUDE.md" "profile.extras.claude_md=true"
+if nyann::scope_includes docs "$scope"; then
+  if [[ "$(jq -r '.extras.claude_md // false' <<<"$profile_json")" == "true" ]]; then
+    [[ -f "$target/CLAUDE.md" ]] || add_missing "claude-md" "CLAUDE.md" "profile.extras.claude_md=true"
+  fi
 fi
-if [[ "$(jq -r '.extras.editorconfig // false' <<<"$profile_json")" == "true" ]]; then
-  [[ -f "$target/.editorconfig" ]] || add_missing "editorconfig" ".editorconfig" ""
+if nyann::scope_includes editorconfig "$scope"; then
+  if [[ "$(jq -r '.extras.editorconfig // false' <<<"$profile_json")" == "true" ]]; then
+    [[ -f "$target/.editorconfig" ]] || add_missing "editorconfig" ".editorconfig" ""
+  fi
 fi
 
 # Hook files: presence of eslint/prettier/commitlint in profile.hooks
 # implies Husky setup; presence of ruff/commitizen implies pre-commit.com.
 # Check for the managed hook files we write.
 hook_list=$(jq -r '[(.hooks.pre_commit // [])[], (.hooks.commit_msg // [])[]] | join(" ")' <<<"$profile_json")
-case "$hook_list" in
-  *eslint*|*prettier*|*commitlint*)
-    [[ -f "$target/.husky/pre-commit" ]] || add_missing "husky-hook" ".husky/pre-commit" "JS/TS profile expects husky pre-commit"
-    [[ -f "$target/.husky/commit-msg" ]] || add_missing "husky-hook" ".husky/commit-msg" "JS/TS profile expects husky commit-msg"
-    [[ -f "$target/commitlint.config.js" ]] || add_missing "commitlint" "commitlint.config.js" ""
-    ;;
-esac
-case "$hook_list" in
-  *ruff*|*commitizen*|*black*|*mypy*)
-    [[ -f "$target/.pre-commit-config.yaml" ]] || add_missing "pre-commit-config" ".pre-commit-config.yaml" "Python profile expects pre-commit.com config"
-    ;;
-esac
-# The core commit-msg / block-main / gitleaks apply regardless.
-case "$hook_list" in
-  *block-main*)
-    if [[ ! -f "$target/.husky/pre-commit" && ! -f "$target/.pre-commit-config.yaml" && ! -f "$target/.git/hooks/pre-commit" ]]; then
-      add_missing "core-hook" ".git/hooks/pre-commit" "no hook framework installed"
-    fi
-    ;;
-esac
+if nyann::scope_includes hooks "$scope"; then
+  case "$hook_list" in
+    *eslint*|*prettier*|*commitlint*)
+      [[ -f "$target/.husky/pre-commit" ]] || add_missing "husky-hook" ".husky/pre-commit" "JS/TS profile expects husky pre-commit"
+      [[ -f "$target/.husky/commit-msg" ]] || add_missing "husky-hook" ".husky/commit-msg" "JS/TS profile expects husky commit-msg"
+      [[ -f "$target/commitlint.config.js" ]] || add_missing "commitlint" "commitlint.config.js" ""
+      ;;
+  esac
+  case "$hook_list" in
+    *ruff*|*commitizen*|*black*|*mypy*)
+      [[ -f "$target/.pre-commit-config.yaml" ]] || add_missing "pre-commit-config" ".pre-commit-config.yaml" "Python profile expects pre-commit.com config"
+      ;;
+  esac
+  # The core commit-msg / block-main / gitleaks apply regardless.
+  case "$hook_list" in
+    *block-main*)
+      if [[ ! -f "$target/.husky/pre-commit" && ! -f "$target/.pre-commit-config.yaml" && ! -f "$target/.git/hooks/pre-commit" ]]; then
+        add_missing "core-hook" ".git/hooks/pre-commit" "no hook framework installed"
+      fi
+      ;;
+  esac
+fi
 
 # Doc scaffolding: check documentation.scaffold_types AND, when the
 # profile opts into archetype-aware scaffolding, the per-archetype
@@ -156,33 +176,37 @@ else
   expected_types_json=$(jq '.documentation.scaffold_types // []' <<<"$profile_json")
 fi
 
-while IFS= read -r t; do
-  [[ -z "$t" ]] && continue
-  case "$t" in
-    architecture)  [[ -f "$target/docs/architecture.md" ]]  || add_missing "doc" "docs/architecture.md"  "profile scaffolds architecture" ;;
-    prd)           [[ -f "$target/docs/prd.md" ]]           || add_missing "doc" "docs/prd.md"           "profile scaffolds prd" ;;
-    adrs)          [[ -f "$target/docs/decisions/ADR-000-record-architecture-decisions.md" ]] || add_missing "doc" "docs/decisions/ADR-000-record-architecture-decisions.md" "profile scaffolds ADRs" ;;
-    research)      [[ -d "$target/docs/research" ]]         || add_missing "doc" "docs/research"         "profile scaffolds research" ;;
-    api_reference) [[ -f "$target/docs/api-reference.md" ]] || add_missing "doc" "docs/api-reference.md" "archetype scaffolds api-reference" ;;
-    runbook)       [[ -f "$target/docs/runbook.md" ]]       || add_missing "doc" "docs/runbook.md"       "archetype scaffolds runbook" ;;
-    deployment)    [[ -f "$target/docs/deployment.md" ]]    || add_missing "doc" "docs/deployment.md"    "archetype scaffolds deployment" ;;
-    glossary)      [[ -f "$target/docs/glossary.md" ]]      || add_missing "doc" "docs/glossary.md"      "archetype scaffolds glossary" ;;
-  esac
-done < <(jq -r '.[]?' <<<"$expected_types_json")
-
-# CI workflow: detect missing .github/workflows/ci.yml when profile.ci.enabled=true
-if [[ "$(jq -r '.ci.enabled // false' <<<"$profile_json")" == "true" ]]; then
-  [[ -f "$target/.github/workflows/ci.yml" ]] || add_missing "ci-workflow" ".github/workflows/ci.yml" "profile.ci.enabled=true but no CI workflow present"
+if nyann::scope_includes docs "$scope"; then
+  while IFS= read -r t; do
+    [[ -z "$t" ]] && continue
+    case "$t" in
+      architecture)  [[ -f "$target/docs/architecture.md" ]]  || add_missing "doc" "docs/architecture.md"  "profile scaffolds architecture" ;;
+      prd)           [[ -f "$target/docs/prd.md" ]]           || add_missing "doc" "docs/prd.md"           "profile scaffolds prd" ;;
+      adrs)          [[ -f "$target/docs/decisions/ADR-000-record-architecture-decisions.md" ]] || add_missing "doc" "docs/decisions/ADR-000-record-architecture-decisions.md" "profile scaffolds ADRs" ;;
+      research)      [[ -d "$target/docs/research" ]]         || add_missing "doc" "docs/research"         "profile scaffolds research" ;;
+      api_reference) [[ -f "$target/docs/api-reference.md" ]] || add_missing "doc" "docs/api-reference.md" "archetype scaffolds api-reference" ;;
+      runbook)       [[ -f "$target/docs/runbook.md" ]]       || add_missing "doc" "docs/runbook.md"       "archetype scaffolds runbook" ;;
+      deployment)    [[ -f "$target/docs/deployment.md" ]]    || add_missing "doc" "docs/deployment.md"    "archetype scaffolds deployment" ;;
+      glossary)      [[ -f "$target/docs/glossary.md" ]]      || add_missing "doc" "docs/glossary.md"      "archetype scaffolds glossary" ;;
+    esac
+  done < <(jq -r '.[]?' <<<"$expected_types_json")
 fi
 
-# GitHub templates: detect missing PR template when profile.extras.github_templates=true
-if [[ "$(jq -r '.extras.github_templates // false' <<<"$profile_json")" == "true" ]]; then
-  [[ -f "$target/.github/PULL_REQUEST_TEMPLATE.md" ]] || add_missing "pr-template" ".github/PULL_REQUEST_TEMPLATE.md" "profile.extras.github_templates=true"
+if nyann::scope_includes github "$scope"; then
+  # CI workflow: detect missing .github/workflows/ci.yml when profile.ci.enabled=true
+  if [[ "$(jq -r '.ci.enabled // false' <<<"$profile_json")" == "true" ]]; then
+    [[ -f "$target/.github/workflows/ci.yml" ]] || add_missing "ci-workflow" ".github/workflows/ci.yml" "profile.ci.enabled=true but no CI workflow present"
+  fi
+
+  # GitHub templates: detect missing PR template when profile.extras.github_templates=true
+  if [[ "$(jq -r '.extras.github_templates // false' <<<"$profile_json")" == "true" ]]; then
+    [[ -f "$target/.github/PULL_REQUEST_TEMPLATE.md" ]] || add_missing "pr-template" ".github/PULL_REQUEST_TEMPLATE.md" "profile.extras.github_templates=true"
+  fi
 fi
 
 # --- MISCONFIGURED: files present but content short of expectations ---------
 
-if [[ -f "$target/.gitignore" ]]; then
+if nyann::scope_includes gitignore "$scope" && [[ -f "$target/.gitignore" ]]; then
   # Infer expected entries from stack heuristically:
   # - JS/TS projects expect node_modules/, .next/, dist/, coverage/, .env*.
   # - Python expects .venv/, __pycache__/, .pytest_cache/.
@@ -239,7 +263,7 @@ fi
 
 # Base/long-lived branches from profile.branching. Branch names can legitimately
 # contain `/` and `-`; `while read` preserves them exactly (vs. word-splitting).
-if [[ -d "$target/.git" ]]; then
+if nyann::scope_includes branching "$scope" && [[ -d "$target/.git" ]]; then
   while IFS= read -r b; do
     [[ -z "$b" ]] && continue
     if ! git -C "$target" rev-parse --verify "$b" >/dev/null 2>&1; then
@@ -257,7 +281,9 @@ fi
 
 cc_regex='^(feat|fix|chore|docs|refactor|test|perf|ci|build|style|revert)(\([^)]+\))?!?: .+'
 checked=0
-if [[ -d "$target/.git" ]] && git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1; then
+if nyann::scope_includes history "$scope" \
+   && [[ -d "$target/.git" ]] \
+   && git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1; then
   # Skip merge/revert autogenerated subjects.
   while IFS= read -r sha && IFS= read -r subject; do
     checked=$((checked + 1))
@@ -288,35 +314,62 @@ n_off=$(jq 'length' <<<"$offenders_json")
 _drift_tmpdir=$(mktemp -d -t nyann-driftsubs.XXXXXX)
 
 _subsys_names=(check-claude-md-size check-links find-orphans check-staleness)
+# Failure fallbacks (subsystem ran, returned non-zero). Used when the
+# subsystem is in scope but errored.
 _subsys_fallbacks=(
   '{"status":"absent","bytes":0,"budget_bytes":3072}'
   '{"checked":0,"broken":[],"needs_mcp_verify":[],"skipped":[]}'
   '{"scanned":0,"orphans":[]}'
   '{"enabled":false,"threshold_days":null,"scanned":0,"stale":[]}'
 )
-for i in 0 1 2 3; do
-  (
+# Out-of-scope fallbacks (subsystem deliberately not run). Distinct
+# `status:"skipped"` lets retrofit/doctor avoid double-counting
+# "we didn't check this" as drift, so a clean `--scope hooks` run
+# can exit 0 on a repo that lacks CLAUDE.md.
+_subsys_skipped_fallbacks=(
+  '{"status":"skipped","bytes":0,"budget_bytes":3072}'
+  '{"checked":0,"broken":[],"needs_mcp_verify":[],"skipped":[]}'
+  '{"scanned":0,"orphans":[]}'
+  '{"enabled":false,"threshold_days":null,"scanned":0,"stale":[]}'
+)
+# When `docs` is out of scope we still emit the same field shapes (the
+# DriftReport schema doesn't allow them to be absent), but we use the
+# fallback payloads directly instead of forking four subsystems we'd
+# discard the output of. Saves ~50ms on a typical retrofit --scope=hooks.
+if nyann::scope_includes docs "$scope"; then
+  for i in 0 1 2 3; do
+    (
+      name="${_subsys_names[$i]}"
+      out_f="$_drift_tmpdir/${name}.out"
+      err_f="$_drift_tmpdir/${name}.err"
+      case "$name" in
+        check-claude-md-size) cmd=("${_script_dir}/check-claude-md-size.sh" --target "$target" --profile "$profile_path") ;;
+        check-links)          cmd=("${_script_dir}/check-links.sh" --target "$target") ;;
+        find-orphans)         cmd=("${_script_dir}/find-orphans.sh" --target "$target") ;;
+        check-staleness)      cmd=("${_script_dir}/check-staleness.sh" --target "$target" --profile "$profile_path") ;;
+      esac
+      if "${cmd[@]}" >"$out_f" 2>"$err_f"; then
+        :
+      else
+        printf '%s' "${_subsys_fallbacks[$i]}" > "$out_f"
+        err_text=$(head -c 500 "$err_f" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+        [[ -z "$err_text" ]] && err_text="subsystem exited non-zero with no stderr output"
+        jq -nc --arg n "$name" --arg e "$err_text" '{subsystem:$n, error:$e}' \
+          > "$_drift_tmpdir/${name}.errrec"
+      fi
+    ) &
+  done
+  wait
+else
+  for i in 0 1 2 3; do
     name="${_subsys_names[$i]}"
-    out_f="$_drift_tmpdir/${name}.out"
-    err_f="$_drift_tmpdir/${name}.err"
-    case "$name" in
-      check-claude-md-size) cmd=("${_script_dir}/check-claude-md-size.sh" --target "$target" --profile "$profile_path") ;;
-      check-links)          cmd=("${_script_dir}/check-links.sh" --target "$target") ;;
-      find-orphans)         cmd=("${_script_dir}/find-orphans.sh" --target "$target") ;;
-      check-staleness)      cmd=("${_script_dir}/check-staleness.sh" --target "$target" --profile "$profile_path") ;;
-    esac
-    if "${cmd[@]}" >"$out_f" 2>"$err_f"; then
-      :
-    else
-      printf '%s' "${_subsys_fallbacks[$i]}" > "$out_f"
-      err_text=$(head -c 500 "$err_f" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
-      [[ -z "$err_text" ]] && err_text="subsystem exited non-zero with no stderr output"
-      jq -nc --arg n "$name" --arg e "$err_text" '{subsystem:$n, error:$e}' \
-        > "$_drift_tmpdir/${name}.errrec"
-    fi
-  ) &
-done
-wait
+    # When docs is out of scope, mark the CLAUDE.md slot `skipped`
+    # rather than `absent` so downstream exit-code logic can tell
+    # "we didn't run this check" from "we ran it and the file is
+    # missing". The latter is real drift; the former is not.
+    printf '%s' "${_subsys_skipped_fallbacks[$i]}" > "$_drift_tmpdir/${name}.out"
+  done
+fi
 
 claude_md_json=$(<"$_drift_tmpdir/check-claude-md-size.out")
 links_json=$(<"$_drift_tmpdir/check-links.out")
@@ -338,6 +391,15 @@ if [[ ${#_errrec_files[@]} -gt 0 ]]; then
 fi
 n_subsys_errs=$(jq 'length' <<<"$subsystem_errors_json")
 
+# Build scope_applied[] from the canonical CSV. "all" expands to the
+# full list so consumers (doctor-ci, health-trend, retrofit) don't have
+# to re-derive what "all" means; what they see is what was checked.
+if [[ "$scope_canonical" == "all" ]]; then
+  scope_applied_json='["docs","hooks","branching","gitignore","editorconfig","github","history"]'
+else
+  scope_applied_json=$(printf '%s' "$scope_canonical" | jq -Rc 'split(",")')
+fi
+
 jq -n \
   --arg target "$target" \
   --arg profile "$profile_name" \
@@ -350,6 +412,7 @@ jq -n \
   --argjson orphans "$orphans_json" \
   --argjson staleness "$staleness_json" \
   --argjson subsys_errors "$subsystem_errors_json" \
+  --argjson scope_applied "$scope_applied_json" \
   --argjson n_missing "$n_missing" \
   --argjson n_mis "$n_mis" \
   --argjson n_off "$n_off" \
@@ -361,6 +424,7 @@ jq -n \
   '{
     target: $target,
     profile: $profile,
+    scope_applied: $scope_applied,
     missing: $missing,
     misconfigured: $misconfigured,
     non_compliant_history: { checked: $checked, offenders: $offenders },

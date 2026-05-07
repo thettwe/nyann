@@ -29,6 +29,9 @@ stack_path=""
 project_name=""
 target_root="$PWD"
 template_root="${_script_dir}/../templates"
+auto_glossary=false
+glossary_max_terms=50
+glossary_languages="auto"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,6 +45,11 @@ while [[ $# -gt 0 ]]; do
     --target=*)        target_root="${1#--target=}"; shift ;;
     --template-root)   template_root="${2:-}"; shift 2 ;;
     --template-root=*) template_root="${1#--template-root=}"; shift ;;
+    --auto-glossary)   auto_glossary=true; shift ;;
+    --glossary-max-terms)   glossary_max_terms="${2:-50}"; shift 2 ;;
+    --glossary-max-terms=*) glossary_max_terms="${1#--glossary-max-terms=}"; shift ;;
+    --glossary-languages)   glossary_languages="${2:-auto}"; shift 2 ;;
+    --glossary-languages=*) glossary_languages="${1#--glossary-languages=}"; shift ;;
     -h|--help)
       sed -n '3,18p' "${BASH_SOURCE[0]}"
       exit 0
@@ -305,6 +313,15 @@ fi
 if [[ "$(target_type glossary)" == "local" ]]; then
   write_if_missing "$template_root/docs/glossary.tmpl" \
     "$(safe_target_path glossary)" "glossary"
+  # v1.7.0: when the profile opts in via documentation.glossary.auto_populate,
+  # seed (or refresh) the auto block with detected exported types.
+  if $auto_glossary; then
+    "${_script_dir}/scaffold-glossary.sh" \
+      --target "$target_root" \
+      --max-terms "$glossary_max_terms" \
+      --languages "$glossary_languages" \
+      || nyann::warn "scaffold-glossary failed; the template seed remains in place"
+  fi
 fi
 
 # memory — always local by invariant

@@ -26,11 +26,11 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (43)
+## Schemas in this directory (45)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
-| `action-plan.schema.json` | composed by skills + `bin/preview.sh` | `bin/bootstrap.sh` |
+| `action-plan.schema.json` | composed by skills + `bin/preview.sh` (+ `bin/render-plan.sh`) | `bin/bootstrap.sh` |
 | `branching-choice.schema.json` | `bin/recommend-branch.sh` | `bin/bootstrap.sh`, skill layer |
 | `claudemd-analysis.schema.json` | `bin/analyze-claudemd-usage.sh` | `bin/optimize-claudemd.sh`, `skills/optimize-claudemd/SKILL.md` |
 | `claudemd-size-report.schema.json` | `bin/check-claude-md-size.sh` | `bin/compute-drift.sh` |
@@ -43,6 +43,7 @@ identifier consumers can pin against.
 | `documentation-plan.schema.json` | `bin/route-docs.sh` | `bin/bootstrap.sh`, `bin/scaffold-docs.sh` |
 | `drift-report.schema.json` | `bin/compute-drift.sh` | `bin/retrofit.sh`, `bin/doctor.sh`, `bin/session-check.sh` |
 | `gh-integration-result.schema.json` | `bin/gh-integration.sh` | `bin/bootstrap.sh`, `bin/retrofit.sh`, skill layer |
+| `glossary-draft.schema.json` | `bin/scaffold-glossary.sh --json` | `bin/scaffold-docs.sh`, skill layer |
 | `governance-ci-result.schema.json` | `bin/doctor-ci.sh` | governance-check workflow, `skills/gen-ci/SKILL.md` |
 | `health-score.schema.json` | `bin/compute-health-score.sh` | `bin/persist-health-score.sh`, `bin/doctor.sh` |
 | `health-trend.schema.json` | `bin/health-trend.sh` | `skills/doctor/SKILL.md` |
@@ -54,6 +55,7 @@ identifier consumers can pin against.
 | `orphan-report.schema.json` | `bin/find-orphans.sh` | `bin/compute-drift.sh` |
 | `pr-result.schema.json` | `bin/pr.sh` | `skills/pr/SKILL.md` |
 | `preferences.schema.json` | written by `bin/setup.sh` | `bin/session-check.sh`, etc. |
+| `preview-result.schema.json` | `bin/preview.sh --json` | tooling consumers; future `bin/undo-bootstrap.sh` |
 | `pr-checks-result.schema.json` | `bin/wait-for-pr-checks.sh` | `skills/wait-for-pr-checks/SKILL.md`, `bin/release.sh --wait-for-checks`, `bin/ship.sh` |
 | `prereqs-report.schema.json` | `bin/check-prereqs.sh --json` | `skills/check-prereqs/SKILL.md`, `bin/setup.sh` |
 | `profile-diff.schema.json` | `bin/diff-profile.sh` | `skills/diff-profile/SKILL.md` |

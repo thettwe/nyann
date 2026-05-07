@@ -52,6 +52,58 @@ mode renders the report AND offers remediation guidance.
 
 Pass `--json` only if the user explicitly asks for machine-readable output.
 
+### 3a. Narrow scope (v1.7.0+)
+
+If the user said something like "only fix the docs drift", "leave my
+hooks alone", "just the gitignore", or otherwise wants to remediate
+one part of the audit without touching others, pass `--scope <csv>`
+to retrofit:
+
+| User intent | `--scope` |
+|---|---|
+| "fix only the docs" | `docs` |
+| "fix hooks but leave docs alone" | `hooks` |
+| "fix the gitignore" | `gitignore` |
+| "fix only docs and hooks" | `docs,hooks` |
+| "fix the github protection settings" | `github` |
+| "fix everything" / unstated | omit (default `all`) |
+
+The accepted categories are `docs`, `hooks`, `branching`, `gitignore`,
+`editorconfig`, `github`, `history`, `all`. Unknown values exit
+non-zero; surface the error to the user verbatim.
+
+When the report covers fewer than the full 7 categories, the rendered
+text adds a `Scope: <csv>` line under the heading. The remediation
+plan in step 5 uses the same `--scope` so that bootstrap only writes
+the matching files.
+
+### 3b. Multi-category prompt (when scope is unstated)
+
+If the user did NOT specify a scope AND the resulting report shows
+drift in more than one category, prompt before remediation:
+
+```json
+{
+  "questions": [{
+    "question": "Drift detected across multiple categories. Which to fix?",
+    "header": "Scope",
+    "multiSelect": true,
+    "options": [
+      {"label": "Docs",        "description": "CLAUDE.md size, doc scaffolds, links, orphans, staleness"},
+      {"label": "Hooks",       "description": "Husky, commitlint, pre-commit.com, core hooks"},
+      {"label": "Gitignore",   "description": "Missing stack-typical entries"},
+      {"label": "Branching",   "description": "Profile-declared base/long-lived branches"},
+      {"label": "GitHub",      "description": "CI workflow, PR template, branch + tag protection"},
+      {"label": "Editorconfig","description": ".editorconfig presence"},
+      {"label": "All",         "description": "Apply every remediation"}
+    ]
+  }]
+}
+```
+
+Map the labels back to the `--scope` value: e.g. {Docs, Hooks} →
+`docs,hooks`. If the user picks "All", omit the flag.
+
 ## 4. Interpret the exit code
 
 | Code | Meaning | What to do |
@@ -90,10 +142,19 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    `/nyann:migrate-profile` or set `use_archetype_scaffolds: true`
    in your profile to opt in."
 
-3. **Preview** the plan via `bin/preview.sh --plan <file>`. Show the user
+3. **Render merge previews** via `bin/render-plan.sh --plan <plan.json>
+   --target <cwd> --profile <profile.json> --doc-plan <doc-plan.json>
+   --templates-csv <jsts|python|...> --output <plan.rendered.json>`
+   so `preview.sh` can diff `.gitignore` and `CLAUDE.md` merges against
+   the current files. Skip render-plan only when neither path appears
+   as a merge action in the plan.
+
+4. **Preview** the rendered plan via `bin/preview.sh --plan <plan.rendered.json>
+   --target <cwd>`. Pass `--target` so the merge-diff renderer
+   resolves `.path` entries against the actual repo. Show the user
    what will be created/merged. Respect skip requests.
 
-4. **Execute** via `bin/bootstrap.sh`. Capture the plan SHA-256 first
+5. **Execute** via `bin/bootstrap.sh`. Capture the plan SHA-256 first
    via `bin/preview.sh --emit-sha256`,
    then pass it through as `--plan-sha256` so bootstrap can verify the
    plan bytes haven't changed between the user's confirmation and
@@ -112,7 +173,7 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    Bootstrap is idempotent — existing user content is preserved, hooks are
    merged (not overwritten), gitignore entries are deduplicated.
 
-5. **Re-run doctor** after remediation to confirm the drift is resolved.
+6. **Re-run doctor** after remediation to confirm the drift is resolved.
    Show the before/after delta.
 
 ## 6. What retrofit does NOT do

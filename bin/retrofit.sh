@@ -5,6 +5,7 @@
 #   retrofit.sh --target <repo> --profile <name>
 #               [--report-only]   # skip the remediation prompt (doctor mode)
 #               [--json]          # emit DriftReport JSON on stdout (for wraps)
+#               [--scope <csv>]   # narrow drift to one or more categories
 #
 # Behavior:
 #   1. Call bin/compute-drift.sh for the DriftReport.
@@ -15,6 +16,12 @@
 #
 # --json makes the script print the DriftReport to stdout without the
 # human-readable text and without the remediation prompt. Used by doctor.sh.
+#
+# --scope <csv> narrows compute-drift to one or more categories (any of
+# docs, hooks, branching, gitignore, editorconfig, github, history, all).
+# Default is "all" — every subsystem runs and the report is the full picture.
+# When scope is narrower, the report's scope_applied[] reflects what was
+# checked, and the rendered sections suppress categories that weren't run.
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./_lib.sh
@@ -26,6 +33,7 @@ target=""
 profile_name=""
 report_only=false
 json_out=false
+scope="all"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,7 +43,9 @@ while [[ $# -gt 0 ]]; do
     --profile=*)   profile_name="${1#--profile=}"; shift ;;
     --report-only) report_only=true; shift ;;
     --json)        json_out=true; report_only=true; shift ;;
-    -h|--help)     sed -n '3,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --scope)       scope="${2:-all}"; shift 2 ;;
+    --scope=*)     scope="${1#--scope=}"; shift ;;
+    -h|--help)     sed -n '3,28p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
@@ -43,6 +53,10 @@ done
 [[ -n "$target" && -d "$target" ]] || nyann::die "--target <repo> is required and must be a directory"
 [[ -n "$profile_name" ]] || nyann::die "--profile <name> is required"
 target="$(cd "$target" && pwd)"
+
+if ! _bad_scope=$(nyann::valid_scope_csv "$scope"); then
+  nyann::die "unknown scope: $_bad_scope (want any of: docs hooks branching gitignore editorconfig github history all)"
+fi
 
 # Resolve profile via load-profile.sh so user overrides work.
 # Cover both temp files in one EXIT trap so a non-zero exit from
@@ -53,7 +67,7 @@ trap 'rm -f "$load_err" "$tmp_profile"' EXIT
 "${_script_dir}/load-profile.sh" "$profile_name" > "$tmp_profile" 2>"$load_err" \
   || { cat "$load_err" >&2; exit 1; }
 
-report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile")
+report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile" --scope "$scope")
 
 n_missing=$(jq '.summary.missing' <<<"$report")
 n_mis=$(jq '.summary.misconfigured' <<<"$report")
@@ -68,8 +82,28 @@ n_subsys_errs=$(jq '.summary.subsystem_errors // 0' <<<"$report")
 claude_md_status=$(jq -r '.summary.claude_md_status' <<<"$report")
 
 render_report() {
+  # Categories actually checked. When narrower than the canonical 7,
+  # callers see the suppressed sections collapsed to a single line so
+  # the rendered report doesn't dishonestly claim "(none)" for things
+  # we never looked at.
+  scope_applied=$(jq -r '(.scope_applied // []) | join(",")' <<<"$report")
+  scope_full=false
+  if [[ -z "$scope_applied" ]] || \
+     [[ "$(jq -r '.scope_applied // [] | length' <<<"$report")" == "7" ]]; then
+    scope_full=true
+  fi
+  in_scope() {
+    case ",${scope_applied}," in
+      *",$1,"*) return 0 ;;
+      *)        return 1 ;;
+    esac
+  }
   {
-    printf '\nDrift vs. profile %q (target: %s)\n\n' "$profile_name" "$target"
+    printf '\nDrift vs. profile %q (target: %s)' "$profile_name" "$target"
+    if ! $scope_full; then
+      printf '\nScope: %s' "$scope_applied"
+    fi
+    printf '\n\n'
     printf 'MISSING:\n'
     if [[ "$n_missing" == "0" ]]; then
       printf '  (none)\n'
@@ -84,14 +118,17 @@ render_report() {
         "  ⚠ " + .path + " — " + .reason +
         ( if .missing_entries then " (missing: " + (.missing_entries | join(", ")) + ")" else "" end )' <<<"$report"
     fi
-    printf '\nNON-COMPLIANT HISTORY (last %s commits):\n' "$(jq -r '.non_compliant_history.checked' <<<"$report")"
-    if [[ "$n_off" == "0" ]]; then
-      printf '  (none — informational only; history rewrites are out of scope)\n'
-    else
-      jq -r '.non_compliant_history.offenders[] | "  ⚠ " + .sha + "  " + .subject' <<<"$report"
-      printf '  (%s commit(s) above — informational only; history rewrites are out of scope)\n' "$n_off"
+    if in_scope history; then
+      printf '\nNON-COMPLIANT HISTORY (last %s commits):\n' "$(jq -r '.non_compliant_history.checked' <<<"$report")"
+      if [[ "$n_off" == "0" ]]; then
+        printf '  (none — informational only; history rewrites are out of scope)\n'
+      else
+        jq -r '.non_compliant_history.offenders[] | "  ⚠ " + .sha + "  " + .subject' <<<"$report"
+        printf '  (%s commit(s) above — informational only; history rewrites are out of scope)\n' "$n_off"
+      fi
     fi
 
+    if in_scope docs; then
     printf '\nDOCUMENTATION:\n'
     # CLAUDE.md size budget
     case "$claude_md_status" in
@@ -104,7 +141,8 @@ render_report() {
       error)  printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
                 "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
-      absent) printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      absent)  printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      skipped) printf '  ⊘ CLAUDE.md not checked (docs scope excluded)\n' ;;
     esac
 
     # Internal link check
@@ -150,6 +188,7 @@ render_report() {
       printf '  ⚠ %s doc-check subsystem(s) failed to execute; results may be incomplete:\n' "$n_subsys_errs"
       jq -r '.documentation.subsystem_errors[] | "      - " + .subsystem + ": " + .error' <<<"$report"
     fi
+    fi  # in_scope docs
 
     printf '\n'
   } >&2
@@ -182,6 +221,9 @@ has_warn=false
 # the target repo itself; the operator needs to know the checker was
 # unable to answer the question.
 (( n_subsys_errs > 0 )) && has_warn=true
+# `skipped` means "docs scope was excluded — we never ran this check",
+# distinct from `absent` (we ran it, the file is missing). Only the
+# latter contributes to has_warn.
 [[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
 
 if ! $has_critical && ! $has_warn; then

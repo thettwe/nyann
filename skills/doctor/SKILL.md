@@ -33,7 +33,7 @@ right one without pestering the user:
 ## 2. Invoke
 
 ```
-bin/doctor.sh --target <cwd> --profile <name> [--json]
+bin/doctor.sh --target <cwd> --profile <name> [--json] [--scope <csv>]
 ```
 
 `--profile` takes a **bare profile name** (e.g. `python-cli`, `nextjs-prototype`),
@@ -41,6 +41,14 @@ not a filesystem path. The script resolves the name to the profile JSON internal
 
 Pass `--json` when the user says "machine-readable", "as JSON",
 "pipe this", or similar — otherwise emit the human-readable report.
+
+Pass `--scope <csv>` when the user wants to inspect only a subset of
+the audit — e.g. "just check my docs", "are my hooks healthy". Accepts
+any of `docs`, `hooks`, `branching`, `gitignore`, `editorconfig`,
+`github`, `history`, `all`, comma-separated. When narrower than `all`,
+the rendered output gains a `Scope: <csv>` line and `--persist` is
+auto-disabled (a partial-scope health score would corrupt the trend
+series in `memory/health.json`).
 
 ## 3. Interpret the exit code
 

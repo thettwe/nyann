@@ -408,6 +408,34 @@
             "orphans":               { "type": "boolean" },
             "staleness":             { "type": "boolean" }
           }
+        },
+        "glossary": {
+          "$comment": "v1.7.0 — glossary auto-population. When auto_populate is true AND scaffold_types includes glossary (or archetype scaffolds emit it), bin/scaffold-glossary.sh seeds docs/glossary.md from detected exported types in the codebase. The detected block lives between <!-- nyann:glossary:auto-start --> and <!-- nyann:glossary:auto-end --> markers and is regenerated idempotently; user content outside the markers is preserved.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "auto_populate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Opt-in. Default false to preserve v1.6.0 behaviour."
+            },
+            "max_terms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50,
+              "description": "Cap on auto-detected terms. Detector picks the top N by external reference count so the glossary stays bounded per the size-budgeted Project Memory property."
+            },
+            "languages": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["auto", "go", "ts", "js", "python", "rust", "java", "kotlin", "swift"]
+              },
+              "default": ["auto"],
+              "description": "Restrict detection to specific languages. \"auto\" lets the detector use the StackDescriptor's primary + secondary languages."
+            }
+          }
         }
       }
     }

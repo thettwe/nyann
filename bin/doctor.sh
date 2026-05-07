@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # doctor.sh — read-only hygiene audit.
 #
-# Usage: doctor.sh --target <repo> --profile <name> [--json] [--persist]
+# Usage: doctor.sh --target <repo> --profile <name>
+#                  [--json] [--persist] [--scope <csv>]
 #
 # Wraps bin/retrofit.sh --report-only so hygiene + profile-compliance
 # output is always identical between doctor and retrofit. doctor is the
 # read-only path: same analysis, never offers remediation, never writes
 # to the filesystem.
+#
+# --scope narrows the audit to one or more categories (any of docs,
+# hooks, branching, gitignore, editorconfig, github, history, all).
+# Default "all". When scope is narrower the health-score persist step
+# is silently skipped — a partial-scope score would corrupt the trend
+# series in memory/health.json.
 #
 # --persist (off by default) opts the user into recording the computed
 # health score to memory/health.json so trend deltas show up on
@@ -36,6 +43,7 @@ target=""
 profile_name=""
 json_out=false
 persist=false
+scope="all"
 gh_bin="gh"
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +54,8 @@ while [[ $# -gt 0 ]]; do
     --profile=*) profile_name="${1#--profile=}"; shift ;;
     --json)      json_out=true; shift ;;
     --persist)   persist=true; shift ;;
+    --scope)     scope="${2:-all}"; shift 2 ;;
+    --scope=*)   scope="${1#--scope=}"; shift ;;
     --gh)        gh_bin="${2:-}"; shift 2 ;;
     --gh=*)      gh_bin="${1#--gh=}"; shift ;;
     -h|--help)   sed -n '3,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -55,6 +65,23 @@ done
 
 [[ -n "$target" && -d "$target" ]] || nyann::die "--target <repo> is required and must be a directory"
 [[ -n "$profile_name" ]] || nyann::die "--profile <name> is required"
+
+if ! _bad_scope=$(nyann::valid_scope_csv "$scope"); then
+  nyann::die "unknown scope: $_bad_scope (want any of: docs hooks branching gitignore editorconfig github history all)"
+fi
+
+# Narrow scopes skip persist — a partial score would poison the trend
+# series. Operators can re-run with default --scope=all to refresh.
+scope_full=true
+if [[ "$scope" != "all" ]]; then
+  if [[ "$(nyann::canonical_scope "$scope")" != "all" ]]; then
+    scope_full=false
+  fi
+fi
+if $persist && ! $scope_full; then
+  nyann::warn "--scope is narrower than 'all'; skipping --persist (would corrupt trend series)"
+  persist=false
+fi
 
 # --- Load profile ONCE -------------------------------------------------------
 # Previously load-profile.sh ran separately to extract stale_days, then
@@ -103,7 +130,7 @@ sb_stale=$(jq -r '.summary.stale_count // 0' <<<"$stale_branches_json")
 retro_rc=0
 
 if $json_out; then
-  retro_output=$("${_script_dir}/retrofit.sh" --target "$target" --profile "$profile_name" --json) || retro_rc=$?
+  retro_output=$("${_script_dir}/retrofit.sh" --target "$target" --profile "$profile_name" --scope "$scope" --json) || retro_rc=$?
   score_json=$(printf '%s\n' "$retro_output" | "${_script_dir}/compute-health-score.sh" 2>/dev/null || echo '{"score":0,"breakdown":{}}')
 
   if $persist; then
@@ -120,7 +147,7 @@ if $json_out; then
     '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb }'
 else
   # Single compute-drift call replaces two retrofit.sh calls.
-  report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile") \
+  report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile" --scope "$scope") \
     || retro_rc=$?
 
   # Validate the report shape before parsing. compute-drift can fail
@@ -149,9 +176,29 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
     ] | @tsv' <<<"$report"
   )
 
+  # Determine which scope categories the report covered. Identical to
+  # retrofit.sh's render_report logic; kept inline since the two
+  # renderers are intentional duplicates of each other for now.
+  scope_applied=$(jq -r '(.scope_applied // []) | join(",")' <<<"$report")
+  scope_full_render=false
+  if [[ -z "$scope_applied" ]] || \
+     [[ "$(jq -r '.scope_applied // [] | length' <<<"$report")" == "7" ]]; then
+    scope_full_render=true
+  fi
+  in_scope() {
+    case ",${scope_applied}," in
+      *",$1,"*) return 0 ;;
+      *)        return 1 ;;
+    esac
+  }
+
   # Render text report (mirrors retrofit.sh render_report).
   {
-    printf '\nDrift vs. profile %q (target: %s)\n\n' "$profile_name" "$target"
+    printf '\nDrift vs. profile %q (target: %s)' "$profile_name" "$target"
+    if ! $scope_full_render; then
+      printf '\nScope: %s' "$scope_applied"
+    fi
+    printf '\n\n'
     printf 'MISSING:\n'
     if [[ "$n_missing" == "0" ]]; then
       printf '  (none)\n'
@@ -166,26 +213,30 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
         "  ⚠ " + .path + " — " + .reason +
         ( if .missing_entries then " (missing: " + (.missing_entries | join(", ")) + ")" else "" end )' <<<"$report"
     fi
-    printf '\nNON-COMPLIANT HISTORY (last %s commits):\n' "$(jq -r '.non_compliant_history.checked' <<<"$report")"
-    if [[ "$n_off" == "0" ]]; then
-      printf '  (none — informational only; history rewrites are out of scope)\n'
-    else
-      jq -r '.non_compliant_history.offenders[] | "  ⚠ " + .sha + "  " + .subject' <<<"$report"
-      printf '  (%s commit(s) above — informational only; history rewrites are out of scope)\n' "$n_off"
+    if in_scope history; then
+      printf '\nNON-COMPLIANT HISTORY (last %s commits):\n' "$(jq -r '.non_compliant_history.checked' <<<"$report")"
+      if [[ "$n_off" == "0" ]]; then
+        printf '  (none — informational only; history rewrites are out of scope)\n'
+      else
+        jq -r '.non_compliant_history.offenders[] | "  ⚠ " + .sha + "  " + .subject' <<<"$report"
+        printf '  (%s commit(s) above — informational only; history rewrites are out of scope)\n' "$n_off"
+      fi
     fi
 
+    if in_scope docs; then
     printf '\nDOCUMENTATION:\n'
     case "$claude_md_status" in
-      ok)     printf '  ✓ CLAUDE.md %s B (under %s B budget)\n' \
-                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
-                "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
-      warn)   printf '  ⚠ CLAUDE.md %s B (> %s B soft budget)\n' \
-                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
-                "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
-      error)  printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
-                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
-                "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
-      absent) printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      ok)      printf '  ✓ CLAUDE.md %s B (under %s B budget)\n' \
+                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                 "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
+      warn)    printf '  ⚠ CLAUDE.md %s B (> %s B soft budget)\n' \
+                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                 "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
+      error)   printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
+                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                 "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
+      absent)  printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      skipped) printf '  ⊘ CLAUDE.md not checked (docs scope excluded)\n' ;;
     esac
 
     checked_links=$(jq -r '.documentation.links.checked' <<<"$report")
@@ -223,6 +274,7 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
       printf '  ⚠ %s doc-check subsystem(s) failed to execute; results may be incomplete:\n' "$n_subsys_errs"
       jq -r '.documentation.subsystem_errors[] | "      - " + .subsystem + ": " + .error' <<<"$report"
     fi
+    fi  # in_scope docs
 
     printf '\n'
   } >&2
@@ -238,7 +290,9 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
   (( n_orphans > 0 )) && has_warn=true
   (( n_stale > 0 )) && has_warn=true
   (( n_subsys_errs > 0 )) && has_warn=true
-  [[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
+  # `skipped` is "docs scope wasn't run", not real drift; only `absent`
+# (file actually missing) counts as warn.
+[[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
 
   if $has_critical; then retro_rc=5
   elif $has_warn; then retro_rc=4

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/preview-result/v1.json",
+  "title": "PreviewResult",
+  "description": "Machine-readable output of `bin/preview.sh --json`. Combines the post-skip ActionPlan, a derived summary, the canonical plan SHA-256 (used for bootstrap.sh's --plan-sha256 binding), and the list of paths that --skip removed from the original plan. The same schema covers the `--decision no` decline path: `declined` is a discriminator field that flips `plan` and `summary` to null. Tooling should branch on `declined` before reading them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["declined", "plan", "summary", "plan_sha256", "skips_applied"],
+  "properties": {
+    "declined": {
+      "description": "True when the operator declined the plan via --decision no. False on the happy path. Discriminator for the plan / summary nullability below.",
+      "type": "boolean",
+      "default": false
+    },
+    "plan": {
+      "description": "Full ActionPlan (post-skip) on the happy path; null on the decline path.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["writes", "commands", "remote"] }
+      ]
+    },
+    "summary": {
+      "description": "Computed counts on the happy path; null on the decline path.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["write_count", "command_count", "remote_count", "actions", "total_bytes"],
+          "properties": {
+            "write_count":   { "type": "integer", "minimum": 0 },
+            "command_count": { "type": "integer", "minimum": 0 },
+            "remote_count":  { "type": "integer", "minimum": 0 },
+            "actions": {
+              "description": "Per-action histogram. Keys are the four ActionPlan action enums; values are non-negative counts.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "create":    { "type": "integer", "minimum": 0 },
+                "merge":     { "type": "integer", "minimum": 0 },
+                "overwrite": { "type": "integer", "minimum": 0 },
+                "delete":    { "type": "integer", "minimum": 0 }
+              }
+            },
+            "total_bytes": {
+              "description": "Sum of `writes[].bytes` (entries without bytes contribute 0).",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "plan_sha256": {
+      "description": "Hex SHA-256 of the canonicalised post-skip plan (jq -Sc). Empty string on the decline path AND when neither shasum nor sha256sum is on PATH (in that case the integrity binding is disabled and bootstrap refuses without --plan-sha256).",
+      "type": "string",
+      "pattern": "^([0-9a-f]{64})?$"
+    },
+    "skips_applied": {
+      "description": "Paths the caller passed via --skip and that matched a write in the original plan. Order preserved as given on the command line. Always [] on the decline path.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
