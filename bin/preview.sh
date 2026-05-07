@@ -7,10 +7,15 @@
 #   preview.sh --plan <path> --decision no     # abort cleanly with exit 1
 #   preview.sh --plan <path> --decision yes    # same as default
 #   preview.sh --plan <path> --emit-sha256     # print canonical SHA-256 only
+#   preview.sh --plan <path> --json            # emit PreviewResult JSON only (no stderr render)
 #
 # Contract: preview is read-only. It never touches the filesystem. The emitted
 # plan on stdout is what the orchestrator will execute. Rendering goes to
 # stderr so callers can capture plan JSON cleanly.
+#
+# --json mode emits a single PreviewResult object on stdout
+# (schemas/preview-result.schema.json) carrying plan + summary + plan_sha256
+# + skips_applied. No stderr render. Mutually exclusive with --emit-sha256.
 #
 # Integrity binding:
 #   The SHA-256 of the canonical plan (jq -Sc) is printed on stderr right
@@ -35,6 +40,7 @@ plan_path=""
 decision=""
 skips=()
 emit_sha_only=false
+json_out=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,13 +51,21 @@ while [[ $# -gt 0 ]]; do
     --decision)      decision="${2:-}"; shift 2 ;;
     --decision=*)    decision="${1#--decision=}"; shift ;;
     --emit-sha256)   emit_sha_only=true; shift ;;
+    --json)          json_out=true; shift ;;
     -h|--help)
-      sed -n '3,25p' "${BASH_SOURCE[0]}"
+      sed -n '3,29p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
+
+# --emit-sha256 and --json both short-circuit stdout. They produce
+# different payloads (raw hex vs full PreviewResult), so a caller that
+# requested both has a mistake — die rather than silently picking one.
+if $emit_sha_only && $json_out; then
+  nyann::die "--emit-sha256 and --json are mutually exclusive"
+fi
 
 [[ -n "$plan_path" ]] || nyann::die "--plan is required"
 [[ -f "$plan_path" ]] || nyann::die "plan not found: $plan_path"
@@ -71,9 +85,15 @@ if [[ ${#skips[@]} -gt 0 ]]; then
 fi
 
 # Honor decision: "no" exits 1 with a clean message, no stdout.
+# In --json mode the same exit happens but with a structured payload so
+# tooling can distinguish "user declined" from "preview crashed".
 case "$decision" in
   no)
-    printf '[nyann] plan declined. No changes made.\n' >&2
+    if $json_out; then
+      jq -nc '{declined: true, plan: null, summary: null, plan_sha256: "", skips_applied: []}'
+    else
+      printf '[nyann] plan declined. No changes made.\n' >&2
+    fi
     exit 1
     ;;
   yes|"")
@@ -85,7 +105,11 @@ esac
 
 # --- render to stderr --------------------------------------------------------
 # Keep terse so 30+ line plans stay readable.
+# Skipped in --json mode — a tooling consumer doesn't need the human
+# render and reading mixed stderr+stdout is exactly the brittleness
+# --json exists to remove.
 
+if ! $json_out; then
 {
   printf 'Planned changes:\n'
   jq -r '
@@ -106,6 +130,7 @@ esac
 
   printf '\nProceed? (yes / no / skip <path>)\n'
 } >&2
+fi
 
 # --- integrity binding -------------------------------------------------------
 # Compute SHA-256 of the canonicalised plan (sorted keys, compact) and
@@ -123,7 +148,7 @@ else
   nyann::warn "neither shasum nor sha256sum on PATH; plan integrity binding disabled"
 fi
 
-if [[ -n "$plan_sha256" ]]; then
+if [[ -n "$plan_sha256" ]] && ! $json_out; then
   printf 'Plan SHA-256: %s\n' "$plan_sha256" >&2
   # The SHA is computed over the POST-skip plan. If the
   # caller used --skip and then pipes $plan_path (the unfiltered file)
@@ -150,5 +175,45 @@ if $emit_sha_only; then
 fi
 
 # --- emit plan on stdout -----------------------------------------------------
+# Two stdout shapes: the legacy bare ActionPlan (default) for
+# bootstrap.sh's stdin, or a full PreviewResult object (--json) for
+# tooling. The PreviewResult derives its summary from the post-skip
+# plan in a single jq invocation so write_count / actions / total_bytes
+# stay in sync without a second pass.
+
+if $json_out; then
+  # Build skips_applied: only paths that actually matched a write in
+  # the unfiltered plan. Reading the original file (not $plan_json
+  # which has them removed) lets us distinguish "user typo" from
+  # "user skipped a real entry" — only the latter is reported.
+  if [[ ${#skips[@]} -gt 0 ]]; then
+    orig_paths=$(jq -c '[.writes[].path]' "$plan_path")
+    skips_json=$(printf '%s\n' "${skips[@]}" | jq -R . \
+      | jq -sc --argjson orig "$orig_paths" 'map(select(. as $s | $orig | index($s)))')
+  else
+    skips_json='[]'
+  fi
+
+  jq -nc \
+    --argjson plan "$plan_json" \
+    --arg sha "$plan_sha256" \
+    --argjson skips "$skips_json" \
+    '
+      ($plan.writes | map(.action) | reduce .[] as $a ({}; .[$a] = (.[$a] // 0) + 1)) as $hist |
+      {
+        plan: $plan,
+        summary: {
+          write_count:   ($plan.writes | length),
+          command_count: ($plan.commands | length),
+          remote_count:  ($plan.remote | length),
+          actions:       $hist,
+          total_bytes:   ($plan.writes | map(.bytes // 0) | add // 0)
+        },
+        plan_sha256: $sha,
+        skips_applied: $skips
+      }
+    '
+  exit 0
+fi
 
 printf '%s\n' "$plan_json"

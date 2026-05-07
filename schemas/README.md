@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (43)
+## Schemas in this directory (44)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -54,6 +54,7 @@ identifier consumers can pin against.
 | `orphan-report.schema.json` | `bin/find-orphans.sh` | `bin/compute-drift.sh` |
 | `pr-result.schema.json` | `bin/pr.sh` | `skills/pr/SKILL.md` |
 | `preferences.schema.json` | written by `bin/setup.sh` | `bin/session-check.sh`, etc. |
+| `preview-result.schema.json` | `bin/preview.sh --json` | tooling consumers; future `bin/undo-bootstrap.sh` |
 | `pr-checks-result.schema.json` | `bin/wait-for-pr-checks.sh` | `skills/wait-for-pr-checks/SKILL.md`, `bin/release.sh --wait-for-checks`, `bin/ship.sh` |
 | `prereqs-report.schema.json` | `bin/check-prereqs.sh --json` | `skills/check-prereqs/SKILL.md`, `bin/setup.sh` |
 | `profile-diff.schema.json` | `bin/diff-profile.sh` | `skills/diff-profile/SKILL.md` |
