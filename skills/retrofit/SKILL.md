@@ -149,8 +149,10 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    the current files. Skip render-plan only when neither path appears
    as a merge action in the plan.
 
-4. **Preview** the rendered plan via `bin/preview.sh --plan <plan.rendered.json>`.
-   Show the user what will be created/merged. Respect skip requests.
+4. **Preview** the rendered plan via `bin/preview.sh --plan <plan.rendered.json>
+   --target <cwd>`. Pass `--target` so the merge-diff renderer
+   resolves `.path` entries against the actual repo. Show the user
+   what will be created/merged. Respect skip requests.
 
 5. **Execute** via `bin/bootstrap.sh`. Capture the plan SHA-256 first
    via `bin/preview.sh --emit-sha256`,

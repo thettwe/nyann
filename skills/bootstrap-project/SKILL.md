@@ -217,9 +217,11 @@ Pass it as `--plan <plan.rendered.json>` from this point on.
 
 ### 5b. Preview
 
-Pipe the rendered plan through `bin/preview.sh --plan <file>`. Show the stderr preview to the user. If
-they respond with `skip <path>`, re-invoke with `--skip <path>` and reshow. If `no`, stop and
-exit.
+Pipe the rendered plan through `bin/preview.sh --plan <file> --target <repo>`.
+Pass `--target` so the merge-diff renderer resolves `.path` entries
+against the actual repo (not the caller's cwd). Show the stderr
+preview to the user. If they respond with `skip <path>`, re-invoke
+with `--skip <path>` and reshow. If `no`, stop and exit.
 
 ## 6. Execute
 

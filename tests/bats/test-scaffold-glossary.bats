@@ -259,6 +259,49 @@ EOF
   "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/glossary-draft.schema.json" "$TMP/draft.json"
 }
 
+# --- regressions ------------------------------------------------------------
+
+@test "scaffold-glossary survives a type with zero external references (set -e + pipefail)" {
+  # Repo has exactly one exported type, only referenced inside its
+  # defining file. The reference-count pipeline must tolerate
+  # `git grep` returning rc 1 for no matches; without the explicit
+  # `|| true` guard, set -e + pipefail aborts the whole script and
+  # bootstrap/retrofit fail on any auto_populate=true profile applied
+  # to a small / new codebase.
+  cat > "$REPO/lonely.ts" <<'EOF'
+export interface Lonely { x: string }
+EOF
+  ( cd "$REPO" && git add . && git -c user.email=t@t -c user.name=t commit -q -m seed )
+
+  run bash "${REPO_ROOT}/bin/scaffold-glossary.sh" --target "$REPO" \
+    --languages ts --json
+  [ "$status" -eq 0 ]
+  # Term has zero refs → drops out of selected. Counted as a candidate.
+  [ "$(echo "$output" | jq '.total_candidates')" = "1" ]
+  [ "$(echo "$output" | jq '.selected')" = "0" ]
+  [ "$(echo "$output" | jq '.terms | length')" = "0" ]
+}
+
+@test "scaffold-glossary auto picks up JavaScript on a JS-only repo" {
+  cat > "$REPO/lib.js" <<'EOF'
+export class Animal {}
+export const inst = new Animal();
+EOF
+  cat > "$REPO/use.js" <<'EOF'
+import { Animal } from './lib';
+export const a = new Animal();
+EOF
+  ( cd "$REPO" && git add . && git -c user.email=t@t -c user.name=t commit -q -m seed )
+
+  # Auto mode reads detect-stack.sh's primary_language. For a
+  # plain JS repo that's "javascript", which must include the js
+  # scanner so non-empty candidates show up without manual override.
+  run bash "${REPO_ROOT}/bin/scaffold-glossary.sh" --target "$REPO" --json
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq '[.languages[] | select(. == "js")] | length')" = "1" ]
+  [ "$(echo "$output" | jq '[.terms[] | select(.name == "Animal")] | length')" = "1" ]
+}
+
 # --- profile gating via scaffold-docs --------------------------------------
 
 @test "scaffold-docs without --auto-glossary does NOT call scaffold-glossary" {

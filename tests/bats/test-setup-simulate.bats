@@ -126,6 +126,84 @@ teardown() { rm -rf "$TMP"; }
   [ "$(echo "$out" | jq -r '.partial_reason')" = "null" ]
 }
 
+# --- preferences fallback ---------------------------------------------------
+
+@test "setup --simulate honours saved preferences.json when CLI flags unset" {
+  # Persist a configured user-root with a non-default profile + branching.
+  bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --default-profile python-cli \
+    --branching-strategy gitflow \
+    --commit-format conventional-commits \
+    --no-gh-integration \
+    --documentation-storage local \
+    --no-auto-sync-team-profiles >/dev/null
+
+  # Run --simulate WITHOUT re-passing the same flags. Without the
+  # preferences fallback, simulate would silently use the process
+  # defaults (auto-detect / etc.) and describe a different bootstrap
+  # than what the saved preferences would actually drive.
+  out=$(bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --simulate "$REPO" --json 2>/dev/null)
+
+  [ "$(echo "$out" | jq -r '.profile.name')" = "python-cli" ]
+  [ "$(echo "$out" | jq -r '.branching')" = "gitflow" ]
+}
+
+@test "setup --simulate CLI flags override saved preferences" {
+  # Saved: python-cli + gitflow.
+  bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --default-profile python-cli \
+    --branching-strategy gitflow \
+    --commit-format conventional-commits \
+    --no-gh-integration \
+    --documentation-storage local \
+    --no-auto-sync-team-profiles >/dev/null
+
+  # CLI override on the simulate run.
+  out=$(bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --default-profile nextjs-prototype \
+    --branching-strategy github-flow \
+    --simulate "$REPO" --json 2>/dev/null)
+
+  [ "$(echo "$out" | jq -r '.profile.name')" = "nextjs-prototype" ]
+  [ "$(echo "$out" | jq -r '.branching')" = "github-flow" ]
+}
+
+@test "setup --simulate threads --documentation-storage to route-docs" {
+  # When the user opts into Notion, the simulated DocumentationPlan
+  # must reflect that. Without the routing thread-through, simulate
+  # would always emit a local plan regardless of the saved or
+  # in-flight preference.
+  out=$(bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --default-profile nextjs-prototype \
+    --documentation-storage notion \
+    --simulate "$REPO" --json 2>/dev/null)
+
+  # storage_strategy is the route-docs output field; it should
+  # reflect the chosen backend (or "split" / "notion") rather than
+  # always "local".
+  storage=$(echo "$out" | jq -r '.plan | type')
+  # Sanity-check the plan exists (doc plan lives elsewhere). The
+  # simulate JSON exposes the DocumentationPlan via .plan.writes
+  # being populated; the routing assertion is on the doc-plan content
+  # which we reach through the simulation's intermediate state — so
+  # check that at least one target has type==notion in the saved
+  # doc-plan tempfile is too internal. Instead, assert the
+  # ActionPlan has FEWER local doc writes than the local-storage
+  # variant (a notion-routed plan only writes memory/README.md
+  # locally; everything else lives upstream).
+  out_local=$(bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --default-profile nextjs-prototype \
+    --documentation-storage local \
+    --simulate "$REPO" --json 2>/dev/null)
+
+  notion_doc_writes=$(echo "$out"       | jq '[.plan.writes[] | select(.path | startswith("docs/"))] | length')
+  local_doc_writes=$(echo "$out_local"  | jq '[.plan.writes[] | select(.path | startswith("docs/"))] | length')
+
+  # Local has more docs/* writes than Notion (which routes most upstream).
+  [ "$notion_doc_writes" -lt "$local_doc_writes" ]
+}
+
 # --- monorepo path ----------------------------------------------------------
 
 @test "setup --simulate marks monorepos as simulation: partial" {

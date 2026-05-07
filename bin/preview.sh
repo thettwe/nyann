@@ -43,6 +43,7 @@ emit_sha_only=false
 json_out=false
 diff_mode="auto"   # auto | full | off
 diff_max_lines=20
+target_root=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -56,6 +57,8 @@ while [[ $# -gt 0 ]]; do
     --json)          json_out=true; shift ;;
     --no-diff)       diff_mode="off"; shift ;;
     --full-diff)     diff_mode="full"; shift ;;
+    --target)        target_root="${2:-}"; shift 2 ;;
+    --target=*)      target_root="${1#--target=}"; shift ;;
     -h|--help)
       sed -n '3,32p' "${BASH_SOURCE[0]}"
       exit 0
@@ -63,6 +66,15 @@ while [[ $# -gt 0 ]]; do
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
+
+# Resolve --target so the diff renderer can find the current files.
+# Pre-v1.7.0 callers passed nothing and relied on $PWD == repo root;
+# the new bootstrap/retrofit invocations also pass --target so they
+# don't depend on the caller's cwd.
+if [[ -n "$target_root" ]]; then
+  [[ -d "$target_root" ]] || nyann::die "--target is not a directory: $target_root"
+  target_root="$(cd "$target_root" && pwd)"
+fi
 
 # --emit-sha256 and --json both short-circuit stdout. They produce
 # different payloads (raw hex vs full PreviewResult), so a caller that
@@ -136,13 +148,19 @@ if ! $json_out; then
       [[ ! -f "$blob" ]] && continue
       printf '\n--- %s diff (current %s B → merged) ---\n' "$path" "$current_bytes"
       cur_file="/dev/null"
-      # The plan's `.path` is repo-relative; resolve against $PWD only
-      # if no absolute reference is encoded. preview.sh runs in the
-      # caller's cwd (the target repo) by convention.
-      if [[ -f "$path" ]]; then
-        cur_file="$path"
+      # Resolution order:
+      # 1. --target <path> when explicitly passed (recommended for
+      #    skill-layer callers that may run from outside the repo).
+      # 2. NYANN_PREVIEW_TARGET env var (legacy; kept for
+      #    backward compat with any external tooling that set it).
+      # 3. $PWD (covers bootstrap.sh which already runs in $target).
+      # The path field is always repo-relative; never absolute.
+      if [[ -n "$target_root" && -f "${target_root}/$path" ]]; then
+        cur_file="${target_root}/$path"
       elif [[ -n "${NYANN_PREVIEW_TARGET:-}" && -f "${NYANN_PREVIEW_TARGET}/$path" ]]; then
         cur_file="${NYANN_PREVIEW_TARGET}/$path"
+      elif [[ -f "$path" ]]; then
+        cur_file="$path"
       fi
       if [[ "$diff_mode" == "full" ]]; then
         diff -u "$cur_file" "$blob" 2>/dev/null || true

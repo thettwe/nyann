@@ -204,6 +204,28 @@ JSON
   ! echo "$out" | grep -q "diff (current"
 }
 
+@test "preview --target resolves diff path when invoked from outside the repo" {
+  cat > "$REPO/.gitignore" <<'EOF'
+.DS_Store
+EOF
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[{"path":".gitignore","action":"merge","bytes":0}],"commands":[],"remote":[]}
+JSON
+  rendered_plan="$TMP/rendered.json"
+  bash "${REPO_ROOT}/bin/render-plan.sh" \
+    --plan "$TMP/plan.json" --target "$REPO" --templates-csv jsts \
+    > "$rendered_plan"
+
+  # Run preview from somewhere OTHER than $REPO. Without --target the
+  # renderer would diff against /dev/null and dump the whole blob.
+  out=$(cd "$TMP" && bash "${REPO_ROOT}/bin/preview.sh" \
+    --plan "$rendered_plan" --target "$REPO" 2>&1 1>/dev/null || true)
+  echo "$out" | grep -q "diff (current"
+  # The base file (.gitignore with .DS_Store) must appear as the
+  # `---` side of the diff, not /dev/null.
+  ! echo "$out" | grep -q "/dev/null"
+}
+
 @test "preview --full-diff disables truncation" {
   # Build a plan whose merge has many added lines (>20) so the auto
   # truncate would otherwise hide them. We synthesise the blob by

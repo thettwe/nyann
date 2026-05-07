@@ -76,14 +76,22 @@ resolve_languages() {
       pl=$(jq -r '.primary_language // "unknown"' <<<"$stack_json")
       sl=$(jq -r '.secondary_languages // [] | join(",")' <<<"$stack_json")
       for l in "$pl" $(tr ',' ' ' <<<"$sl"); do
+        # `typescript` and `javascript` map to *different* scanners —
+        # the ts scanner only walks `*.ts`/`*.tsx` and silently skips
+        # `*.js` files, so a JS-only repo would auto-populate to an
+        # empty glossary if we conflated them. Map javascript to js
+        # explicitly. A mixed TS+JS repo (typescript primary, js
+        # secondary, or vice versa) ends up with both scanners after
+        # the dedupe below.
         case "$l" in
-          typescript|javascript) langs+=(ts) ;;
-          go)                    langs+=(go) ;;
-          python)                langs+=(python) ;;
-          rust)                  langs+=(rust) ;;
-          java)                  langs+=(java) ;;
-          kotlin)                langs+=(kotlin) ;;
-          swift)                 langs+=(swift) ;;
+          typescript) langs+=(ts) ;;
+          javascript) langs+=(js) ;;
+          go)         langs+=(go) ;;
+          python)     langs+=(python) ;;
+          rust)       langs+=(rust) ;;
+          java)       langs+=(java) ;;
+          kotlin)     langs+=(kotlin) ;;
+          swift)      langs+=(swift) ;;
         esac
       done
     fi
@@ -279,17 +287,27 @@ trap 'rm -f "$candidates_tsv" "$deduped_tsv" "$ranked_tsv"' EXIT
 
 while IFS=$'\t' read -r name lang kind defined_in; do
   [[ -z "$name" ]] && continue
-  # Cap the reference count at 9999 to avoid pathological scans.
+  # `set -e -o pipefail` is on, but `git grep -wcF` returns rc 1 when no
+  # files match the term — for an exported type whose only references
+  # are inside its defining file (or whose call sites live in a
+  # downstream package), that's the normal case. Without the explicit
+  # `|| true` the rc 1 propagates through the pipeline + assignment and
+  # aborts the whole script, breaking bootstrap/retrofit on an
+  # auto_populate=true profile against a small / new codebase.
   refs=0
   if (cd "$target" && git rev-parse --git-dir >/dev/null 2>&1); then
-    refs=$(cd "$target" && \
-      git grep -wcF -- "$name" 2>/dev/null \
-      | grep -v "^$defined_in:" \
-      | awk -F: '{ s += $2 } END { print s+0 }')
+    refs=$( ( cd "$target" && \
+      ( git grep -wcF -- "$name" 2>/dev/null || true ) \
+      | ( grep -v "^$defined_in:" || true ) \
+      | awk -F: '{ s += $2 } END { print s+0 }' ) )
   else
-    refs=$(grep -rwF -- "$name" "$target" 2>/dev/null \
-      | grep -cv "/${defined_in}:")
+    refs=$( ( grep -rwF -- "$name" "$target" 2>/dev/null || true ) \
+      | ( grep -cv "/${defined_in}:" || true ) )
   fi
+  # Make sure we always have a numeric value — `awk … print s+0` covers
+  # the git path; the non-git fallback returns the empty string on
+  # an empty pipeline. Default to 0 if anything went sideways.
+  [[ "$refs" =~ ^[0-9]+$ ]] || refs=0
   printf '%s\t%s\t%s\t%s\t%s\n' "$refs" "$name" "$lang" "$kind" "$defined_in" >> "$ranked_tsv"
 done < "$deduped_tsv"
 

@@ -42,22 +42,34 @@ gh_integration=true
 documentation_storage="local"
 auto_sync_team_profiles=false
 
+# Track which flags the caller explicitly set. --simulate falls back
+# to preferences.json for any flag the caller did NOT override, which
+# is what the docs promise ("in-flight or saved"). Without these
+# sentinels, --simulate couldn't distinguish "user wants the default"
+# from "user said nothing, so use saved prefs".
+_set_default_profile=false
+_set_branching_strategy=false
+_set_commit_format=false
+_set_gh_integration=false
+_set_documentation_storage=false
+_set_auto_sync_team_profiles=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user-root)                  user_root="${2:-}"; shift 2 ;;
     --user-root=*)                user_root="${1#--user-root=}"; shift ;;
-    --default-profile)            default_profile="${2:-}"; shift 2 ;;
-    --default-profile=*)          default_profile="${1#--default-profile=}"; shift ;;
-    --branching-strategy)         branching_strategy="${2:-}"; shift 2 ;;
-    --branching-strategy=*)       branching_strategy="${1#--branching-strategy=}"; shift ;;
-    --commit-format)              commit_format="${2:-}"; shift 2 ;;
-    --commit-format=*)            commit_format="${1#--commit-format=}"; shift ;;
-    --gh-integration)             gh_integration=true; shift ;;
-    --no-gh-integration)          gh_integration=false; shift ;;
-    --documentation-storage)      documentation_storage="${2:-}"; shift 2 ;;
-    --documentation-storage=*)    documentation_storage="${1#--documentation-storage=}"; shift ;;
-    --auto-sync-team-profiles)    auto_sync_team_profiles=true; shift ;;
-    --no-auto-sync-team-profiles) auto_sync_team_profiles=false; shift ;;
+    --default-profile)            default_profile="${2:-}"; _set_default_profile=true; shift 2 ;;
+    --default-profile=*)          default_profile="${1#--default-profile=}"; _set_default_profile=true; shift ;;
+    --branching-strategy)         branching_strategy="${2:-}"; _set_branching_strategy=true; shift 2 ;;
+    --branching-strategy=*)       branching_strategy="${1#--branching-strategy=}"; _set_branching_strategy=true; shift ;;
+    --commit-format)              commit_format="${2:-}"; _set_commit_format=true; shift 2 ;;
+    --commit-format=*)            commit_format="${1#--commit-format=}"; _set_commit_format=true; shift ;;
+    --gh-integration)             gh_integration=true; _set_gh_integration=true; shift ;;
+    --no-gh-integration)          gh_integration=false; _set_gh_integration=true; shift ;;
+    --documentation-storage)      documentation_storage="${2:-}"; _set_documentation_storage=true; shift 2 ;;
+    --documentation-storage=*)    documentation_storage="${1#--documentation-storage=}"; _set_documentation_storage=true; shift ;;
+    --auto-sync-team-profiles)    auto_sync_team_profiles=true; _set_auto_sync_team_profiles=true; shift ;;
+    --no-auto-sync-team-profiles) auto_sync_team_profiles=false; _set_auto_sync_team_profiles=true; shift ;;
     --simulate)                   simulate_target="${2:-}"; shift 2 ;;
     --simulate=*)                 simulate_target="${1#--simulate=}"; shift ;;
     --json)                       json_out=true; shift ;;
@@ -103,6 +115,41 @@ if [[ -n "$simulate_target" ]]; then
   sim_tmp=$(mktemp -d -t nyann-simulate.XXXXXX)
   trap 'rm -rf "$sim_tmp"' EXIT
 
+  # Documented contract: simulate honours "in-flight or saved"
+  # preferences. For any flag the caller did NOT override, fall back
+  # to the saved preferences.json (when present). Without this fallback
+  # users hit a confusing path where their saved Notion routing /
+  # custom profile was ignored and simulate auto-detected fresh.
+  saved_prefs="${user_root}/preferences.json"
+  if [[ -f "$saved_prefs" ]]; then
+    if ! $_set_default_profile; then
+      v=$(jq -r '.default_profile // empty' "$saved_prefs" 2>/dev/null || true)
+      [[ -n "$v" ]] && default_profile="$v"
+    fi
+    if ! $_set_branching_strategy; then
+      v=$(jq -r '.branching_strategy // empty' "$saved_prefs" 2>/dev/null || true)
+      [[ -n "$v" ]] && branching_strategy="$v"
+    fi
+    if ! $_set_commit_format; then
+      v=$(jq -r '.commit_format // empty' "$saved_prefs" 2>/dev/null || true)
+      [[ -n "$v" ]] && commit_format="$v"
+    fi
+    if ! $_set_gh_integration; then
+      v=$(jq -r '.gh_integration // empty' "$saved_prefs" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && gh_integration=false
+      [[ "$v" == "true"  ]] && gh_integration=true
+    fi
+    if ! $_set_documentation_storage; then
+      v=$(jq -r '.documentation_storage // empty' "$saved_prefs" 2>/dev/null || true)
+      [[ -n "$v" ]] && documentation_storage="$v"
+    fi
+    if ! $_set_auto_sync_team_profiles; then
+      v=$(jq -r '.auto_sync_team_profiles // empty' "$saved_prefs" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && auto_sync_team_profiles=false
+      [[ "$v" == "true"  ]] && auto_sync_team_profiles=true
+    fi
+  fi
+
   # 1. Detect stack
   if ! "${_script_dir}/detect-stack.sh" --path "$simulate_target" > "$sim_tmp/stack.json" 2> "$sim_tmp/detect.err"; then
     cat "$sim_tmp/detect.err" >&2
@@ -146,8 +193,40 @@ if [[ -n "$simulate_target" ]]; then
     fi
   fi
 
-  # 4. Route docs
-  if ! "${_script_dir}/route-docs.sh" --profile "$sim_tmp/profile.json" > "$sim_tmp/doc-plan.json" 2> "$sim_tmp/route.err"; then
+  # 4. Route docs. When the resolved preference (in-flight or saved)
+  # asks for a non-local backend, propagate via `--routing all:<backend>`
+  # so the simulated DocumentationPlan reflects the same routing the
+  # actual bootstrap would compose. `memory` is always local per nyann
+  # invariant; route-docs honours that regardless of the spec.
+  #
+  # route-docs refuses a non-local spec unless the backend appears in
+  # --mcp-targets.available. Simulation is meant to preview the user's
+  # *intended* configuration, so we synthesize an mcp-targets file
+  # marking the requested backend available. The real bootstrap path
+  # uses bin/detect-mcp-docs.sh (driven by Claude Code settings) and
+  # will surface a real MCP gap to the user there.
+  route_args=(--profile "$sim_tmp/profile.json")
+  case "$documentation_storage" in
+    obsidian|notion)
+      mcp_synth="$sim_tmp/mcp-targets.json"
+      # available[] entries are objects with a `type` field, not bare
+      # strings — route-docs reads them via `.available[].type`.
+      jq -n --arg backend "$documentation_storage" \
+        '{settings_path: "(simulated)", available: [{type: $backend, server: "(simulated)"}], configured_but_disabled: [], unknown_servers_skipped: []}' \
+        > "$mcp_synth"
+      route_args+=(--mcp-targets "$mcp_synth" --routing "all:${documentation_storage}")
+      # route-docs requires --obsidian-vault / --notion-parent for the
+      # respective backends. Pass synthetic placeholders so simulation
+      # reaches the planner — bootstrap will collect real values from
+      # the user via the bootstrap-project skill.
+      case "$documentation_storage" in
+        obsidian) route_args+=(--obsidian-vault "(simulated)") ;;
+        notion)   route_args+=(--notion-parent "(simulated)") ;;
+      esac
+      ;;
+    local|"") ;;
+  esac
+  if ! "${_script_dir}/route-docs.sh" "${route_args[@]}" > "$sim_tmp/doc-plan.json" 2> "$sim_tmp/route.err"; then
     cat "$sim_tmp/route.err" >&2
     nyann::die "doc routing failed"
   fi
