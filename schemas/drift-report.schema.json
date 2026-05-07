@@ -9,6 +9,15 @@
   "properties": {
     "target":  { "type": "string", "minLength": 1 },
     "profile": { "type": "string", "minLength": 1 },
+    "scope_applied": {
+      "description": "Categories that were actually checked. When the producer ran with --scope=all (the default) this is the canonical 7-element list. Narrower scopes contain only the categories the operator asked for. Consumers (doctor-ci.sh, health-trend.sh, persist-health-score.sh) MUST treat counts in `summary` as 'no drift in checked categories' rather than 'no drift in repo' when this list is shorter than the canonical set; the simplest test is `scope_applied | length == 7`.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["docs", "hooks", "branching", "gitignore", "editorconfig", "github", "history"]
+      },
+      "uniqueItems": true
+    },
     "missing": {
       "type": "array",
       "items": {
