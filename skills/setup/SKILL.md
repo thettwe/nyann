@@ -233,6 +233,46 @@ bash <plugin_root>/bin/setup.sh \
   --no-auto-sync-team-profiles
 ```
 
+## Step 3b: Optional simulation (v1.7.0+)
+
+After preferences are written but before showing the final summary,
+ask the user if they want to see what `/nyann:bootstrap` would do
+in their current project. This is a no-mutation preview.
+
+**Call `AskUserQuestion`:**
+
+```json
+{
+  "questions": [{
+    "question": "Want to see what /nyann:bootstrap would do in your current repo?",
+    "header": "Simulate",
+    "multiSelect": false,
+    "options": [
+      { "label": "Yes",  "description": "Detect stack + suggest profile + plan writes; no changes" },
+      { "label": "Skip", "description": "Move on to the summary" }
+    ]
+  }]
+}
+```
+
+If the user picks **Yes**, run:
+
+```
+bash <plugin_root>/bin/setup.sh \
+  --simulate "$PWD" \
+  --default-profile <chosen-or-auto-detect> \
+  --branching-strategy <chosen-or-auto-detect> \
+  --commit-format <chosen> \
+  --documentation-storage local
+```
+
+Echo the simulator's stderr verbatim — it's already formatted for
+human reading. Then proceed to Step 4.
+
+If `simulation: "partial"` appears (monorepo case), tell the user the
+plan covers the base writes only and that running `/nyann:bootstrap`
+will add per-workspace lint-staged + commit scopes on top.
+
 ## Step 4: Summary
 
 Show a rich summary table and a clear next action:

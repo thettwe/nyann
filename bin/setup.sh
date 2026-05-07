@@ -15,9 +15,12 @@
 #   --no-auto-sync-team-profiles Disable auto-sync (default)
 #   --json                       Emit result as JSON instead of human table
 #   --check                      Report current state without writing anything
+#   --simulate <repo>            Simulate `/nyann:bootstrap` on <repo> using
+#                                the current (in-flight or saved) preferences
+#                                and report what would happen. No mutations.
 #
 # Exit codes:
-#   0 — setup completed (or --check: preferences exist)
+#   0 — setup completed (or --check: preferences exist; or --simulate: ok)
 #   1 — hard error (missing jq, bad input)
 #   2 — --check: no preferences.json found yet
 
@@ -30,6 +33,7 @@ nyann::require_cmd jq
 user_root="${HOME}/.claude/nyann"
 json_out=false
 check_only=false
+simulate_target=""
 
 default_profile="auto-detect"
 branching_strategy="auto-detect"
@@ -54,9 +58,11 @@ while [[ $# -gt 0 ]]; do
     --documentation-storage=*)    documentation_storage="${1#--documentation-storage=}"; shift ;;
     --auto-sync-team-profiles)    auto_sync_team_profiles=true; shift ;;
     --no-auto-sync-team-profiles) auto_sync_team_profiles=false; shift ;;
+    --simulate)                   simulate_target="${2:-}"; shift 2 ;;
+    --simulate=*)                 simulate_target="${1#--simulate=}"; shift ;;
     --json)                       json_out=true; shift ;;
     --check)                      check_only=true; shift ;;
-    -h|--help)                    sed -n '3,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)                    sed -n '3,21p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)                            nyann::die "unknown argument: $1" ;;
   esac
 done
@@ -82,6 +88,135 @@ if [[ "$default_profile" != "auto-detect" ]]; then
   if ! [[ "$default_profile" =~ ^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$ ]]; then
     nyann::die "invalid --default-profile: $default_profile (must be 'auto-detect' or a valid profile name)"
   fi
+fi
+
+# --- Simulate mode -----------------------------------------------------------
+# Runs detection + suggestion + planning against $simulate_target without
+# touching anything. Lets the operator validate setup preferences against
+# a real repo before running /nyann:bootstrap. No persistence, no
+# preferences are written.
+
+if [[ -n "$simulate_target" ]]; then
+  [[ -d "$simulate_target" ]] || nyann::die "--simulate target is not a directory: $simulate_target"
+  simulate_target="$(cd "$simulate_target" && pwd)"
+
+  sim_tmp=$(mktemp -d -t nyann-simulate.XXXXXX)
+  trap 'rm -rf "$sim_tmp"' EXIT
+
+  # 1. Detect stack
+  if ! "${_script_dir}/detect-stack.sh" --path "$simulate_target" > "$sim_tmp/stack.json" 2> "$sim_tmp/detect.err"; then
+    cat "$sim_tmp/detect.err" >&2
+    nyann::die "stack detection failed for $simulate_target"
+  fi
+
+  stack_lang=$(jq -r '.primary_language' "$sim_tmp/stack.json")
+  stack_framework=$(jq -r '.framework // "(none)"' "$sim_tmp/stack.json")
+  stack_archetype=$(jq -r '.archetype // "unknown"' "$sim_tmp/stack.json")
+  stack_confidence=$(jq -r '.confidence // 0' "$sim_tmp/stack.json")
+  stack_monorepo=$(jq -r '.is_monorepo // false' "$sim_tmp/stack.json")
+
+  # 2. Resolve profile (use --default-profile, or suggest)
+  resolved_profile=""
+  resolved_confidence=""
+  if [[ "$default_profile" != "auto-detect" ]]; then
+    resolved_profile="$default_profile"
+    resolved_confidence="100"
+  else
+    if "${_script_dir}/suggest-profile.sh" --target "$simulate_target" --stack "$sim_tmp/stack.json" > "$sim_tmp/suggest.json" 2>/dev/null; then
+      resolved_profile=$(jq -r '.primary.name // "default"' "$sim_tmp/suggest.json")
+      resolved_confidence=$(jq -r '.primary.confidence // 0' "$sim_tmp/suggest.json")
+    else
+      resolved_profile="default"
+      resolved_confidence="0"
+    fi
+  fi
+
+  if ! "${_script_dir}/load-profile.sh" "$resolved_profile" > "$sim_tmp/profile.json" 2> "$sim_tmp/load.err"; then
+    cat "$sim_tmp/load.err" >&2
+    nyann::die "failed to load profile: $resolved_profile"
+  fi
+
+  # 3. Recommend branching (only when user said auto-detect)
+  resolved_branching="$branching_strategy"
+  if [[ "$branching_strategy" == "auto-detect" ]]; then
+    if "${_script_dir}/recommend-branch.sh" < "$sim_tmp/stack.json" > "$sim_tmp/branch.json" 2>/dev/null; then
+      resolved_branching=$(jq -r '.recommended // "github-flow"' "$sim_tmp/branch.json")
+    else
+      resolved_branching="github-flow"
+    fi
+  fi
+
+  # 4. Route docs
+  if ! "${_script_dir}/route-docs.sh" --profile "$sim_tmp/profile.json" > "$sim_tmp/doc-plan.json" 2> "$sim_tmp/route.err"; then
+    cat "$sim_tmp/route.err" >&2
+    nyann::die "doc routing failed"
+  fi
+
+  # 5. Compose plan
+  partial=false
+  if [[ "$stack_monorepo" == "true" ]]; then
+    partial=true
+  fi
+  if ! "${_script_dir}/plan-bootstrap.sh" \
+        --target "$simulate_target" \
+        --profile "$sim_tmp/profile.json" \
+        --doc-plan "$sim_tmp/doc-plan.json" \
+        --stack "$sim_tmp/stack.json" \
+        --branching "$resolved_branching" \
+        > "$sim_tmp/plan.json" 2> "$sim_tmp/plan.err"; then
+    cat "$sim_tmp/plan.err" >&2
+    nyann::die "plan composition failed"
+  fi
+
+  # 6. Render
+  write_count=$(jq '.writes | length' "$sim_tmp/plan.json")
+  has_git_init=$(jq '[.commands[] | select(.cmd == "git init")] | length > 0' "$sim_tmp/plan.json")
+  merge_count=$(jq '[.writes[] | select(.action == "merge")] | length' "$sim_tmp/plan.json")
+  create_count=$(jq '[.writes[] | select(.action == "create")] | length' "$sim_tmp/plan.json")
+
+  if $json_out; then
+    jq -n \
+      --arg target "$simulate_target" \
+      --slurpfile stack "$sim_tmp/stack.json" \
+      --arg profile "$resolved_profile" \
+      --arg profile_confidence "$resolved_confidence" \
+      --arg branching "$resolved_branching" \
+      --slurpfile plan "$sim_tmp/plan.json" \
+      --argjson partial "$partial" \
+      '{
+        simulation: (if $partial then "partial" else "ok" end),
+        target: $target,
+        stack: $stack[0],
+        profile: { name: $profile, confidence: ($profile_confidence | tonumber) },
+        branching: $branching,
+        plan: $plan[0],
+        partial_reason: (if $partial then "monorepo (per-workspace writes are added by the skill)" else null end)
+      }'
+  else
+    {
+      printf '\nSimulation: %s\n' "$simulate_target"
+      printf -- '─────────────────────────────────\n'
+      printf 'Detected:  %s + %s (confidence %s)\n' "$stack_lang" "$stack_framework" "$stack_confidence"
+      printf 'Archetype: %s\n' "$stack_archetype"
+      printf 'Profile:   %s (confidence %s)\n' "$resolved_profile" "$resolved_confidence"
+      printf 'Branching: %s\n' "$resolved_branching"
+      printf '\nIf you ran /nyann:bootstrap here, it would:\n'
+      printf '  - Write %s file(s) — %s create, %s merge\n' "$write_count" "$create_count" "$merge_count"
+      if [[ "$has_git_init" == "true" ]]; then
+        # Backticks are literal markdown for the user, not command
+        # substitution. Single-quoting is intentional.
+        # shellcheck disable=SC2016
+        printf '  - Run `git init`\n'
+      fi
+      if $partial; then
+        printf '\n⚠ Monorepo detected. Per-workspace writes (lint-staged, commit\n'
+        printf '  scopes) are added by the skill on top of this base plan.\n'
+      fi
+      printf '\nNo changes made — this was a simulation.\n'
+    } >&2
+  fi
+
+  exit 0
 fi
 
 # --- Check mode ---------------------------------------------------------------
