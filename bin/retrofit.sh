@@ -141,7 +141,8 @@ render_report() {
       error)  printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
                 "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
-      absent) printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      absent)  printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      skipped) printf '  ⊘ CLAUDE.md not checked (docs scope excluded)\n' ;;
     esac
 
     # Internal link check
@@ -220,6 +221,9 @@ has_warn=false
 # the target repo itself; the operator needs to know the checker was
 # unable to answer the question.
 (( n_subsys_errs > 0 )) && has_warn=true
+# `skipped` means "docs scope was excluded — we never ran this check",
+# distinct from `absent` (we ran it, the file is missing). Only the
+# latter contributes to has_warn.
 [[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
 
 if ! $has_critical && ! $has_warn; then

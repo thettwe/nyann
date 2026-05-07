@@ -314,8 +314,20 @@ n_off=$(jq 'length' <<<"$offenders_json")
 _drift_tmpdir=$(mktemp -d -t nyann-driftsubs.XXXXXX)
 
 _subsys_names=(check-claude-md-size check-links find-orphans check-staleness)
+# Failure fallbacks (subsystem ran, returned non-zero). Used when the
+# subsystem is in scope but errored.
 _subsys_fallbacks=(
   '{"status":"absent","bytes":0,"budget_bytes":3072}'
+  '{"checked":0,"broken":[],"needs_mcp_verify":[],"skipped":[]}'
+  '{"scanned":0,"orphans":[]}'
+  '{"enabled":false,"threshold_days":null,"scanned":0,"stale":[]}'
+)
+# Out-of-scope fallbacks (subsystem deliberately not run). Distinct
+# `status:"skipped"` lets retrofit/doctor avoid double-counting
+# "we didn't check this" as drift, so a clean `--scope hooks` run
+# can exit 0 on a repo that lacks CLAUDE.md.
+_subsys_skipped_fallbacks=(
+  '{"status":"skipped","bytes":0,"budget_bytes":3072}'
   '{"checked":0,"broken":[],"needs_mcp_verify":[],"skipped":[]}'
   '{"scanned":0,"orphans":[]}'
   '{"enabled":false,"threshold_days":null,"scanned":0,"stale":[]}'
@@ -351,7 +363,11 @@ if nyann::scope_includes docs "$scope"; then
 else
   for i in 0 1 2 3; do
     name="${_subsys_names[$i]}"
-    printf '%s' "${_subsys_fallbacks[$i]}" > "$_drift_tmpdir/${name}.out"
+    # When docs is out of scope, mark the CLAUDE.md slot `skipped`
+    # rather than `absent` so downstream exit-code logic can tell
+    # "we didn't run this check" from "we ran it and the file is
+    # missing". The latter is real drift; the former is not.
+    printf '%s' "${_subsys_skipped_fallbacks[$i]}" > "$_drift_tmpdir/${name}.out"
   done
 fi
 

@@ -226,16 +226,17 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
     if in_scope docs; then
     printf '\nDOCUMENTATION:\n'
     case "$claude_md_status" in
-      ok)     printf '  ✓ CLAUDE.md %s B (under %s B budget)\n' \
-                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
-                "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
-      warn)   printf '  ⚠ CLAUDE.md %s B (> %s B soft budget)\n' \
-                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
-                "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
-      error)  printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
-                "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
-                "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
-      absent) printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      ok)      printf '  ✓ CLAUDE.md %s B (under %s B budget)\n' \
+                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                 "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
+      warn)    printf '  ⚠ CLAUDE.md %s B (> %s B soft budget)\n' \
+                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                 "$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")" ;;
+      error)   printf '  ✗ CLAUDE.md %s B (> %s B hard cap — extract)\n' \
+                 "$(jq -r '.documentation.claude_md.bytes' <<<"$report")" \
+                 "$(jq -r '.documentation.claude_md.hard_cap_bytes' <<<"$report")" ;;
+      absent)  printf '  ⚠ CLAUDE.md missing (no router file present)\n' ;;
+      skipped) printf '  ⊘ CLAUDE.md not checked (docs scope excluded)\n' ;;
     esac
 
     checked_links=$(jq -r '.documentation.links.checked' <<<"$report")
@@ -289,7 +290,9 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
   (( n_orphans > 0 )) && has_warn=true
   (( n_stale > 0 )) && has_warn=true
   (( n_subsys_errs > 0 )) && has_warn=true
-  [[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
+  # `skipped` is "docs scope wasn't run", not real drift; only `absent`
+# (file actually missing) counts as warn.
+[[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
 
   if $has_critical; then retro_rc=5
   elif $has_warn; then retro_rc=4

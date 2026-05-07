@@ -248,6 +248,60 @@ JSON
   ! echo "$out_auto" | grep -q "line-40"
 }
 
+# --- TOCTOU: bootstrap consumes the blob, not the live repo state -----------
+
+@test "bootstrap copies .gitignore from preview_blob when present" {
+  # Adversarial scenario: between preview-time and execute-time, an
+  # outside actor edits the live .gitignore. Bootstrap must ship the
+  # blob the user approved, not re-render against tampered live state.
+  # Otherwise the SHA binding is meaningless for merge actions — the
+  # plan SHA matches but the on-disk bytes don't.
+  cat > "$REPO/.gitignore" <<'EOF'
+.DS_Store
+EOF
+  ( cd "$REPO" && git add . && git -c user.email=t@t -c user.name=t commit -q -m seed )
+
+  # Build a minimal plan that just merges .gitignore.
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[{"path":".gitignore","action":"merge","bytes":0}],"commands":[],"remote":[]}
+JSON
+  bash "${REPO_ROOT}/bin/render-plan.sh" \
+    --plan "$TMP/plan.json" --target "$REPO" --templates-csv jsts \
+    > "$TMP/rendered.json"
+
+  # Capture the rendered blob's expected post-merge SHA.
+  blob_path=$(jq -r '.writes[0].preview_blob' "$TMP/rendered.json")
+  expected=$(shasum -a 256 "$blob_path" | awk '{print $1}')
+
+  # Adversary tampering: rewrite the live .gitignore with content the
+  # render-plan blob does NOT include. If bootstrap re-rendered, it'd
+  # incorporate this content; if it cps the blob, the live edit is
+  # silently overwritten by the previewed bytes (correct behaviour).
+  printf 'tampered-by-adversary\n' >> "$REPO/.gitignore"
+
+  # Drive bootstrap (skip irrelevant steps via env / minimal plan).
+  # Use the rendered plan's SHA-256 binding so the integrity check
+  # passes and execution proceeds.
+  sha=$(bash "${REPO_ROOT}/bin/preview.sh" --plan "$TMP/rendered.json" --emit-sha256 2>/dev/null)
+
+  # Use a fresh profile + doc-plan because bootstrap requires both.
+  bash "${REPO_ROOT}/bin/route-docs.sh" \
+    --profile "${REPO_ROOT}/profiles/default.json" > "$TMP/doc-plan.json"
+  bash "${REPO_ROOT}/bin/detect-stack.sh" --path "$REPO" > "$TMP/stack.json"
+
+  bash "${REPO_ROOT}/bin/bootstrap.sh" \
+    --plan "$TMP/rendered.json" --plan-sha256 "$sha" \
+    --target "$REPO" \
+    --profile "${REPO_ROOT}/profiles/default.json" \
+    --doc-plan "$TMP/doc-plan.json" \
+    --stack "$TMP/stack.json" >/dev/null 2>&1 || true
+
+  actual=$(shasum -a 256 "$REPO/.gitignore" | awk '{print $1}')
+  [ "$actual" = "$expected" ]
+  # And the adversary's tampered line must not appear.
+  ! grep -q "tampered-by-adversary" "$REPO/.gitignore"
+}
+
 # --- schema integrity --------------------------------------------------------
 
 @test "rendered plan validates against action-plan schema" {

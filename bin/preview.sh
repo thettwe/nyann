@@ -106,7 +106,17 @@ fi
 case "$decision" in
   no)
     if $json_out; then
-      jq -nc '{declined: true, plan: null, summary: null, plan_sha256: "", skips_applied: []}'
+      # Schema-conformant decline: same required keys as the happy
+      # path; `declined: true` is the discriminator and `plan` /
+      # `summary` switch to null per the oneOf branch in
+      # schemas/preview-result.schema.json.
+      jq -nc '{
+        declined: true,
+        plan: null,
+        summary: null,
+        plan_sha256: "",
+        skips_applied: []
+      }'
     else
       printf '[nyann] plan declined. No changes made.\n' >&2
     fi
@@ -263,6 +273,7 @@ if $json_out; then
     '
       ($plan.writes | map(.action) | reduce .[] as $a ({}; .[$a] = (.[$a] // 0) + 1)) as $hist |
       {
+        declined: false,
         plan: $plan,
         summary: {
           write_count:   ($plan.writes | length),

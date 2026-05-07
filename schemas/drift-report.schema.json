@@ -87,7 +87,7 @@
           "additionalProperties": true,
           "required": ["status", "bytes", "budget_bytes"],
           "properties": {
-            "status":         { "type": "string", "enum": ["ok", "warn", "error", "absent"] },
+            "status":         { "type": "string", "enum": ["ok", "warn", "error", "absent", "skipped"] },
             "bytes":          { "type": "integer", "minimum": 0 },
             "budget_bytes":   { "type": "integer", "minimum": 0 },
             "hard_cap_bytes": { "type": "integer" },
@@ -139,7 +139,7 @@
         "orphans":               { "type": "integer", "minimum": 0 },
         "stale_docs":            { "type": "integer", "minimum": 0 },
         "subsystem_errors":      { "type": "integer", "minimum": 0 },
-        "claude_md_status":      { "type": "string", "enum": ["ok", "warn", "error", "absent"] }
+        "claude_md_status":      { "type": "string", "enum": ["ok", "warn", "error", "absent", "skipped"] }
       }
     }
   }

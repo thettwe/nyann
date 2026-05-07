@@ -166,6 +166,28 @@ profile_path() {
 
 # --- schema integrity --------------------------------------------------------
 
+@test "narrow scope reports CLAUDE.md as 'skipped' rather than 'absent'" {
+  # On a repo with no CLAUDE.md and no doc scope requested,
+  # claude_md.status should be `skipped` (we didn't check), not
+  # `absent` (we checked and the file is missing). Otherwise
+  # narrow-scope CI gates fail spuriously on repos that don't yet
+  # have a CLAUDE.md.
+  run bash "${REPO_ROOT}/bin/compute-drift.sh" --target "$REPO" \
+    --profile "$(profile_path)" --scope hooks
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.documentation.claude_md.status')" = "skipped" ]
+}
+
+@test "narrow scope on a CLAUDE.md-less repo exits 0 when in-scope is clean" {
+  # The codex-adversarial-review case: --scope branching on a fresh
+  # repo (no CLAUDE.md) used to exit 4 because the absent-CLAUDE.md
+  # warning leaked through. With the skipped-vs-absent split it
+  # exits 0 — the repo IS clean within the requested scope.
+  run bash "${REPO_ROOT}/bin/retrofit.sh" --target "$REPO" \
+    --profile nextjs-prototype --report-only --scope branching
+  [ "$status" -eq 0 ]
+}
+
 @test "scope_applied output validates against drift-report schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

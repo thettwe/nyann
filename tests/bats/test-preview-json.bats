@@ -42,7 +42,9 @@ run_preview() {
   run run_preview --plan "$TMP/plan.json" --json
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '
-    has("plan") and has("summary") and has("plan_sha256") and has("skips_applied")
+    has("declined") and has("plan") and has("summary")
+    and has("plan_sha256") and has("skips_applied")
+    and (.declined == false)
   ' >/dev/null
 }
 
@@ -146,6 +148,21 @@ run_preview() {
   [ "$status" -eq 1 ]
   # Output is a single JSON object on stdout (not stderr text).
   echo "$output" | jq -e '.declined == true' >/dev/null
+}
+
+@test "preview --json decline payload validates against PreviewResult schema" {
+  if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
+    skip "no schema validator"
+  fi
+  if command -v check-jsonschema >/dev/null 2>&1; then
+    VALIDATE=(check-jsonschema)
+  else
+    VALIDATE=(uvx --quiet check-jsonschema)
+  fi
+  bash "${REPO_ROOT}/bin/preview.sh" --plan "$TMP/plan.json" --json --decision no \
+    > "$TMP/decline.json" 2>/dev/null || true
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/preview-result.schema.json" \
+    "$TMP/decline.json"
 }
 
 # --- backwards compatibility ----------------------------------------------

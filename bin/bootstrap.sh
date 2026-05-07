@@ -287,7 +287,22 @@ if [[ -n "$stack_path" && -f "$stack_path" ]]; then
   done
 fi
 if [[ -n "$gitignore_templates" ]]; then
-  maybe_run "${_script_dir}/gitignore-combiner.sh" --target "$target/.gitignore" --templates "$gitignore_templates"
+  # When the plan carries a preview_blob for .gitignore (rendered via
+  # bin/render-plan.sh during preview), execute from that blob instead
+  # of re-running the combiner. This is the only way to guarantee the
+  # bytes the user approved in preview match the bytes that land on
+  # disk — re-rendering against live repo state opens a TOCTOU window
+  # where a concurrent edit between preview and execute changes the
+  # merge output without changing the plan SHA.
+  gi_blob=$(jq -r '
+    [.writes[]? | select(.path == ".gitignore" and (.preview_blob // "") != "")][0].preview_blob // ""
+  ' "$plan_path")
+  if [[ -n "$gi_blob" && -f "$gi_blob" ]]; then
+    nyann::log "using preview_blob for .gitignore: $gi_blob"
+    maybe_run cp -- "$gi_blob" "$target/.gitignore"
+  else
+    maybe_run "${_script_dir}/gitignore-combiner.sh" --target "$target/.gitignore" --templates "$gitignore_templates"
+  fi
 fi
 
 _bootstrap_tmp_files=()
@@ -552,29 +567,41 @@ if [[ "$claude_md_mode" == "off" ]]; then
 elif [[ "$claude_md_in_plan" == "0" ]]; then
   nyann::warn "skipping gen-claudemd: CLAUDE.md is not in the ActionPlan's writes[] (plan-builder must surface it for preview-before-mutate)"
 else
-  claudemd_extra_args=()
-  if [[ -n "$ws_configs_file" && -f "$ws_configs_file" ]]; then
-    claudemd_extra_args+=(--workspace-configs "$ws_configs_file")
-  fi
-  if [[ -n "$ws_scopes_file" && -f "$ws_scopes_file" ]]; then
-    claudemd_extra_args+=(--extra-scopes "$ws_scopes_file")
-  fi
-
-  if [[ -n "$stack_path" ]]; then
-    maybe_run "${_script_dir}/gen-claudemd.sh" \
-      --profile "$profile_path" \
-      --doc-plan "$doc_plan_path" \
-      --stack "$stack_path" \
-      ${project_name:+--project-name "$project_name"} \
-      ${claudemd_extra_args[@]+"${claudemd_extra_args[@]}"} \
-      --target "$target"
+  # When the plan carries a preview_blob for CLAUDE.md, the operator
+  # already saw the merged bytes in preview. Cp from the blob instead
+  # of re-rendering — same TOCTOU rationale as the .gitignore path
+  # above.
+  cm_blob=$(jq -r '
+    [.writes[]? | select(.path == "CLAUDE.md" and (.preview_blob // "") != "")][0].preview_blob // ""
+  ' "$plan_path")
+  if [[ -n "$cm_blob" && -f "$cm_blob" ]]; then
+    nyann::log "using preview_blob for CLAUDE.md: $cm_blob"
+    maybe_run cp -- "$cm_blob" "$target/CLAUDE.md"
   else
-    maybe_run "${_script_dir}/gen-claudemd.sh" \
-      --profile "$profile_path" \
-      --doc-plan "$doc_plan_path" \
-      ${project_name:+--project-name "$project_name"} \
-      ${claudemd_extra_args[@]+"${claudemd_extra_args[@]}"} \
-      --target "$target"
+    claudemd_extra_args=()
+    if [[ -n "$ws_configs_file" && -f "$ws_configs_file" ]]; then
+      claudemd_extra_args+=(--workspace-configs "$ws_configs_file")
+    fi
+    if [[ -n "$ws_scopes_file" && -f "$ws_scopes_file" ]]; then
+      claudemd_extra_args+=(--extra-scopes "$ws_scopes_file")
+    fi
+
+    if [[ -n "$stack_path" ]]; then
+      maybe_run "${_script_dir}/gen-claudemd.sh" \
+        --profile "$profile_path" \
+        --doc-plan "$doc_plan_path" \
+        --stack "$stack_path" \
+        ${project_name:+--project-name "$project_name"} \
+        ${claudemd_extra_args[@]+"${claudemd_extra_args[@]}"} \
+        --target "$target"
+    else
+      maybe_run "${_script_dir}/gen-claudemd.sh" \
+        --profile "$profile_path" \
+        --doc-plan "$doc_plan_path" \
+        ${project_name:+--project-name "$project_name"} \
+        ${claudemd_extra_args[@]+"${claudemd_extra_args[@]}"} \
+        --target "$target"
+    fi
   fi
 fi
 if [[ -f "$target/CLAUDE.md" ]]; then
