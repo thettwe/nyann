@@ -1,3 +1,38 @@
+## [1.7.0] — 2026-05-07
+
+### Added
+
+- **`bin/preview.sh --json`** — emits a single PreviewResult JSON object on stdout (plan + summary + plan_sha256 + skips_applied), no stderr render. Mutually exclusive with `--emit-sha256`. New `schemas/preview-result.schema.json` locks the shape; tooling consumers (and the future `undo-bootstrap.sh` deferred to v1.8) no longer need to scrape stderr. `--decision no` in JSON mode emits a structured declined payload (`{"declined": true, …}`) on stdout with rc 1, so callers can distinguish refusal from crash. `--skip` reports `skips_applied[]` containing only paths that actually matched a write in the unfiltered plan.
+- **`bin/{compute-drift,retrofit,doctor}.sh --scope <csv>`** — narrow drift to one or more categories (`docs`, `hooks`, `branching`, `gitignore`, `editorconfig`, `github`, `history`, `all`). Operators who carefully tuned hooks but want to fix doc drift can now run `retrofit --scope docs` without scrolling past every hook entry in preview. `compute-drift.sh` and `bootstrap.sh` accept the same flag (defensive plan filtering). Unknown scope values exit non-zero with a clear error.
+- **`DriftReport.scope_applied[]`** — new optional field. Default scope expands to the canonical 7-element list; narrower scopes contain only the categories the operator asked for. Documented in `schemas/drift-report.schema.json`. `health-trend.sh` / `doctor-ci.sh` consumers can compare against `length == 7` to distinguish "checked, no drift" from "not checked".
+- **`bin/doctor.sh --scope` auto-skips `--persist`** — a partial-scope health score would corrupt the trend series in `memory/health.json`, so doctor warns + drops persist when scope is narrower than `all`. Operators can re-run with default `--scope=all` to refresh.
+- **Visual diff in preview for merge actions** — `bin/preview.sh` now renders a unified diff for merge entries that carry a `preview_blob`. Default truncates to 20 lines per file (`--full-diff` for full hunks; `--no-diff` for legacy size-only display). Powered by:
+  - **`bin/render-plan.sh`** — pre-renders merge content for `.gitignore` and `CLAUDE.md` to a tempdir, then rewrites the plan with `preview_blob` + `current_bytes` on each rendered entry.
+  - **`bin/gitignore-combiner.sh --output <path>`** and **`bin/gen-claudemd.sh --output <path>`** — write-to-alternate-path mode. In-place semantics are unchanged. Refuses `--output == --target` (use the in-place form for that). Hook files and YAML configs stay pass-through (size-only) for v1.7.0; the two highest-anxiety merges were the wedge.
+- **`bin/setup.sh --simulate <repo>`** — runs detect-stack → suggest-profile → recommend-branch → route-docs → plan-bootstrap → render summary against an arbitrary repo without touching anything. Strictly read-only: no `preferences.json` written, no target mutations. JSON mode emits a structured `SimulationResult` payload (`simulation`, `target`, `stack`, `profile`, `branching`, `plan`, `partial_reason`); text mode echoes "If you ran /nyann:bootstrap here…". Monorepos surface as `simulation: "partial"` with a one-line reason since per-workspace writes still live in the skill layer.
+- **`bin/plan-bootstrap.sh`** — extracts ActionPlan composition from `skills/bootstrap-project/SKILL.md` step 5 into a reusable script. Composes writes[] from profile + DocumentationPlan + StackDescriptor following the same gating rules the skill documents (extras.gitignore, hooks-by-language, archetype-aware doc scaffolds, CI workflow, GitHub templates). Output validates against `schemas/action-plan.schema.json`. Today the bootstrap skill keeps its inline path for backward compatibility; the script primarily serves `--simulate` and is the cleaner long-term path.
+- **Glossary auto-population** — closes the v1.7+ open question in `docs/principles/documentation.md` (the AI-retrieval-first promise of `glossary.md` only lands when the file has actual content). New **`bin/scaffold-glossary.sh`** detects exported top-level types per language (Go: `type X struct/interface`; TS: `export interface/type/class/enum`; Python: top-level `class`; Rust: `pub struct/trait/enum`; Java/Kotlin/Swift: `public`). Ranks by external reference count and caps at `--max-terms` (default 50). Marker-bracketed auto block (`<!-- nyann:glossary:auto-start -->` / `auto-end`) is regenerated idempotently; user content outside the markers is preserved.
+- **`profile.documentation.glossary.{auto_populate,max_terms,languages}`** — opt-in profile fields. Default `auto_populate: false` preserves v1.6.0 behaviour for existing users. `bin/scaffold-docs.sh` accepts `--auto-glossary --glossary-max-terms --glossary-languages` and `bin/bootstrap.sh` forwards the resolved settings.
+- **`schemas/glossary-draft.schema.json`** — output of `scaffold-glossary.sh --json` (terms[], languages, scanned_files, total_candidates, selected). Added to `schemas/README.md` (now 45 schemas).
+- **`schemas/preview-result.schema.json`** — locks the `preview.sh --json` payload shape.
+- **`writes[].preview_blob` and `writes[].current_bytes`** in `schemas/action-plan.schema.json` — optional fields populated by `render-plan.sh`. Bootstrap.sh tolerates them transparently; the SHA-256 binding still covers them.
+- **`templates/docs/glossary.tmpl`** ships with the auto-block markers in place so a fresh scaffold lands at the right spot for `scaffold-glossary.sh` to populate.
+- 4 new bats files — `test-preview-json.bats`, `test-retrofit-scope.bats`, `test-preview-diff.bats`, `test-setup-simulate.bats`, `test-scaffold-glossary.bats` (~63 new tests total).
+
+### Changed
+
+- **`skills/retrofit/SKILL.md`** — new section 3a documenting `--scope` mapping for the common user phrases ("only fix the docs", "leave my hooks alone"). New section 3b prompts via `AskUserQuestion` multiSelect when drift spans more than one category and the user hasn't pre-specified a scope. Step 5 wired to call `bin/render-plan.sh` before `bin/preview.sh` so retrofit's preview gets the same merge diff as bootstrap.
+- **`skills/doctor/SKILL.md`** — documents `--scope` and the auto-disabled `--persist` behaviour.
+- **`skills/bootstrap-project/SKILL.md`** — step 5 split into 5a (render merge previews) + 5b (preview). Section 4a-2 added: when scaffold set includes `glossary`, prompt the user to opt into auto-populate (default Yes for `library` and `api-service` archetypes).
+- **`skills/setup/SKILL.md`** — new optional Step 3b inviting the user to run `bin/setup.sh --simulate "$PWD"` against the current repo before committing to `/nyann:bootstrap`.
+- **`bin/_lib.sh`** — three new helpers: `nyann::scope_includes`, `nyann::valid_scope_csv`, `nyann::canonical_scope`. Single source of truth for the v1.7.0 scope category names; reused across compute-drift, retrofit, doctor, bootstrap.
+- **`bin/scaffold-docs.sh`** — accepts `--auto-glossary`, `--glossary-max-terms`, `--glossary-languages`. When set and the resolved scaffold set includes `glossary`, calls `scaffold-glossary.sh` after writing the template seed.
+- **`schemas/README.md`** — schemas table updated; new entries for `glossary-draft` and `preview-result`. ActionPlan producer column lists `bin/render-plan.sh` alongside the existing producers.
+
+### Fixes
+
+- **`bin/preview.sh` no longer prints stderr render in `--json` mode.** Tooling consumers parsing stdout JSON were previously forced to redirect stderr separately; the new mode emits a single self-contained payload.
+
 ## [1.6.0] — 2026-05-06
 
 ### Added
