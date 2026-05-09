@@ -4,11 +4,11 @@
 
 # Nyann
 
-> **ငြမ်း** is Burmese for _scaffolding_. Nyann is a Claude Code plugin that sets up and maintains project governance: git workflow, hooks, branching, commits, releases, CI, docs routing, and health monitoring. From first init through every PR after.
+> **ငြမ်း** is Burmese for _scaffolding_. Nyann is the Claude Code plugin that picks expert git defaults for your stack — branching, **working hooks** (Husky / pre-commit.com / lefthook), commits, releases, CI, docs — then keeps the repo on those rails through every PR after. Conversational by default; every destructive change is previewed, schema-validated, and reversible.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-820%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1044%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -26,9 +26,18 @@
 - You have mature internal scaffolding you're happy with.
 - You want a code generator (nyann does not scaffold application code; that's `create-next-app` / `cookiecutter` territory).
 
+## What makes it different
+
+- **Working hooks for 18 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
+- **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
+- **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
+- **Schema-validated contracts between every script.** All 47 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1044 bats tests** cover the surface.
+- **Team-shareable governance.** Profiles are pure data — register a git URL and your team's branching, hooks, conventions, and doc routing sync across every repo automatically. Stale-team-profile detection nudges before the next bootstrap.
+- **Health-graded, drift-aware.** `doctor` produces a 0–100 score with per-category deltas and trend sparklines from `memory/health.json`. Inline drift checks at commit / PR / ship time nudge (don't gate) when the repo drifts from its profile; `governance-check.yml` upgrades that to a CI gate when desired.
+
 ## Supported stacks
 
-Nyann detects your stack automatically and applies the right profile. Every profile includes branching strategy, commit conventions, and documentation scaffolding. All profiles use Conventional Commits and GitHub Flow by default.
+**Working hooks, branching, commits, and docs across 18 stacks.** Nyann detects yours automatically and applies the right profile — branching strategy, commit conventions, language-specific hooks (Husky, pre-commit.com, lefthook, …) wired up to run on day one, and archetype-aware documentation scaffolding. All profiles default to Conventional Commits + GitHub Flow.
 
 | Stack | Profile | Linting | Formatting | Package Manager |
 |---|---|---|---|---|
@@ -89,14 +98,16 @@ Or use the slash command directly:
 
 > `/nyann:bootstrap`
 
-Claude detects your stack, previews a plan, and on confirmation produces:
+Claude detects your stack, previews a plan with a unified diff for merge actions, and on confirmation produces:
 
-- Initialized git with correct base branches
-- `.gitignore` assembled from stack-aware templates
-- Git hooks (linting, formatting, Conventional Commits, secret scanning, per stack)
-- `docs/` (architecture, ADR-000 + template) and `memory/` with README
-- `CLAUDE.md` as a compact router under 3 KB
-- `.editorconfig` if the profile declares it
+- Git initialized with the right base branches for the detected branching strategy
+- `.gitignore` merged from stack-specific templates (existing user lines preserved — never overwritten)
+- **Working git hooks** wired to the right framework: Husky (JS/TS), pre-commit.com (Python), lefthook (Go/Rust), or native `.git/hooks` (shell). Linting, formatting, Conventional-Commits validation, secret scanning, and `block-main` are runnable on day one.
+- `docs/` archetype-aware scaffold (api-service / cli-tool / library / web-app / mobile-app / plugin) — architecture, ADR-000, and matching templates
+- `memory/` with README plus the BootRecord under `memory/.nyann/bootstraps/<ts>/` so the run is reversible
+- `CLAUDE.md` as a router-mode file under the 3 KB soft cap (8 KB hard cap)
+- `.editorconfig`, `.github/workflows/ci.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/`, and `CODEOWNERS` (monorepo) when the profile opts in
+- GitHub branch + tag protection auto-applied via `gh` if installed and authenticated
 
 Total wall time on a clean directory: **~2 seconds** (excluding `npm install` / `pip install` / etc.).
 
@@ -108,13 +119,14 @@ You don't need to memorize slash commands. Just describe what you need:
 |---|---|
 | "commit these changes" | Generates a Conventional Commits message and commits |
 | "start a feature branch for login" | Creates a strategy-compliant branch |
-| "is this repo healthy?" | Runs a full hygiene and docs audit |
-| "cut a patch release" | Bumps version, updates changelog, tags |
+| "is this repo healthy?" | Graded health score (0–100), per-category deltas, sparkline trend from history |
+| "cut a patch release" | Auto-detects the semver bump from Conventional Commits, regenerates CHANGELOG, tags, optionally creates a GitHub release |
 | "pull and rebase" | Syncs upstream changes with conflict guidance |
-| "undo that" | Reverses the last commit or bootstrap |
+| "undo that" | Reverses the last commit on a feature branch |
+| "undo the bootstrap" | Reverses the last `bootstrap` (or `retrofit`) run from its boot record |
 | "open a PR" | Creates a GitHub PR from the current branch |
-| "ship it" | Opens a PR and merges when CI goes green |
-| "generate CI for this project" | Writes a GitHub Actions workflow |
+| "ship it" | Opens a PR and either auto-merges (returns immediately) or polls CI then merges |
+| "generate CI for this project" | Writes a GitHub Actions workflow + optional governance gate |
 
 Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) listed in the [full command reference](#skills--commands) below.
 
@@ -122,20 +134,21 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 
 | Area | What nyann does |
 |---|---|
-| **Bootstrap** | Detects stack, picks branching strategy, installs hooks, scaffolds docs + memory, writes CLAUDE.md. Monorepo-aware (pnpm / Turborepo / Nx / Lerna / Cargo workspaces). |
-| **Retrofit** | Audits an existing repo against a profile and fixes what's drifted: missing hooks, incomplete gitignore, documentation gaps. |
-| **Doctor** | Read-only hygiene audit. Surfaces missing hooks, bad gitignore, non-Conventional history, broken links, orphans, CLAUDE.md overruns, GitHub protection drift. |
-| **Commit** | Reads the staged diff, generates a Conventional Commits message, retries once on hook rejection. |
-| **Branch** | Creates strategy-compliant branch names off the right base. Validates slug; switches to existing branches. |
-| **PR** | Opens a GitHub PR with generated title and body. Context-only mode works without `gh`. |
-| **Ship** | Combined PR + merge in one step. Auto-merge (returns immediately) or client-side (polls CI, merges when green). |
-| **Release** | Bumps version, generates changelog from Conventional Commits, creates an annotated tag. CI-gated tagging via `--wait-for-checks`. |
-| **Hotfix** | Branch-topology setup for patch releases against a previously tagged version. |
-| **CI generation** | Generates a GitHub Actions workflow matching your stack and profile. |
-| **GitHub protection** | Audits or applies branch protection, tag rulesets, signing requirements, and repo settings. |
-| **Docs routing** | Routes docs to local, Obsidian, or Notion. Memory is always local. Standalone re-routing after bootstrap. |
-| **CLAUDE.md** | Router-mode generation (3 KB soft / 8 KB hard cap), standalone regeneration, and usage-based optimization. |
-| **Inline drift checks** | Drift detection runs at point-of-use (commit, PR, ship, release) — not on session start. Non-blocking nudge, not a gate. |
+| **Bootstrap** | Stack-detected, schema-validated `ActionPlan` previewed before any write. Per-language working hooks, archetype-aware doc scaffolds, CI workflow, GitHub templates, branch + tag protection, and `.gitignore` merge with diff-preview. Monorepo-aware (pnpm / Turborepo / Nx / Lerna / Cargo workspaces). |
+| **Reversibility** | `bootstrap` / `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating; `/nyann:undo-bootstrap` reverses the run. Refusal-by-default protects files edited after bootstrap, branches with stacked commits, and HEAD ahead of the bootstrap seed. |
+| **Retrofit** | Scoped audit + remediation against a profile. `--scope docs\|hooks\|branching\|gitignore\|editorconfig\|github` lets you fix one category without touching the others. Idempotent — safe to re-run. Boot-record-backed, so it's reversible too. |
+| **Doctor** | Read-only hygiene audit with a numerical **health score (0–100)** persisted to `memory/health.json`, rendered as a per-category sparkline trend. Covers hook drift, gitignore, non-Conventional history, broken internal links, doc orphans, doc staleness, CLAUDE.md size budget, and GitHub protection drift. |
+| **Commit** | Reads the staged diff, generates a Conventional Commits message scoped to touched workspaces (monorepo), and retries once on hook rejection. Supports `--amend` and `--edit-message`. |
+| **Branch** | Creates strategy-compliant branch names off the right base for the active strategy (GitHub Flow / GitFlow / trunk-based). Validates slug; switches to an existing branch if one already matches. |
+| **PR** | Opens a GitHub PR with a Conventional-Commits-style title generated from the commit range and a body summarizing the diff. Context-only mode works without `gh`. |
+| **Ship** | Combined PR + merge in one step. Default uses GitHub's native auto-merge so the terminal returns immediately with `outcome:"queued"`. `--client-side` polls CI in the foreground and runs `gh pr merge` when checks pass. |
+| **Release** | **Auto-detects the next semver bump** from Conventional Commits since the last tag. Generates the CHANGELOG section, optionally bumps profile-declared manifest files (`package.json`, `plugin.json`, `pyproject.toml`, …), creates an annotated tag, pushes a GitHub release. Pre-release support for `-rc.N` / `-beta.N`. CI-gated tagging via `--wait-for-checks`. |
+| **Hotfix** | Branch topology for patch releases against a previously tagged version. Creates `release/<major>.<minor>` from the source tag if missing, then `hotfix/<slug>` off it. Pairs with `release` for the actual cut. |
+| **CI generation** | Generates `.github/workflows/ci.yml` matched to your stack and profile (lint + typecheck + test jobs). Optional `governance-check.yml` posts inline PR comments when drift exceeds threshold or health drops below the floor. |
+| **GitHub protection** | Audit (`--check`) or apply branch protection, tag rulesets, signing requirements, security settings, and Dependabot config. Output validates against `protection-audit.schema.json` so other tooling can consume it. |
+| **Docs routing** | Routes docs to local Markdown, Obsidian (MCP), Notion (MCP), or a per-doc-type split. Standalone re-routing after bootstrap regenerates the scaffold to match. `memory/` stays local. |
+| **CLAUDE.md** | Router-mode generation under 3 KB soft / 8 KB hard cap. Standalone regeneration via `gen-claudemd`. **Usage-based optimization** trims sections Claude never references, based on `analytics/claudemd-usage.jsonl`. |
+| **Inline drift checks** | Drift detection runs at point-of-use (commit / PR / ship / release) — not on session start. Surfaces broken links, orphans, doc staleness, CLAUDE.md size, and protection drift. Non-blocking nudge by default; CI gate on opt-in. |
 
 ## Skills & commands
 
@@ -154,6 +167,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:hotfix --from <tag> --slug <slug>` | Set up hotfix branch topology. |
 | `/nyann:sync` | Pull + rebase with conflict guidance. |
 | `/nyann:undo [--hard]` | Reverse last commit on a feature branch. |
+| `/nyann:undo-bootstrap [--manifest <path>] [--scope <csv>] [--force] [--dry-run]` | Reverse a bootstrap or retrofit run from its BootRecord manifest. |
 | `/nyann:cleanup-branches [--yes]` | Prune local branches whose work is merged. |
 | `/nyann:gen-ci [--profile <name>]` | Generate GitHub Actions CI workflow. |
 | `/nyann:gen-templates [--profile <name>]` | Generate PR + issue templates. |
@@ -173,7 +187,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:check-prereqs [--json]` | Survey hard + soft prereqs. |
 | `/nyann:diagnose [--json]` | Bundle a redacted support snapshot. |
 
-All 31 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
+All 32 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
 
 ## Profiles
 
@@ -283,17 +297,21 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 ## Repository layout
 
 ```
-bin/                   # 65 shell scripts + 1 python helper (orchestrators + subsystems)
-commands/              # 31 Claude Code slash-command registrations
-evals/                 # 25 skill-level trigger + output-quality specs
+bin/                   # 68 shell scripts + 1 python helper (orchestrators + subsystems)
+commands/              # 32 Claude Code slash-command registrations
+evals/                 # 24 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse block-main hook
 profiles/              # 18 starter profiles (+ _schema.json)
-schemas/               # 43 JSON Schemas for every exchanged shape
-skills/                # 31 skills (SKILL.md, optionally with references/ and scripts/)
+schemas/               # 47 JSON Schemas for every exchanged shape
+skills/                # 32 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 820 bats tests + fixtures
+tests/                 # 1044 bats tests + fixtures
 ```
+
+## Recent changes
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.8.0** ships reversibility — every `bootstrap` and `retrofit` run is now undoable via `/nyann:undo-bootstrap`.
 
 ---
 

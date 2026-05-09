@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/boot-record/v1.json",
+  "title": "BootRecord",
+  "description": "Snapshot written by bin/bootstrap.sh and bin/retrofit.sh before they mutate a target repo. Records every reversible action plus a copy of the pre-state bytes for each touched file (in a sibling `pre-state/` directory). Consumed by bin/undo-bootstrap.sh to reverse a run. Lives at memory/.nyann/bootstraps/<ISO-ts>/manifest.json — committed by default so a teammate who pulls the bootstrap PR can also undo it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at",
+    "target",
+    "source",
+    "profile_name",
+    "profile_sha256",
+    "plan_sha256",
+    "actions"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "BootRecord schema version. Bump in lockstep with the schema's $id when v2 ships.",
+      "const": 1
+    },
+    "created_at": {
+      "description": "ISO 8601 timestamp of when bootstrap/retrofit started writing the record.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "description": "Absolute path of the target repo at record time.",
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "description": "Which orchestrator produced the record. undo-bootstrap reverses both uniformly; the field is informational + lets future tooling filter.",
+      "type": "string",
+      "enum": ["bootstrap", "retrofit"]
+    },
+    "profile_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_sha256": {
+      "description": "Hex SHA-256 of the canonicalised (jq -Sc) profile JSON in effect during the run. Informational — undo works off the manifest, not the live profile — but a mismatch surfaces in audit reports.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "plan_sha256": {
+      "description": "Hex SHA-256 of the canonicalised ActionPlan that drove the run. Same value bootstrap.sh's --plan-sha256 binding checked.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "actions": {
+      "description": "Ordered list of mutations performed. Order matters: undo walks this list in reverse so a `branch` created on top of a `seed-commit` is removed before the seed commit itself.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/WriteAction" },
+          { "$ref": "#/$defs/GitInitAction" },
+          { "$ref": "#/$defs/SeedCommitAction" },
+          { "$ref": "#/$defs/BranchAction" },
+          { "$ref": "#/$defs/DefaultBranchRenameAction" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "Category": {
+      "description": "Loose grouping for --scope filtering in undo-bootstrap. Mirrors DriftReport.scope_applied where possible (no `history` — history-affecting actions like seed-commit fall under `branching`).",
+      "type": "string",
+      "enum": ["docs", "hooks", "branching", "gitignore", "editorconfig", "github"]
+    },
+    "WriteAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "category", "path", "action", "pre_existed", "reversible"],
+      "properties": {
+        "kind": { "const": "write" },
+        "category": { "$ref": "#/$defs/Category" },
+        "path": {
+          "description": "Repo-relative path of the touched file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "description": "Matches ActionPlan.writes[].action.",
+          "type": "string",
+          "enum": ["create", "merge", "overwrite", "delete"]
+        },
+        "pre_existed": {
+          "description": "True if the file (or any inode) was at `path` before the run.",
+          "type": "boolean"
+        },
+        "pre_state_blob": {
+          "description": "Filename inside the sibling `pre-state/` directory holding the original bytes. Required when `pre_existed` is true; absent otherwise. Flat layout, basename only — no subdirectories.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "pre_state_sha256": {
+          "description": "Hex SHA-256 of the pre_state_blob contents. Lets undo verify the blob hasn't been corrupted/swapped before restoring.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "post_state_sha256": {
+          "description": "Hex SHA-256 of the file's bytes immediately after bootstrap mutated it. Set by br_finalize_writes when the file exists at finalize time. undo-bootstrap compares current bytes against this to detect post-bootstrap edits — a mismatch means the user touched the file and undo refuses without --force.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reversible": {
+          "description": "Whether undo can mechanically reverse this write. False for actions where the pre-state is non-recoverable (e.g., the file was a symlink whose target is now ambiguous).",
+          "type": "boolean"
+        },
+        "irreversible_reason": {
+          "description": "Required when `reversible` is false; explains the obstruction in human-readable form.",
+          "type": "string"
+        }
+      }
+    },
+    "GitInitAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "category"],
+      "properties": {
+        "kind": { "const": "git-init" },
+        "category": { "const": "branching" }
+      }
+    },
+    "SeedCommitAction": {
+      "description": "Empty seed commit created when bootstrap encountered an unborn HEAD.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "category", "sha"],
+      "properties": {
+        "kind": { "const": "seed-commit" },
+        "category": { "const": "branching" },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "BranchAction": {
+      "description": "Long-lived branch created (e.g., develop under gitflow). `base_sha` is the commit the branch pointed at when created — undo refuses if the branch has moved (new commits stacked).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "category", "name", "base_sha"],
+      "properties": {
+        "kind": { "const": "branch" },
+        "category": { "const": "branching" },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "DefaultBranchRenameAction": {
+      "description": "Default branch rename (typically `master` → `main`). Reversal flips the rename if HEAD still matches `to`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "category", "from", "to"],
+      "properties": {
+        "kind": { "const": "default-branch-rename" },
+        "category": { "const": "branching" },
+        "from": { "type": "string", "minLength": 1 },
+        "to":   { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

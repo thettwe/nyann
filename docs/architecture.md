@@ -55,8 +55,8 @@ Claude Code entry points. UX only: trigger, confirm, report.
 
 Every `bin/<name>.sh` that a skill shells into is an orchestrator:
 `bootstrap.sh`, `retrofit.sh`, `doctor.sh`, `release.sh`, `pr.sh`,
-`commit.sh`, `new-branch.sh`, `sync.sh`, `undo.sh`, `setup.sh`,
-`switch-profile.sh` (driven by `skills/migrate-profile/`).
+`commit.sh`, `new-branch.sh`, `sync.sh`, `undo.sh`, `undo-bootstrap.sh`,
+`setup.sh`, `switch-profile.sh` (driven by `skills/migrate-profile/`).
 
 Top-level coordinators that compose subsystems and own the
 user-facing JSON contract.
@@ -65,6 +65,15 @@ user-facing JSON contract.
 `ActionPlan` and feed it to `bootstrap.sh` MUST also pass
 `--plan-sha256` (computed via `bin/preview.sh --emit-sha256`) so the
 integrity binding stays intact.
+
+**Reversibility rule:** `bootstrap.sh` writes a BootRecord (JSON
+manifest + pre-state file copies) under
+`<target>/memory/.nyann/bootstraps/<ts>/` before each mutation. The
+record is consumed by `undo-bootstrap.sh` to reverse the run. The
+`bin/boot-record.sh` helpers (`nyann::br_init`,
+`nyann::br_snapshot`, `nyann::br_action_*`, `nyann::br_finalize`)
+are the contract; orchestrators source it and call the helpers
+inline at every mutation point.
 
 ### 3. Subsystem layer
 
