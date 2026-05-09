@@ -154,8 +154,10 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    resolves `.path` entries against the actual repo. Show the user
    what will be created/merged. Respect skip requests.
 
-5. **Execute** via `bin/bootstrap.sh`. Capture the plan SHA-256 first
-   via `bin/preview.sh --emit-sha256`,
+5. **Execute** via `bin/bootstrap.sh --source retrofit`. The `--source`
+   flag labels the boot record so `/nyann:undo-bootstrap` can tell
+   remediation runs apart from initial setups. Capture the plan SHA-256
+   first via `bin/preview.sh --emit-sha256`,
    then pass it through as `--plan-sha256` so bootstrap can verify the
    plan bytes haven't changed between the user's confirmation and
    execution. The SHA binding is required; bootstrap refuses to run
@@ -168,7 +170,8 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
      --plan-sha256 "$sha" \
      --profile <path> \
      --doc-plan <doc-plan.json> \
-     --stack <stack.json>
+     --stack <stack.json> \
+     --source retrofit
    ```
    Bootstrap is idempotent — existing user content is preserved, hooks are
    merged (not overwritten), gitignore entries are deduplicated.

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/undo-bootstrap-result/v1.json",
+  "title": "UndoBootstrapResult",
+  "description": "Output of bin/undo-bootstrap.sh. Reports what was reversed (or what would be, in preview mode) when undoing a bootstrap/retrofit run captured in a BootRecord. Distinct from undo-result.schema.json (commit-undo).",
+  "oneOf": [
+    {
+      "title": "UndoBootstrapApplied",
+      "description": "Emitted on a real run (status='undone') or a dry-run / preview-without-yes (status='preview').",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "target", "manifest_path", "source", "scope_applied", "restored", "deleted", "branches_dropped", "seed_commits_undone", "defaults_renamed_back", "skipped"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["undone", "preview"],
+          "description": "'undone' after a real reversal; 'preview' in --dry-run or when --yes was withheld."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the repo the boot record describes."
+        },
+        "manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to the BootRecord manifest.json the run consumed."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["bootstrap", "retrofit"],
+          "description": "Mirrors the source field on the BootRecord — tells the operator whether they reversed an initial bootstrap or a retrofit-driven remediation."
+        },
+        "scope_applied": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["docs", "hooks", "branching", "gitignore", "editorconfig", "github"]
+          },
+          "uniqueItems": true,
+          "description": "Categories actually reversed. When the operator passed --scope=all (default) this is the canonical 6-element list. Narrower scopes contain only the categories that were processed."
+        },
+        "restored": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "category"],
+            "properties": {
+              "path":     { "type": "string", "minLength": 1 },
+              "category": { "type": "string" }
+            }
+          },
+          "description": "Files whose pre-state bytes were restored from pre-state/."
+        },
+        "deleted": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "category"],
+            "properties": {
+              "path":     { "type": "string", "minLength": 1 },
+              "category": { "type": "string" }
+            }
+          },
+          "description": "Files removed because the bootstrap run created them (pre_existed=false in the manifest)."
+        },
+        "branches_dropped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name":     { "type": "string", "minLength": 1 },
+              "base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+            }
+          },
+          "description": "Long-lived branches removed (e.g., develop under gitflow). Empty when no branches were created or all created branches have moved past base_sha."
+        },
+        "seed_commits_undone": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "description": "Seed commit SHAs that HEAD was reset away from. Empty when bootstrap didn't make a seed commit, or when HEAD has commits stacked on top."
+        },
+        "defaults_renamed_back": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "type": "string" },
+              "to":   { "type": "string" }
+            }
+          },
+          "description": "Default-branch renames reverted (e.g., main -> master)."
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "reason"],
+            "properties": {
+              "kind":   { "type": "string" },
+              "path":   { "type": "string" },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          },
+          "description": "Actions that could not be reversed (file modified post-bootstrap, branch has new commits, etc.). --force overrides most of these."
+        }
+      }
+    },
+    {
+      "title": "UndoBootstrapRefused",
+      "description": "Emitted when undo refuses outright (no manifest found, plan_sha mismatch, target on long-lived branch with stacked work, etc.).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "refused_reason"],
+      "properties": {
+        "status": { "const": "refused" },
+        "target":         { "type": "string" },
+        "manifest_path":  { "type": "string" },
+        "refused_reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  ]
+}

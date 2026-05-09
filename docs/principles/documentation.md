@@ -223,9 +223,11 @@ required to pass the four-question test retroactively.
 
 - **Archetype-specific drift checks.** API services should validate
   "every endpoint appears in `api-reference.md`"; CLIs should match
-  documented commands against `--help`. Deferred to v1.8+.
+  documented commands against `--help`. The CLI variant was scoped
+  for v1.8.0 but deferred so the headline reversibility work could
+  ship cleanly. Now targeting v1.9+ for both archetypes.
 - **MCP-side templates.** Obsidian and Notion users get the same
-  Markdown today. Notion-block-formatted variants are a v1.8+
+  Markdown today. Notion-block-formatted variants remain a v1.9+
   question.
 - **Glossary depth — comments + private types.** v1.7.0 only seeds
   exported / public types. A future iteration could surface JSDoc /

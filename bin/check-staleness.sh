@@ -61,7 +61,11 @@ fi
 # --- exclusions --------------------------------------------------------------
 
 # shellcheck disable=SC2034  # populated by nyann::load_globs, read by nyann::is_excluded
-exclusions=()
+exclusions=(
+  # Nyann's own internal state — boot records under memory/.nyann/ aren't
+  # user docs and shouldn't be flagged as stale.
+  "memory/.nyann/*"
+)
 nyann::load_globs "$exclusions_path"
 nyann::load_globs "$target/.nyann-ignore"
 

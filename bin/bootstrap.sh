@@ -9,6 +9,7 @@
 #                --stack <path>
 #                [--project-name <name>]
 #                [--dry-run]
+#                [--source bootstrap|retrofit]   # boot record provenance label
 #
 # The plan is assumed to be already previewed and confirmed (the skill layer
 # drives preview.sh). bootstrap.sh reads it, then walks each write + command
@@ -32,6 +33,7 @@ stack_path=""
 project_name=""
 dry_run=false
 expected_plan_sha256=""
+boot_record_source="bootstrap"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,6 +52,8 @@ while [[ $# -gt 0 ]]; do
     --project-name)   project_name="${2:-}"; shift 2 ;;
     --project-name=*) project_name="${1#--project-name=}"; shift ;;
     --dry-run)        dry_run=true; shift ;;
+    --source)         boot_record_source="${2:-}"; shift 2 ;;
+    --source=*)       boot_record_source="${1#--source=}"; shift ;;
     -h|--help)        sed -n '3,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
@@ -137,6 +141,8 @@ summary_skipped_records='[]'
 summary_branches_created='[]'
 summary_claude_md_bytes=0
 summary_hook_phases='[]'
+summary_boot_record=""
+_bootstrap_tmp_files=()
 
 maybe_run() {
   if $dry_run; then
@@ -146,10 +152,47 @@ maybe_run() {
   "$@"
 }
 
+# --- boot record initialization ---------------------------------------------
+# Records every mutation so bin/undo-bootstrap.sh can reverse this run.
+# Skipped in dry-run.
+_BR_DRY_RUN="$dry_run"
+# shellcheck source=./boot-record.sh
+source "${_script_dir}/boot-record.sh"
+case "$boot_record_source" in
+  bootstrap|retrofit) ;;
+  *) nyann::die "--source must be bootstrap|retrofit (got: $boot_record_source)" ;;
+esac
+nyann::br_init "$target" "$boot_record_source" "$profile_path" "$plan_path"
+# Finalize the manifest on any exit path so partial runs are still
+# undoable. Runs before the existing _bootstrap_cleanup trap (last-set
+# wins) — we chain explicitly.
+trap '_bootstrap_finalize_record' EXIT
+
+_bootstrap_finalize_record() {
+  if [[ "${_BR_ACTIVE:-false}" == "true" ]]; then
+    # Capture finalize stderr so we can surface real failures (jq error,
+    # disk full, permission). Previously suppressed unconditionally,
+    # which masked real failures and left the operator with a silent
+    # `boot_record: null` and no clue why.
+    local _br_err
+    _br_err=$(mktemp -t nyann-br-finalize.XXXXXX 2>/dev/null || echo "/dev/null")
+    summary_boot_record=$(nyann::br_finalize 2>"$_br_err" || true)
+    if [[ -z "$summary_boot_record" && -s "$_br_err" ]]; then
+      cat "$_br_err" >&2
+    fi
+    [[ "$_br_err" != "/dev/null" ]] && rm -f "$_br_err"
+  fi
+  # Chain the original cleanup if it has been registered by step 4.
+  if declare -F _bootstrap_cleanup >/dev/null 2>&1; then
+    _bootstrap_cleanup
+  fi
+}
+
 # --- step 1: git init if missing --------------------------------------------
 
 if [[ ! -d "$target/.git" ]]; then
   maybe_run git -C "$target" init -q -b main
+  nyann::br_action_git_init
   nyann::log "git init: $target"
 fi
 
@@ -182,9 +225,17 @@ create_branch_if_missing() {
       -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
       commit -q --allow-empty -m "chore: seed repo (nyann bootstrap)" \
       --author="$NYANN_GIT_NAME <$NYANN_GIT_EMAIL>"
+    if ! $dry_run; then
+      _seed_sha=$(git -C "$target" rev-parse HEAD 2>/dev/null || true)
+      [[ -n "$_seed_sha" ]] && nyann::br_action_seed_commit "$_seed_sha"
+    fi
   fi
   maybe_run git -C "$target" branch -- "$b"
   summary_branches_created=$(jq --arg b "$b" '. + [$b]' <<<"$summary_branches_created")
+  if ! $dry_run; then
+    _branch_base=$(git -C "$target" rev-parse "$b" 2>/dev/null || true)
+    [[ -n "$_branch_base" ]] && nyann::br_action_branch "$b" "$_branch_base"
+  fi
   nyann::log "branch created: $b"
 }
 
@@ -202,12 +253,17 @@ if ! git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1; then
     -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
     commit -q --allow-empty -m "chore: seed repo (nyann bootstrap)" \
     --author="$NYANN_GIT_NAME <$NYANN_GIT_EMAIL>"
+  if ! $dry_run; then
+    _seed_sha=$(git -C "$target" rev-parse HEAD 2>/dev/null || true)
+    [[ -n "$_seed_sha" ]] && nyann::br_action_seed_commit "$_seed_sha"
+  fi
 fi
 
 if ! git -C "$target" rev-parse --verify "$first_base" >/dev/null 2>&1; then
   current=$(git -C "$target" branch --show-current 2>/dev/null || true)
   if [[ -n "$current" && "$current" != "$first_base" ]]; then
     maybe_run git -C "$target" branch -M -- "$first_base"
+    nyann::br_action_default_rename "$current" "$first_base"
   fi
 fi
 
@@ -215,6 +271,45 @@ fi
 while IFS= read -r b; do
   create_branch_if_missing "$b"
 done < <(jq -r '.[]' <<<"$long_lived_json")
+
+# --- step 2b: pre-mutation snapshot ------------------------------------------
+# Walk plan.writes[] and snapshot the pre-state of every declared path,
+# plus the well-known hook side-effect paths that subsystems mutate
+# without enumerating in writes[]. br_finalize_writes diffs current vs
+# pre-state at the end and emits the resulting write actions.
+_br_category_for() {
+  case "$1" in
+    .gitignore)                          echo "gitignore" ;;
+    .editorconfig)                       echo "editorconfig" ;;
+    CLAUDE.md|docs/*|memory/*)           echo "docs" ;;
+    .github/*)                           echo "github" ;;
+    .git/hooks/*|.husky/*|.pre-commit-config.yaml|package.json|Cargo.toml|lefthook.yml)
+                                         echo "hooks" ;;
+    *)                                   echo "docs" ;;
+  esac
+}
+
+while IFS=$'\t' read -r p a; do
+  [[ -z "$p" ]] && continue
+  cat=$(_br_category_for "$p")
+  nyann::br_snapshot "$cat" "$p" "$a"
+done < <(jq -r '.writes[]? | [.path, (.action // "")] | @tsv' "$plan_path")
+
+# Hook subsystems write outside the plan (.git/hooks/, .husky/, package.json
+# husky/lint-staged keys). Snapshot the well-known set so undo can reverse.
+nyann::br_snapshot_dir hooks ".git/hooks"
+nyann::br_snapshot_dir hooks ".husky"
+nyann::br_snapshot hooks ".pre-commit-config.yaml"
+nyann::br_snapshot hooks "package.json"
+nyann::br_snapshot hooks "Cargo.toml"
+nyann::br_snapshot hooks "lefthook.yml"
+# Register the hook directories for post-mutation diff. Snapshot above
+# only catches files that existed pre-bootstrap; install-hooks materialises
+# .git/hooks/pre-commit, .husky/pre-commit, etc. on a fresh repo, so
+# br_finalize_writes scans these dirs at finalize time and emits create
+# actions for any newly-present files.
+nyann::br_register_post_dir hooks ".git/hooks"
+nyann::br_register_post_dir hooks ".husky"
 
 # --- step 3: plan writes (create / merge / overwrite) ------------------------
 # NOTE: bootstrap.sh is a dispatcher; file content is produced by specialized
@@ -305,9 +400,9 @@ if [[ -n "$gitignore_templates" ]]; then
   fi
 fi
 
-_bootstrap_tmp_files=()
 _bootstrap_cleanup() { rm -f ${_bootstrap_tmp_files[@]+"${_bootstrap_tmp_files[@]}"} 2>/dev/null || true; }
-trap '_bootstrap_cleanup' EXIT
+# Trap is registered at the top of the script alongside boot-record finalize;
+# _bootstrap_finalize_record chains _bootstrap_cleanup if it has been defined.
 
 # --- step 4b: editorconfig --------------------------------------------------
 # Write a minimal .editorconfig when profile.extras.editorconfig=true AND
@@ -608,6 +703,19 @@ if [[ -f "$target/CLAUDE.md" ]]; then
   summary_claude_md_bytes=$(wc -c < "$target/CLAUDE.md" | tr -d ' ')
 fi
 
+# --- finalize boot record before summary ------------------------------------
+# Explicit call so the manifest path lands in the JSON summary; the EXIT
+# trap stays as a partial-run safety net (no-op once finalize ran).
+# Capture stderr so genuine finalize failures surface to the operator.
+if [[ "${_BR_ACTIVE:-false}" == "true" ]]; then
+  _br_err=$(mktemp -t nyann-br-finalize.XXXXXX 2>/dev/null || echo "/dev/null")
+  summary_boot_record=$(nyann::br_finalize 2>"$_br_err" || true)
+  if [[ -z "$summary_boot_record" && -s "$_br_err" ]]; then
+    cat "$_br_err" >&2
+  fi
+  [[ "$_br_err" != "/dev/null" ]] && rm -f "$_br_err"
+fi
+
 # --- step 8: summary ---------------------------------------------------------
 
 jq -n \
@@ -620,6 +728,7 @@ jq -n \
   --argjson skipped_records "$summary_skipped_records" \
   --argjson claude_md_bytes "$summary_claude_md_bytes" \
   --argjson dry_run "$dry_run" \
+  --arg boot_record "$summary_boot_record" \
   '{
     target: $target,
     strategy: $strategy,
@@ -629,7 +738,8 @@ jq -n \
     hook_phases: $hook_phases,
     skipped_records: $skipped_records,
     claude_md_bytes: $claude_md_bytes,
-    dry_run: $dry_run
+    dry_run: $dry_run,
+    boot_record: (if $boot_record == "" then null else $boot_record end)
   }'
 
 

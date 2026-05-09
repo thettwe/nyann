@@ -89,7 +89,9 @@ JSON
     --stack "$TMP/stack.json"
   [ "$status" -eq 0 ]
   [ ! -d "$REPO/docs" ]
-  [ ! -d "$REPO/memory" ]
+  # memory/.nyann/ is created by the boot-record subsystem (always);
+  # scaffold-docs's marker is memory/README.md — that's what should be absent.
+  [ ! -f "$REPO/memory/README.md" ]
   echo "$output" | grep -Fq "scaffold-docs"
   echo "$output" | grep -Fq "ActionPlan"
 }

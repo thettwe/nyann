@@ -1,0 +1,19 @@
+{
+  "skill": "undo-bootstrap",
+  "trigger_cases": [
+    { "prompt": "undo the bootstrap",                       "should_trigger": true,  "tag": "undo-bootstrap" },
+    { "prompt": "revert the nyann setup on this repo",      "should_trigger": true,  "tag": "revert-setup" },
+    { "prompt": "uninstall nyann from this repo",           "should_trigger": true,  "tag": "uninstall" },
+    { "prompt": "back out the bootstrap I just ran",        "should_trigger": true,  "tag": "back-out" },
+    { "prompt": "undo the retrofit",                        "should_trigger": true,  "tag": "undo-retrofit" },
+    { "prompt": "I regret running bootstrap",               "should_trigger": true,  "tag": "regret" },
+    { "prompt": "rip out nyann",                            "should_trigger": true,  "tag": "rip-out" },
+    { "prompt": "/nyann:undo-bootstrap",                    "should_trigger": true,  "tag": "slash" },
+    { "prompt": "undo my last commit",                      "should_trigger": false, "tag": "commit-undo-distractor" },
+    { "prompt": "uninstall the plugin",                     "should_trigger": false, "tag": "plugin-uninstall-distractor" },
+    { "prompt": "remove .git",                              "should_trigger": false, "tag": "git-init-distractor" },
+    { "prompt": "delete the repo",                          "should_trigger": false, "tag": "delete-repo-distractor" },
+    { "prompt": "set up this project again",                "should_trigger": false, "tag": "bootstrap-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

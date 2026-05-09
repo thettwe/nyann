@@ -43,6 +43,7 @@ nyann is designed under these assumptions, and a finding that contradicts one of
 3. **MCP boundary is one-directional.** Shell scripts under `bin/` never invoke MCP tools; only the skill layer does. A shell script that initiates an MCP call is a boundary violation regardless of intent.
 4. **Preview-before-mutate.** Every destructive path emits an ActionPlan to `bin/preview.sh` and waits for explicit confirmation. A path that mutates without preview, or where the preview content differs from the executed content, is a vulnerability.
 5. **Schemas are the contract.** Every JSON shape that crosses a layer boundary is described by a schema in `schemas/`. A producer that emits a shape outside its declared schema is a vulnerability if a consumer parses it; a consumer that accepts a shape outside the declared schema is a vulnerability if the new shape carries attacker-controlled data.
+6. **BootRecord manifests are untrusted on consumption.** Boot records under `memory/.nyann/bootstraps/` are committed by default so a teammate can undo a bootstrap. That makes them attacker-reachable via PR / `git pull`. `bin/undo-bootstrap.sh` MUST validate every path it acts on, refusing absolute / `..` / control-character / symlink-traversal entries before any `cp`, `rm`, or `mkdir`. A path-handling bug in the snapshot or restore code that lets a hostile manifest write outside the target is a vulnerability.
 
 ## Past disclosures
 
