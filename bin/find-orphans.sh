@@ -37,7 +37,12 @@ target="$(cd "$target" && pwd)"
 # --- load exclusion globs ----------------------------------------------------
 
 # shellcheck disable=SC2034  # populated by nyann::load_globs, read by nyann::is_excluded
-exclusions=()
+exclusions=(
+  # nyann's own internal state, not user docs. Boot records (manifest.json
+  # + pre-state/*.bin) live here; without this exclusion they'd surface
+  # as "orphans" on every doctor run after a bootstrap.
+  "memory/.nyann/*"
+)
 nyann::load_globs "$exclusions_path"
 nyann::load_globs "$target/.nyann-ignore"
 
