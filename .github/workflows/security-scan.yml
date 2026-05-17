@@ -1,0 +1,133 @@
+name: Security scan
+
+# Static analysis that complements shellcheck:
+#
+#   - CodeQL `actions` analysis: catches workflow-injection bugs in
+#     .github/workflows/*.yml (the surface tj-actions/changed-files
+#     2025 exposed). nyann's other workflows already route untrusted
+#     inputs through env: blocks; this is the regression net.
+#   - Semgrep `p/bash` ruleset: adds taint-style checks (command
+#     injection via unquoted expansions, eval, $(...) of user input)
+#     that shellcheck doesn't model.
+#
+# Both jobs are non-blocking on PRs (continue-on-error on semgrep) so
+# a noisy new rule release doesn't wedge the queue — findings post via
+# SARIF upload for the maintainer to triage. Flip continue-on-error
+# off once the baseline is clean and stable.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly run catches rules added by CodeQL/Semgrep upstream that
+    # would have flagged code already on main. Sunday 06:00 UTC ≈
+    # quiet window for both vendors.
+    - cron: '0 6 * * 0'
+
+# Trigger tuning per job (set in each job's `if:`):
+#   - semgrep: runs on every push + PR + cron (high signal, scans bin/)
+#   - codeql:  PR + cron only (small actions-language footprint; per-push
+#              on `dev` would burn ~3 min/run with little incremental signal)
+
+# Default to read-only. The two jobs raise `security-events: write`
+# locally so SARIF upload works; nothing else gets elevated.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL (actions)
+    # PR + cron only — see trigger-tuning note above.
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      # CodeQL needs `actions: read` on private repos to enumerate
+      # workflow files. Harmless on public.
+      actions: read
+
+    steps:
+      # Pinned commit SHA, not @v6 — see ci.yml for the rationale.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # github/codeql-action commit-pinned (resolved from `v3`).
+      # Update by running:
+      #   gh api repos/github/codeql-action/git/refs/tags/v3 \
+      #     --jq '.object.sha' \
+      #     | xargs -I{} gh api repos/github/codeql-action/git/tags/{} --jq '.object.sha'
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+        with:
+          # bash isn't a first-class CodeQL language; `actions` is the
+          # one that matters here (workflow-injection coverage).
+          languages: actions
+          # Default query pack — the `actions` language's extended pack
+          # is small and noisier than the compiled-language equivalents.
+          # Tighten to `security-and-quality` once the default baseline
+          # is clean and we know what we're suppressing.
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+        with:
+          category: '/language:actions'
+
+  semgrep:
+    name: Semgrep (bash + ci)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install semgrep
+        run: |
+          # Install the CLI directly rather than via the deprecated
+          # returntocorp/semgrep-action. Pin the major version so a
+          # surprise rule-release doesn't change scan output overnight.
+          # Mirrors the PyYAML install in ci.yml: try the standard path
+          # first, fall back to --break-system-packages when the system
+          # Python is PEP 668-marked (current ubuntu-latest runners).
+          python3 -m pip install --user 'semgrep~=1.0' \
+            || python3 -m pip install --user --break-system-packages 'semgrep~=1.0'
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Scan
+        # `p/bash` and `p/github-actions` are the two ruleset packs
+        # that match this repo. Findings are informational for now;
+        # SARIF upload makes them visible in the Security tab without
+        # blocking the queue while we triage the baseline.
+        #
+        # `templates/` IS scanned — those scripts get installed into
+        # every nyann-bootstrapped user repo, so a command-injection
+        # bug there propagates to every downstream consumer. That's
+        # the highest-leverage surface in the whole repo. Only
+        # `tests/bats/fixtures` is excluded (deliberately-malformed
+        # inputs would otherwise create permanent baseline noise).
+        continue-on-error: true
+        run: |
+          semgrep --version
+          semgrep scan \
+            --config p/bash \
+            --config p/github-actions \
+            --sarif --output semgrep.sarif \
+            --metrics off \
+            --exclude tests/bats/fixtures \
+            bin hooks templates .github
+
+      - name: Upload SARIF
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@458d36d7d4f47d0dd16ca424c1d3cda0060f1360 # v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
