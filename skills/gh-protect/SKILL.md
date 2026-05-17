@@ -34,11 +34,8 @@ no useful fallback without `gh`.
 
 ## 2. Resolve profile
 
-Load the active profile the same way doctor does:
-1. Check `~/.claude/nyann/preferences.json` for a profile name.
-2. Fall back to CLAUDE.md markers.
-3. Fall back to `"default"`.
-4. Load via `bin/load-profile.sh <name>`.
+Load the active profile via `bin/load-profile.sh <name>`
+(resolves preferences → CLAUDE.md markers → `"default"` fallback).
 
 If the user names a specific profile, use that instead.
 

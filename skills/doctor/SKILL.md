@@ -71,7 +71,9 @@ mean?", explain in terms of the repo, not nyann internals:
 - **NON-COMPLIANT HISTORY:** last N commit subjects that don't match
   Conventional Commits. Informational — nyann never rewrites history.
 - **DOCUMENTATION:** CLAUDE.md size vs budget, internal link resolution,
-  MCP link reachability (when MCP connectors are available), and orphan files under `docs/` / `memory/`.
+  MCP link reachability (when MCP connectors are available), orphan files
+  under `docs/` / `memory/`, and misplaced docs (files at non-canonical
+  paths that could be reorganized via retrofit).
 - **GITHUB PROTECTION:** branch protection per strategy, tag-protection
   rulesets (when `.github.tag_protection_pattern` is declared in the
   profile), CODEOWNERS-required gate (when a CODEOWNERS file exists

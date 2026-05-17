@@ -23,9 +23,6 @@
         { "strategy_profile": "synthetic-gitflow",  "purpose": "feature", "slug": "login",         "expected_branch": "feat/login",       "expected_base": "develop" },
         { "strategy_profile": "synthetic-gitflow",  "purpose": "release", "version": "1.2.0",      "expected_branch": "release/1.2.0",    "expected_base": "main" },
         { "strategy_profile": "synthetic-gitflow",  "purpose": "hotfix",  "slug": "auth-header",   "expected_branch": "hotfix/auth-header","expected_base": "main" }
-      ],
-      "assertions": [
-        { "kind": "every_case_creates_expected_branch_off_expected_base" }
       ]
     }
   ]

@@ -21,11 +21,8 @@ You are the gen-ci skill. You generate a GitHub Actions CI workflow that mirrors
 ### Phase 1: Detect stack and resolve profile
 
 1. Run `bin/detect-stack.sh --path .` to get a StackDescriptor JSON.
-2. Resolve the active profile:
-   - Check `~/.claude/nyann/preferences.json` for a profile name
-   - Fall back to CLAUDE.md markers (`<!-- nyann:start -->` block → profile name)
-   - Fall back to `"default"`
-3. Load the profile via `bin/load-profile.sh <profile-name>` (the name is a positional argument).
+2. Resolve and load the active profile via `bin/load-profile.sh <name>`
+   (resolves preferences → CLAUDE.md markers → `"default"` fallback).
 
 ### Phase 2: Preview the workflow
 

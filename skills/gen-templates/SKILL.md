@@ -19,11 +19,8 @@ You are the gen-templates skill. You generate GitHub templates (PR template with
 
 ### Phase 1: Resolve profile
 
-1. Resolve the active profile:
-   - Check `~/.claude/nyann/preferences.json` for a profile name
-   - Fall back to CLAUDE.md markers
-   - Fall back to `"default"`
-2. Load the profile via `bin/load-profile.sh <profile-name>` (positional argument).
+1. Resolve and load the active profile via `bin/load-profile.sh <name>`
+   (resolves preferences → CLAUDE.md markers → `"default"` fallback).
 
 ### Phase 2: Preview
 

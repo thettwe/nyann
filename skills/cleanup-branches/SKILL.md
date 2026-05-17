@@ -20,7 +20,7 @@ profile points), then either previews the list or actually deletes
 them with `git branch -d` (safe — refuses unmerged work).
 
 Mirrors the same preview-then-mutate contract as `undo` and
-`switch-profile`: nothing is deleted unless the caller passed
+`migrate-profile`: nothing is deleted unless the caller passed
 `--yes` AND `--dry-run` was absent.
 
 ## 1. Run the preview

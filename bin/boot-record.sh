@@ -24,9 +24,14 @@
 #   _BR_TRACKED_FILE   — tracked.tsv: path<TAB>blob<TAB>existed<TAB>sha256
 #   _BR_HEADER_FILE    — header.json: top-level fields written at init
 #   _BR_BLOB_COUNTER   — incremented on each snapshot
+#   _BR_TARGET_ABS     — absolute target path (in-memory only; the persisted
+#                        manifest stores basename(target) for privacy, so
+#                        snapshot/finalize must read the abs path from here
+#                        rather than re-deriving it from the manifest)
 
 _BR_ACTIVE="${_BR_ACTIVE:-false}"
 _BR_DRY_RUN="${_BR_DRY_RUN:-false}"
+_BR_TARGET_ABS=""
 
 # nyann::br_init <target> <source> <profile_path> <plan_path>
 nyann::br_init() {
@@ -74,9 +79,21 @@ nyann::br_init() {
   profile_sha=$(_br_sha256_file_canon "$profile_path") || nyann::die "br_init: cannot hash profile $profile_path"
   plan_sha=$(_br_sha256_file_canon "$plan_path") || nyann::die "br_init: cannot hash plan $plan_path"
 
+  # target is recorded as the repo basename only (NOT the absolute path).
+  # The manifest is committed by default under memory/.nyann/bootstraps/,
+  # so any absolute path would leak the original author's username and
+  # filesystem layout (e.g. "/Users/<author>/Works/<repo>") to every
+  # teammate who pulls the bootstrap PR. The field is informational —
+  # undo-bootstrap.sh verifies portability by checking that the manifest
+  # lives under $target, not by comparing this value. The absolute path
+  # is still needed at runtime for snapshot/finalize to resolve files;
+  # it lives in $_BR_TARGET_ABS for the duration of the bootstrap run.
+  _BR_TARGET_ABS="$target"
+  local target_basename
+  target_basename=$(basename "$target")
   jq -n \
     --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg target "$target" \
+    --arg target "$target_basename" \
     --arg source "$source" \
     --arg profile_name "$(jq -r '.name // "unknown"' "$profile_path")" \
     --arg profile_sha256 "$profile_sha" \
@@ -120,7 +137,7 @@ nyann::br_snapshot() {
   fi
 
   local target full
-  target=$(jq -r '.target' "$_BR_HEADER_FILE")
+  target="$_BR_TARGET_ABS"
 
   # String-level path-traversal guard. Reject paths with absolute
   # prefix or `..` segments — a malicious plan.json with
@@ -197,7 +214,7 @@ nyann::br_snapshot_dir() {
   local category="${1:?category required}"
   local rel="${2:?path required}"
   local target
-  target=$(jq -r '.target' "$_BR_HEADER_FILE")
+  target="$_BR_TARGET_ABS"
   local full="$target/$rel"
   [[ -d "$full" ]] || return 0
   while IFS= read -r f; do
@@ -265,7 +282,7 @@ nyann::br_action_default_rename() {
 nyann::br_finalize_writes() {
   [[ "$_BR_ACTIVE" == "true" ]] || return 0
   local target
-  target=$(jq -r '.target' "$_BR_HEADER_FILE")
+  target="$_BR_TARGET_ABS"
 
   # Scan post-dirs first, registering any new files into tracked.tsv
   # with pre_existed=false so the main loop emits create actions.
@@ -291,7 +308,6 @@ nyann::br_finalize_writes() {
 
   [[ -s "$_BR_TRACKED_FILE" ]] || return 0
 
-  local path blob existed sha category
   local path blob existed sha category plan_action
   while IFS=$'\037' read -r path blob existed sha category plan_action; do
     [[ -z "$path" ]] && continue

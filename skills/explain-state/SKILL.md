@@ -61,10 +61,10 @@ do next. Offer one or two next steps based on what's present:
 
 - Stack but no profile → suggest `bootstrap-project` with a matching
   profile name.
-- Profile but no hooks wired → suggest re-running `bootstrap-project`
-  (retrofit mode) to install the hook bundle.
+- Profile but no hooks wired → suggest re-running `/nyann:retrofit`
+  to install the hook bundle.
 - CLAUDE.md missing router markers → note it can be regenerated via
-  `bootstrap-project` retrofit.
+  `/nyann:retrofit`.
 - Everything present and clean → "Looks set up. Want a deeper audit?
   Run `doctor` for drift checks."
 

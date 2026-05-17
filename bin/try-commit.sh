@@ -57,13 +57,13 @@ trap 'rm -f "$tmperr"' EXIT
 # silent terminal until success or a wall-of-text rejection.
 set +e
 if [[ -n "$body" ]]; then
-  git -C "$target" commit -m "$subject" -m "$body" >/dev/null 2> >(tee "$tmperr" >&2)
+  git -C "$target" commit -m "$subject" -m "$body" >/dev/null 2>"$tmperr"
 else
-  git -C "$target" commit -m "$subject" >/dev/null 2> >(tee "$tmperr" >&2)
+  git -C "$target" commit -m "$subject" >/dev/null 2>"$tmperr"
 fi
 rc=$?
 set -e
-wait   # let tee flush before classify reads $tmperr
+cat "$tmperr" >&2 || true
 
 # Classify the outcome.
 result="error"

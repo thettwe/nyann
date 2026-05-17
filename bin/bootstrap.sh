@@ -279,9 +279,10 @@ done < <(jq -r '.[]' <<<"$long_lived_json")
 # pre-state at the end and emits the resulting write actions.
 _br_category_for() {
   case "$1" in
-    .gitignore)                          echo "gitignore" ;;
-    .editorconfig)                       echo "editorconfig" ;;
-    CLAUDE.md|docs/*|memory/*)           echo "docs" ;;
+    .gitignore|*/.gitignore)             echo "gitignore" ;;
+    .editorconfig|*/.editorconfig)       echo "editorconfig" ;;
+    CLAUDE.md|docs/*|memory/*|*/docs/*|*/memory/*)
+                                         echo "docs" ;;
     .github/*)                           echo "github" ;;
     .git/hooks/*|.husky/*|.pre-commit-config.yaml|package.json|Cargo.toml|lefthook.yml)
                                          echo "hooks" ;;
@@ -358,8 +359,8 @@ done < <(jq -c '.writes[]?' "$plan_path")
 
 gitignore_templates=""
 if [[ -n "$stack_path" && -f "$stack_path" ]]; then
-  pl=$(jq -r '.primary_language' "$stack_path")
-  sl=$(jq -r '.secondary_languages | join(",")' "$stack_path")
+  pl=$(jq -r '.primary_language // "unknown"' "$stack_path")
+  sl=$(jq -r '.secondary_languages // [] | join(",")' "$stack_path")
   case "$pl" in
     typescript|javascript) gitignore_templates="jsts" ;;
     python)                gitignore_templates="python" ;;
@@ -399,6 +400,7 @@ if [[ -n "$gitignore_templates" ]]; then
     maybe_run "${_script_dir}/gitignore-combiner.sh" --target "$target/.gitignore" --templates "$gitignore_templates"
   fi
 fi
+
 
 _bootstrap_cleanup() { rm -f ${_bootstrap_tmp_files[@]+"${_bootstrap_tmp_files[@]}"} 2>/dev/null || true; }
 # Trap is registered at the top of the script alongside boot-record finalize;
@@ -448,46 +450,10 @@ EC
   fi
 fi
 
-# --- step 5: doc scaffolder --------------------------------------------------
-# preview-before-mutate: only invoke scaffold-docs when the ActionPlan
-# declares at least one doc write. scaffold-docs creates docs/*.md,
-# memory/README.md, ADRs, etc.; if the skill layer didn't surface those
-# in `writes[]`, the user never saw them in the preview and we refuse
-# to silently materialise files behind their back. Warn (not die) so an
-# intentional plan-without-docs run stays usable.
-
-docs_in_plan=$(jq -r '
-  [.writes[]? | select(
-    (.path | startswith("docs/")) or
-    (.path | startswith("memory/")) or
-    (.path == "docs" or .path == "memory")
-  )] | length
-' "$plan_path")
-
-if [[ "$docs_in_plan" == "0" ]]; then
-  nyann::warn "skipping scaffold-docs: the ActionPlan's writes[] contains no docs/ or memory/ entries (plan-builder must enumerate scaffolded files for preview-before-mutate)"
-else
-  # v1.7.0 — read documentation.glossary settings from the profile so
-  # scaffold-docs can drive scaffold-glossary when opted in. Default
-  # auto_populate=false preserves v1.6.0 behaviour for existing users.
-  glossary_args=()
-  if [[ "$(jq -r '.documentation.glossary.auto_populate // false' "$profile_path")" == "true" ]]; then
-    glossary_args+=(--auto-glossary)
-    gmt=$(jq -r '.documentation.glossary.max_terms // 50' "$profile_path")
-    glossary_args+=(--glossary-max-terms "$gmt")
-    glang=$(jq -r '(.documentation.glossary.languages // ["auto"]) | join(",")' "$profile_path")
-    glossary_args+=(--glossary-languages "$glang")
-  fi
-
-  maybe_run "${_script_dir}/scaffold-docs.sh" \
-    --plan "$doc_plan_path" \
-    ${stack_path:+--stack "$stack_path"} \
-    ${project_name:+--project-name "$project_name"} \
-    --target "$target" \
-    ${glossary_args[@]+"${glossary_args[@]}"}
-fi
-
-# --- step 5b: resolve workspace configs (monorepo support) ------------------
+# --- step 4c: resolve workspace configs (monorepo support) ------------------
+# Must run before scaffold-docs (step 5) so the doc scaffolder can read
+# per-workspace documentation settings. Also feeds per-workspace gitignore
+# (5b), CI matrix (5c), CODEOWNERS, and the CLAUDE.md router.
 
 ws_configs_file=""
 ws_scopes_file=""
@@ -514,21 +480,131 @@ if [[ "$is_monorepo" == "true" ]]; then
   nyann::log "monorepo: resolved $(jq 'length' "$ws_configs_file") workspace config(s), $(jq 'length' "$ws_scopes_file") commit scope(s)"
 fi
 
+# --- step 5: doc scaffolder --------------------------------------------------
+# preview-before-mutate: only invoke scaffold-docs when the ActionPlan
+# declares at least one doc write. scaffold-docs creates docs/*.md,
+# memory/README.md, ADRs, etc.; if the skill layer didn't surface those
+# in `writes[]`, the user never saw them in the preview and we refuse
+# to silently materialise files behind their back. Warn (not die) so an
+# intentional plan-without-docs run stays usable.
+
+docs_in_plan=$(jq -r '
+  [.writes[]? | select(
+    (.path | startswith("docs/")) or
+    (.path | startswith("memory/")) or
+    (.path == "docs" or .path == "memory") or
+    (.path | test("(^|/)docs/")) or
+    (.path | test("(^|/)memory/"))
+  )] | length
+' "$plan_path")
+
+if [[ "$docs_in_plan" == "0" ]]; then
+  nyann::warn "skipping scaffold-docs: the ActionPlan's writes[] contains no docs/ or memory/ entries (root-level or workspace-nested) — plan-builder must enumerate scaffolded files for preview-before-mutate"
+else
+  # v1.7.0 — read documentation.glossary settings from the profile so
+  # scaffold-docs can drive scaffold-glossary when opted in. Default
+  # auto_populate=false preserves v1.6.0 behaviour for existing users.
+  glossary_args=()
+  if [[ "$(jq -r '.documentation.glossary.auto_populate // false' "$profile_path")" == "true" ]]; then
+    glossary_args+=(--auto-glossary)
+    gmt=$(jq -r '.documentation.glossary.max_terms // 50' "$profile_path")
+    glossary_args+=(--glossary-max-terms "$gmt")
+    glang=$(jq -r '(.documentation.glossary.languages // ["auto"]) | join(",")' "$profile_path")
+    glossary_args+=(--glossary-languages "$glang")
+  fi
+
+  # Build a newline-delimited allow-list of approved write paths from the
+  # ActionPlan. When the workspace-doc loop runs inside scaffold-docs.sh, it
+  # gates each workspace doc target against this set — defends against
+  # planner/executor drift (Codex review #1 follow-up). The list is the
+  # same plan.writes[] paths bootstrap.sh's snapshot loop iterates, so any
+  # workspace doc that wasn't pre-enumerated by plan-bootstrap.sh gets
+  # skipped + warned instead of silently materialised behind the preview.
+  _allowed_writes_file=""
+  if [[ -n "$ws_configs_file" ]]; then
+    _allowed_writes_file=$(mktemp -t nyann-allowed-writes.XXXXXX)
+    _bootstrap_tmp_files+=("$_allowed_writes_file")
+    jq -r '[.writes[]?.path] | unique | .[]' "$plan_path" > "$_allowed_writes_file"
+  fi
+
+  maybe_run "${_script_dir}/scaffold-docs.sh" \
+    --plan "$doc_plan_path" \
+    ${stack_path:+--stack "$stack_path"} \
+    ${project_name:+--project-name "$project_name"} \
+    --target "$target" \
+    ${ws_configs_file:+--workspace-configs "$ws_configs_file"} \
+    ${_allowed_writes_file:+--allowed-writes "$_allowed_writes_file"} \
+    ${glossary_args[@]+"${glossary_args[@]}"}
+fi
+
+# --- step 5b: per-workspace gitignore (monorepo) ---------------------------
+# When workspace configs declare extras.gitignore=true AND a workspace profile
+# is set, write a workspace-local .gitignore from the workspace language's
+# template. This gives Flutter workspaces .gitignore rules for .dart_tool/,
+# Node workspaces for node_modules/, etc.
+#
+# Each workspace .gitignore must appear in plan.writes[] before being
+# written — that's what plan-bootstrap.sh enumerates for monorepos.
+# A workspace .gitignore that wasn't in the preview gets skipped +
+# warned, never silently materialised (preview-before-mutate).
+
+if [[ -n "${ws_configs_file:-}" && -f "${ws_configs_file:-}" ]]; then
+  ws_gi_count=$(jq '[.[] | select(.extras.gitignore == true)] | length' "$ws_configs_file")
+  if (( ws_gi_count > 0 )); then
+    # Pre-build the set of planned write paths once for O(1) lookup per
+    # workspace. Using a newline-delimited string + grep -Fxq because we
+    # need exact-line match without bash 4 associative arrays.
+    _planned_writes=$(jq -r '[.writes[]?.path] | unique | .[]' "$plan_path")
+
+    while IFS=$'\t' read -r ws_path ws_lang; do
+      [[ -z "$ws_path" ]] && continue
+      ws_gi_rel="${ws_path}/.gitignore"
+      if ! grep -Fxq "$ws_gi_rel" <<<"$_planned_writes"; then
+        nyann::warn "skipping workspace gitignore: $ws_gi_rel not in ActionPlan.writes[] (plan-builder must enumerate it for preview-before-mutate)"
+        continue
+      fi
+
+      local_template=""
+      case "$ws_lang" in
+        typescript|javascript) local_template="jsts" ;;
+        python)                local_template="python" ;;
+        go)                    local_template="go" ;;
+        rust)                  local_template="rust" ;;
+        dart)                  local_template="dart" ;;
+        swift)                 local_template="swift" ;;
+        kotlin|java)           local_template="jvm" ;;
+        *)                     local_template="generic" ;;
+      esac
+      ws_gi_target="$target/$ws_gi_rel"
+      if [[ -n "$local_template" ]]; then
+        maybe_run "${_script_dir}/gitignore-combiner.sh" --target "$ws_gi_target" --templates "$local_template"
+        nyann::log "wrote workspace gitignore: $ws_gi_rel ($local_template)"
+      fi
+    done < <(jq -r '.[] | select(.extras.gitignore == true) | [.path, .primary_language] | @tsv' "$ws_configs_file")
+  fi
+fi
+
 # --- step 5c: CI workflow generation -----------------------------------------
 # Generate .github/workflows/ci.yml when profile.ci.enabled=true AND the
 # plan declares the file. Same preview-before-mutate gate as everywhere else.
 
 ci_enabled=$(jq -r '.ci.enabled // false' "$profile_path")
 ci_in_plan=$(jq -r '[.writes[]? | select(.path == ".github/workflows/ci.yml")] | length' "$plan_path")
+ci_ws_in_plan=$(jq -r '[.writes[]? | select(.path == ".github/workflows/ci-workspaces.yml")] | length' "$plan_path")
 
 if [[ "$ci_enabled" == "true" ]]; then
   if [[ "$ci_in_plan" == "0" ]]; then
     nyann::warn "skipping gen-ci: .github/workflows/ci.yml is not in the ActionPlan's writes[] (plan-builder must surface it for preview-before-mutate)"
   elif [[ -n "$stack_path" && -f "$stack_path" ]]; then
-    maybe_run "${_script_dir}/gen-ci.sh" \
-      --profile "$profile_path" \
-      --stack "$stack_path" \
-      --target "$target"
+    _gen_ci_args=(--profile "$profile_path" --stack "$stack_path" --target "$target")
+    if [[ -n "${ws_configs_file:-}" && -f "${ws_configs_file:-}" ]]; then
+      if [[ "$ci_ws_in_plan" == "0" ]]; then
+        nyann::warn "skipping workspace CI matrix: .github/workflows/ci-workspaces.yml is not in the ActionPlan's writes[]"
+      else
+        _gen_ci_args+=(--workspace-configs "$ws_configs_file")
+      fi
+    fi
+    maybe_run "${_script_dir}/gen-ci.sh" "${_gen_ci_args[@]}"
   else
     nyann::warn "skipping gen-ci: no stack descriptor available"
   fi

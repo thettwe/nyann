@@ -89,6 +89,33 @@ JSON
   [ "$source" = "retrofit" ]
 }
 
+@test "manifest .target is the repo basename, never an absolute path (privacy guard)" {
+  # Regression guard: an earlier implementation wrote the absolute $target
+  # path into the manifest. Since manifests are committed by default under
+  # memory/.nyann/bootstraps/, that leaked the original author's username
+  # and filesystem layout to every teammate who pulled the bootstrap PR.
+  # The field is now stored as basename(target) only — informational.
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[],"commands":[],"remote":[]}
+JSON
+  run bootstrap_with_plan "$TMP/plan.json"
+  [ "$status" -eq 0 ]
+  manifest="$(find "$REPO/memory/.nyann/bootstraps" -name manifest.json | head -1)"
+  target_field=$(jq -r '.target' "$manifest")
+
+  # Must equal the basename of $REPO (which is "repo" in this fixture).
+  [ "$target_field" = "repo" ]
+
+  # Defensive: must NOT contain anything that looks like an absolute path
+  # or HOME marker that could leak filesystem layout.
+  case "$target_field" in
+    /*|*/*|"$HOME"*|"/Users/"*|"/home/"*|"/var/"*|"/tmp/"*|"/private/"*)
+      echo "manifest.target leaks path-like content: $target_field" >&2
+      false
+      ;;
+  esac
+}
+
 @test "manifest write actions carry pre_state_blob and post_state_sha256 for merged files" {
   echo "node_modules" > "$REPO/.gitignore"
   cat > "$TMP/plan.json" <<'JSON'

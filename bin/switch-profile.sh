@@ -350,7 +350,10 @@ if ! "${_script_dir}/bootstrap.sh" \
   --stack "$stack_path" > /dev/null 2>"$bootstrap_err"; then
   nyann::warn "bootstrap during migration encountered errors:"
   cat "$bootstrap_err" >&2
+  rm -f "$bootstrap_err"
+  exit 1
 fi
+rm -f "$bootstrap_err"
 
 nyann::log "migration complete: now using profile '$to_name'"
 printf '%s\n' "$plan"

@@ -72,12 +72,34 @@ Three branches:
     because `default` means "skip all stack-specific hooks".
   - If suggestions is empty (no matches at all), use `default` with the same warning.
 
-  **Multi-stack repos:** If `secondary_suggestions` is non-empty, the repo has
-  secondary languages (e.g., a Python backend + React frontend). After applying
-  the primary profile, mention the secondary stacks:
-  > "This repo also has TypeScript code. For that portion, `nextjs-prototype`
-  > would be the best match. Per-workspace profiles aren't supported yet, but
-  > you can run `/nyann:diff-profile` to compare."
+  **Multi-stack repos (monorepo with workspace_suggestions):** If the
+  `workspace_suggestions[]` array is non-empty, each workspace has its own
+  best-matching profile. Present per-workspace profile assignments to the user:
+
+  > "This monorepo has multiple stacks. Here are the suggested profiles:
+  >
+  > | Workspace | Stack | Suggested profile | Confidence |
+  > |-----------|-------|-------------------|------------|
+  > | apps/web | TypeScript + Next.js | `nextjs-prototype` | 90 |
+  > | apps/api | TypeScript + Express | `node-api` | 85 |
+  > | apps/mobile | Dart + Flutter | `flutter-app` | 92 |
+  >
+  > Accept these assignments?"
+
+  Rules for workspace profiles:
+  - If `workspace_suggestions[].confidence >= 70`, propose it directly.
+  - If confidence 40-69, include but flag for confirmation.
+  - If confidence < 40 or suggestion is null, workspace inherits the root profile.
+  - User can override any workspace assignment (e.g., "use `react-vite` for apps/web
+    instead").
+  - Confirmed workspace→profile mappings are written into the root profile's
+    `workspaces` field with `"profile": "<name>"` entries. This persists the choice
+    for future bootstraps.
+
+  **Legacy secondary_suggestions:** If `workspace_suggestions` is empty but
+  `secondary_suggestions` is non-empty, fall back to the legacy behaviour:
+  mention the secondary stacks as informational.
+
 - **Audit mode** ("check hygiene", "is this healthy"). Invoke the `doctor` skill instead.
 - **Retrofit mode** ("fix what's drifted", "bring into compliance"). Invoke the `retrofit`
   skill instead — it handles audit + remediation for existing repos.
@@ -150,10 +172,19 @@ the `library` and `api-service` archetypes; default No otherwise.
 
 ### 4b. Run route-docs
 
-1. Run `bin/detect-mcp-docs.sh` to discover Obsidian / Notion connectors. Capture the JSON.
-2. If `available[]` is empty, run `bin/route-docs.sh --profile <path>` with no MCP flags —
-   plan is local-only. Pass the archetype flags from 4a if the user opted in.
-3. If any MCP connector is available, load `references/mcp-routing.md` and walk the user through
+1. Run `bin/detect-mcp-docs.sh --project-path <target>` to discover Obsidian / Notion connectors
+   and local vaults. Capture the JSON.
+2. If `available[]` is empty AND `discoverable_vaults[]` is empty, run `bin/route-docs.sh
+   --profile <path>` with no MCP flags — plan is local-only. Pass the archetype flags from 4a
+   if the user opted in.
+3. If `available[]` is empty but `discoverable_vaults[]` is non-empty, offer the user:
+   > "Found Obsidian vault(s) on disk: `<vault_name>` (`<vault_path>`).
+   > Would you like to route docs to Obsidian? I can connect directly to
+   > the vault, or you can add the Obsidian MCP server for full integration."
+   - If user says yes to direct connection: use the vault path directly with
+     `--obsidian-vault <vault_name>` and proceed with MCP routing flow.
+   - If user declines: fall back to local-only routing.
+4. If any MCP connector is available, load `references/mcp-routing.md` and walk the user through
    local vs MCP vs split. It covers the questions to ask, how to compose the `--routing` string,
    the connector-target inputs (`--obsidian-vault`, `--obsidian-folder`, `--notion-parent`),
    and the post-route creation flow (MCP tool calls per non-local target + plan update with
@@ -161,6 +192,43 @@ the `library` and `api-service` archetypes; default No otherwise.
 
 Capture the resulting `DocumentationPlan`. `memory/` stays local by invariant regardless of
 any routing choice.
+
+### 4c. Doc conformance check (v1.9.0+)
+
+After routing, scan for existing documentation that doesn't follow nyann conventions:
+
+1. Run `bin/detect-doc-conformance.sh --target <repo> --archetype <archetype>`.
+2. If the output array is non-empty, present the proposals to the user via `AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Found existing docs that don't follow nyann conventions. Reorganize them?",
+    "header": "Doc layout",
+    "options": [
+      {"label": "Yes, reorganize all", "description": "Move/rename all detected docs to their canonical paths (uses git mv when tracked)."},
+      {"label": "Let me pick", "description": "Show the list so I can approve each move individually."},
+      {"label": "No, leave as-is", "description": "Keep current paths. Scaffolding will skip those categories since files already exist."}
+    ],
+    "multiSelect": false
+  }]
+}
+```
+
+If **Yes, reorganize all**: write the full proposals JSON to a temp file and run
+`bin/reorganize-docs.sh --target <repo> --moves <proposals.json> --apply`. (Without
+`--apply`, the script previews and exits without mutating; pass `--apply` once the
+user has approved the moves.)
+
+If **Let me pick**: show a table of proposals (source → target, confidence, reason) and
+ask the user which to approve. Filter the array to approved-only, then run reorganize-docs.
+
+If **No**: skip. The scaffolder's idempotency means it won't create docs where
+non-conforming versions already exist at other paths — but the user keeps their layout.
+
+After reorganization, any moved files now occupy canonical paths. The subsequent scaffold
+step will detect them as "exists" and skip creation — preserving user content that was moved
+into place.
 
 ## 5. Build and preview the plan
 

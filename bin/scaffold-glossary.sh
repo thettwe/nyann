@@ -75,7 +75,9 @@ resolve_languages() {
       local pl sl
       pl=$(jq -r '.primary_language // "unknown"' <<<"$stack_json")
       sl=$(jq -r '.secondary_languages // [] | join(",")' <<<"$stack_json")
-      for l in "$pl" $(tr ',' ' ' <<<"$sl"); do
+      local _sl_arr=()
+      [[ -n "$sl" ]] && IFS=',' read -ra _sl_arr <<<"$sl"
+    for l in "$pl" ${_sl_arr[@]+"${_sl_arr[@]}"}; do
         # `typescript` and `javascript` map to *different* scanners —
         # the ts scanner only walks `*.ts`/`*.tsx` and silently skips
         # `*.js` files, so a JS-only repo would auto-populate to an
@@ -259,7 +261,7 @@ candidates_tsv=$(mktemp -t nyann-glossary-cand.XXXXXX)
 trap 'rm -f "$candidates_tsv"' EXIT
 
 scanned_files=0
-for lang in "${LANGS[@]}"; do
+for lang in ${LANGS[@]+"${LANGS[@]}"}; do
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     scanned_files=$((scanned_files + 1))
@@ -420,12 +422,11 @@ write_glossary() {
     # Splice between markers.
     block_file=$(mktemp -t nyann-glossary-block.XXXXXX)
     render_auto_block "$draft_json" > "$block_file"
-    tmp=$(mktemp -t nyann-glossary-merged.XXXXXX)
     NYANN_GLOSSARY_BLOCK="$block_file" perl -0777 -i -pe '
       BEGIN { open(my $f, "<", $ENV{NYANN_GLOSSARY_BLOCK}) or die $!; local $/; $b = <$f>; chomp $b; }
       s/<!-- nyann:glossary:auto-start -->.*?<!-- nyann:glossary:auto-end -->/$b/s;
     ' "$glossary_path"
-    rm -f "$tmp" "$block_file"
+    rm -f "$block_file"
     nyann::log "scaffold-glossary: regenerated auto block in $glossary_path ($(jq -r '.selected' <<<"$draft_json") terms)"
     return 0
   fi

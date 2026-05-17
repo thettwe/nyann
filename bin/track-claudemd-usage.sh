@@ -61,7 +61,7 @@ case "$tool_name" in
     [[ "$rel_path" != "$file_path" ]] || exit 0
 
     # Only track docs referenced in CLAUDE.md
-    if [[ -f "$claudemd" ]] && grep -Fq "$rel_path" "$claudemd" 2>/dev/null; then
+    if [[ -f "$claudemd" ]] && grep -Fq -- "$rel_path" "$claudemd" 2>/dev/null; then
       update_key="docs_read"
       update_section="$rel_path"
     fi
@@ -71,7 +71,7 @@ case "$tool_name" in
     [[ -n "$command_str" ]] || exit 0
 
     # Only track commands referenced in CLAUDE.md
-    if [[ -f "$claudemd" ]] && grep -Fq "$command_str" "$claudemd" 2>/dev/null; then
+    if [[ -f "$claudemd" ]] && grep -Fq -- "$command_str" "$claudemd" 2>/dev/null; then
       update_key="commands_run"
       update_section="$command_str"
     fi

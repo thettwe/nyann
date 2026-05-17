@@ -40,7 +40,7 @@ count=$(jq 'length' <<<"$srcs_json")
 # Compute SHA-256 of the JSON body (canonicalized via jq).
 profile_hash() {
   local path="$1"
-  jq -cS '.' "$path" 2>/dev/null | shasum -a 256 | awk '{print $1}'
+  jq -cS '.' "$path" 2>/dev/null | (shasum -a 256 2>/dev/null || sha256sum) | awk '{print $1}'
 }
 
 drift_json='[]'
@@ -140,7 +140,7 @@ for ((i = 0; i < count; i++)); do
       continue
     fi
 
-    remote_hash=$(printf '%s' "$remote_blob" | jq -cS '.' 2>/dev/null | shasum -a 256 | awk '{print $1}')
+    remote_hash=$(printf '%s' "$remote_blob" | jq -cS '.' 2>/dev/null | (shasum -a 256 2>/dev/null || sha256sum) | awk '{print $1}')
     if [[ "$cached_hash" == "$remote_hash" ]]; then
       ok_json=$(jq --arg s "$name" --arg p "$pname" --arg h "$cached_hash" \
         '. + [{source:$s, name:$p, namespaced:($s+"/"+$p), cached_hash:$h}]' <<<"$ok_json")

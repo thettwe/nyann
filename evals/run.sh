@@ -33,7 +33,8 @@ list_only=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --file)    eval_file="${2:-}"; shift 2 ;;
+    --file)    [[ $# -ge 2 ]] || { echo "--file requires an argument" >&2; exit 2; }
+               eval_file="$2"; shift 2 ;;
     --file=*)  eval_file="${1#--file=}"; shift ;;
     --list)    list_only=true; shift ;;
     -h|--help) sed -n '3,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -54,7 +55,7 @@ if $list_only; then
   jq -r '.trigger_cases[] | "  " + (if .should_trigger then "YES" else "no " end) + "\t" + .prompt' "$eval_file"
   echo
   echo "output-quality scenarios:"
-  jq -r '.output_quality_scenarios[] | "  " + .name + "  (fixture=" + .fixture + ", profile=" + .profile + ")"' "$eval_file"
+  jq -r '.output_quality_scenarios[] | "  " + .name + "  (fixture=" + (.fixture // "n/a") + ", profile=" + (.profile // "n/a") + ")"' "$eval_file"
   exit 0
 fi
 

@@ -199,6 +199,41 @@ if (( secondary_count > 0 )); then
   done < <(jq -r '.[]' <<<"$secondary_langs_json")
 fi
 
+# --- workspace suggestions (monorepos only) ---------------------------------
+# For each workspace in the StackDescriptor, score profiles independently
+# using the workspace's own language/framework/package_manager. This gives
+# the bootstrap flow per-workspace profile recommendations.
+
+workspace_suggestions='[]'
+if [[ "$is_monorepo" == "true" ]]; then
+  workspaces_json=$(jq -c '.workspaces // []' <<<"$stack_json")
+  ws_count=$(jq 'length' <<<"$workspaces_json")
+  if (( ws_count > 0 )); then
+    while IFS=$'\t' read -r ws_path ws_lang ws_fw ws_pm; do
+      [[ -z "$ws_path" || "$ws_lang" == "unknown" ]] && continue
+      ws_matches=$(score_profiles "$ws_lang" "$ws_fw" "$ws_pm")
+      top_name=$(jq -r '.[0].name // empty' <<<"$ws_matches")
+      top_confidence=$(jq '.[0].confidence // 0' <<<"$ws_matches")
+      top_reasons=$(jq -c '.[0].reasons // []' <<<"$ws_matches")
+      workspace_suggestions=$(jq \
+        --arg path "$ws_path" \
+        --arg lang "$ws_lang" \
+        --arg fw "$ws_fw" \
+        --arg suggestion "${top_name:-null}" \
+        --argjson confidence "${top_confidence:-0}" \
+        --argjson reasons "${top_reasons:-[]}" \
+        '. + [{
+          path: $path,
+          language: $lang,
+          framework: (if $fw == "null" then null else $fw end),
+          suggestion: (if $suggestion == "null" then null else $suggestion end),
+          confidence: $confidence,
+          reasons: $reasons
+        }]' <<<"$workspace_suggestions")
+    done < <(jq -r '.[] | [.path, (.primary_language // "unknown"), (.framework // "null"), (.package_manager // "null")] | @tsv' <<<"$workspaces_json")
+  fi
+fi
+
 # --- emit output ------------------------------------------------------------
 
 jq -n \
@@ -210,6 +245,7 @@ jq -n \
   --argjson secondary_languages "$secondary_langs_json" \
   --argjson suggestions "$primary_results" \
   --argjson secondary_suggestions "$secondary_results" \
+  --argjson workspace_suggestions "$workspace_suggestions" \
   '{
     detected: {
       language: $detected_language,
@@ -220,5 +256,6 @@ jq -n \
       secondary_languages: $secondary_languages
     },
     suggestions: $suggestions,
-    secondary_suggestions: $secondary_suggestions
+    secondary_suggestions: $secondary_suggestions,
+    workspace_suggestions: $workspace_suggestions
   }'

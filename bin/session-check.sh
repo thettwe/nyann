@@ -98,7 +98,7 @@ fi
 profile_tmp=$(mktemp -t nyann-session-profile.XXXXXX 2>/dev/null) || exit 0
 trap 'rm -f "$profile_tmp"' EXIT
 "${_script_dir}/load-profile.sh" --user-root "$user_root" "$profile" >"$profile_tmp" 2>/dev/null || exit 0
-report=$("${_script_dir}/compute-drift.sh" --target "." --profile "$profile_tmp" 2>/dev/null) || exit 0
+report=$("${_script_dir}/compute-drift.sh" --target "$PWD" --profile "$profile_tmp" 2>/dev/null) || exit 0
 [[ -n "$report" ]] || exit 0
 
 # Parse summary counters.
@@ -149,7 +149,7 @@ if [[ -n "$head_sha" && -n "$cache_file" && -f "$cache_file" ]]; then
 fi
 
 if [[ -z "$stale_report" ]]; then
-  stale_report=$("${_script_dir}/check-stale-branches.sh" --target "." 2>/dev/null) || stale_report=""
+  stale_report=$("${_script_dir}/check-stale-branches.sh" --target "$PWD" 2>/dev/null) || stale_report=""
   # Atomic write: a concurrent reader (commit → pr → ship in quick
   # succession can spawn parallel session-checks) must never observe
   # a half-written cache. Write to a per-PID tmp file then mv into

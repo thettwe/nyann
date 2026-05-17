@@ -1,25 +1,43 @@
 # MCP doc routing (Obsidian / Notion)
 
 Load this file when `bin/detect-mcp-docs.sh` reports at least one entry
-in `available[]` and the user wants to route documentation into that
-connector instead of (or in addition to) local files.
+in `available[]` or `discoverable_vaults[]` and the user wants to route
+documentation into that connector instead of (or in addition to) local
+files.
 
 The skill layer does the actual MCP tool calls — bash scripts only
 produce the `DocumentationPlan` that this flow consumes, then update
 it with the concrete identifiers you receive back.
 
+## 0. Discoverable vaults (no MCP configured)
+
+When `available[]` is empty but `discoverable_vaults[]` is non-empty,
+an Obsidian vault exists on disk without a configured MCP server. Two
+options for the user:
+
+1. **Direct vault access** — nyann can read/write vault files directly
+   via the filesystem (the vault is just a folder of markdown files).
+   Use the `vault_path` from the discovery result as the target. This
+   works without any MCP server but lacks live Obsidian sync features.
+2. **Add MCP server** — suggest the user install the Obsidian MCP
+   server (`obsidian-mcp-tools`) and re-run. This gives full
+   integration with Obsidian's API.
+
+When the user picks option 1, populate `--obsidian-vault` with the
+`vault_name` from discovery and proceed to section 2 below.
+
 ## 1. Decide the routing
 
 Inputs:
 
-- `bin/detect-mcp-docs.sh` output → `available[]`.
+- `bin/detect-mcp-docs.sh` output → `available[]` + `discoverable_vaults[]`.
 - User preference — always ask. Don't silently pick an MCP even if only
   one is available.
 
 Ask the user exactly one of:
 
-- **Obsidian only available** — "Store docs in your Obsidian vault, or
-  keep them local in this repo?"
+- **Obsidian only available** (via MCP or discovered vault) — "Store
+  docs in your Obsidian vault, or keep them local in this repo?"
 - **Notion only available** — same question with Notion.
 - **Both available** — "Store docs locally, in Obsidian, in Notion, or
   split across them?" If they pick split, follow up with "Which doc

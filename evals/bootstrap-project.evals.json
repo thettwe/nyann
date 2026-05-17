@@ -4,7 +4,7 @@
     { "prompt": "set me up from scratch",                             "should_trigger": true,  "tag": "setup-intent" },
     { "prompt": "bootstrap this repo with the default profile",        "should_trigger": true,  "tag": "setup-intent" },
     { "prompt": "initialize git workflow here",                        "should_trigger": true,  "tag": "setup-intent" },
-    { "prompt": "audit this project's git hygiene",                    "should_trigger": true,  "tag": "audit-intent" },
+    { "prompt": "audit this project's git hygiene",                    "should_trigger": false, "tag": "audit-distractor" },
     { "prompt": "use my nextjs-prototype profile",                     "should_trigger": true,  "tag": "profile-intent" },
     { "prompt": "install all the standard hooks",                      "should_trigger": true,  "tag": "opinionated-bulk" },
     { "prompt": "give this repo the usual setup",                      "should_trigger": true,  "tag": "opinionated-bulk" },

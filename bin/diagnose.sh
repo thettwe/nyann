@@ -192,11 +192,11 @@ if [[ -f "$prefs_path" ]]; then
   redacted_sources='[]'
   count=$(jq 'length' <<<"$team_sources_raw")
   for ((i=0; i<count; i++)); do
-    name=$(jq -r --arg i "$i" '.[$i|tonumber].name' <<<"$team_sources_raw")
-    url=$(jq -r --arg i "$i" '.[$i|tonumber].url' <<<"$team_sources_raw")
-    ref=$(jq -r --arg i "$i" '.[$i|tonumber].ref' <<<"$team_sources_raw")
-    last=$(jq -r --arg i "$i" '.[$i|tonumber].last_synced_at // 0' <<<"$team_sources_raw")
-    interval=$(jq -r --arg i "$i" '.[$i|tonumber].sync_interval_hours // 24' <<<"$team_sources_raw")
+    name=$(jq -r --argjson i "$i" '.[$i].name' <<<"$team_sources_raw")
+    url=$(jq -r --argjson i "$i" '.[$i].url' <<<"$team_sources_raw")
+    ref=$(jq -r --argjson i "$i" '.[$i].ref' <<<"$team_sources_raw")
+    last=$(jq -r --argjson i "$i" '.[$i].last_synced_at // 0' <<<"$team_sources_raw")
+    interval=$(jq -r --argjson i "$i" '.[$i].sync_interval_hours // 24' <<<"$team_sources_raw")
     url_redacted=$(nyann::redact_url "$url")
     entry=$(jq -n \
       --arg n "$name" --arg u "$url_redacted" --arg r "$ref" \

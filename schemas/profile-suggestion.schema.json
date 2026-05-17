@@ -37,6 +37,23 @@
           "suggestions": { "$ref": "#/$defs/suggestionList" }
         }
       }
+    },
+    "workspace_suggestions": {
+      "type": "array",
+      "description": "Per-workspace profile suggestions for monorepos. Each entry maps a workspace path to its best-matching profile based on the workspace's detected stack.",
+      "items": {
+        "type": "object",
+        "required": ["path", "language", "suggestion", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "description": "Workspace path relative to repo root." },
+          "language": { "type": "string" },
+          "framework": { "type": ["string", "null"] },
+          "suggestion": { "type": ["string", "null"], "description": "Best-matching profile name, or null if no match above threshold." },
+          "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "reasons": { "type": "array", "items": { "type": "string" } }
+        }
+      }
     }
   },
   "$defs": {

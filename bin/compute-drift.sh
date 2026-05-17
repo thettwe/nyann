@@ -82,12 +82,20 @@ profile_name=$(jq -r '.name' <<<"$profile_json")
 missing_json='[]'
 misconfigured_json='[]'
 offenders_json='[]'
+misplaced_json='[]'
 
 add_missing() {
   # $1=kind $2=path $3=detail
   missing_json=$(jq --arg kind "$1" --arg path "$2" --arg detail "${3:-}" '
     . + [{ kind: $kind, path: $path } + ( if $detail != "" then { detail: $detail } else {} end )]
   ' <<<"$missing_json")
+}
+
+add_misplaced() {
+  # $1=source (actual path) $2=target (canonical path) $3=category $4=confidence
+  misplaced_json=$(jq --arg s "$1" --arg t "$2" --arg c "$3" --argjson conf "$4" '
+    . + [{ source: $s, target: $t, category: $c, confidence: $conf }]
+  ' <<<"$misplaced_json")
 }
 
 add_misconfigured() {
@@ -177,18 +185,58 @@ else
 fi
 
 if nyann::scope_includes docs "$scope"; then
+  # v1.9.0: run conformance detection once to identify docs at non-canonical paths.
+  # This lets us distinguish "missing" (no content anywhere) from "misplaced"
+  # (content exists but at wrong path).
+  _conformance_json='[]'
+  if [[ -x "${_script_dir}/detect-doc-conformance.sh" ]]; then
+    _conformance_err=$(mktemp -t nyann-conformance-err.XXXXXX)
+    if _conformance_out=$("${_script_dir}/detect-doc-conformance.sh" \
+        --target "$target" --archetype "${prof_archetype:-unknown}" 2>"$_conformance_err"); then
+      _conformance_json="$_conformance_out"
+    else
+      _conformance_rc=$?
+      _conformance_msg=$(tr '\n' ' ' < "$_conformance_err" | sed 's/  */ /g; s/^ //; s/ $//')
+      nyann::warn "doc conformance detection failed (rc=$_conformance_rc); continuing with empty result: ${_conformance_msg:-no stderr output}"
+      _conformance_json='[]'
+    fi
+    rm -f "$_conformance_err"
+  fi
+
   while IFS= read -r t; do
     [[ -z "$t" ]] && continue
+    _is_present=false
     case "$t" in
-      architecture)  [[ -f "$target/docs/architecture.md" ]]  || add_missing "doc" "docs/architecture.md"  "profile scaffolds architecture" ;;
-      prd)           [[ -f "$target/docs/prd.md" ]]           || add_missing "doc" "docs/prd.md"           "profile scaffolds prd" ;;
-      adrs)          [[ -f "$target/docs/decisions/ADR-000-record-architecture-decisions.md" ]] || add_missing "doc" "docs/decisions/ADR-000-record-architecture-decisions.md" "profile scaffolds ADRs" ;;
-      research)      [[ -d "$target/docs/research" ]]         || add_missing "doc" "docs/research"         "profile scaffolds research" ;;
-      api_reference) [[ -f "$target/docs/api-reference.md" ]] || add_missing "doc" "docs/api-reference.md" "archetype scaffolds api-reference" ;;
-      runbook)       [[ -f "$target/docs/runbook.md" ]]       || add_missing "doc" "docs/runbook.md"       "archetype scaffolds runbook" ;;
-      deployment)    [[ -f "$target/docs/deployment.md" ]]    || add_missing "doc" "docs/deployment.md"    "archetype scaffolds deployment" ;;
-      glossary)      [[ -f "$target/docs/glossary.md" ]]      || add_missing "doc" "docs/glossary.md"      "archetype scaffolds glossary" ;;
+      architecture)  [[ -f "$target/docs/architecture.md" ]]  && _is_present=true ;;
+      prd)           [[ -f "$target/docs/prd.md" ]]           && _is_present=true ;;
+      adrs)          [[ -f "$target/docs/decisions/ADR-000-record-architecture-decisions.md" ]] && _is_present=true ;;
+      research)      [[ -d "$target/docs/research" ]]         && _is_present=true ;;
+      api_reference) [[ -f "$target/docs/api-reference.md" ]] && _is_present=true ;;
+      runbook)       [[ -f "$target/docs/runbook.md" ]]       && _is_present=true ;;
+      deployment)    [[ -f "$target/docs/deployment.md" ]]    && _is_present=true ;;
+      glossary)      [[ -f "$target/docs/glossary.md" ]]      && _is_present=true ;;
     esac
+    if $_is_present; then
+      continue
+    fi
+    # Check if conformance detection found a non-canonical equivalent
+    _conf_match=$(jq -r --arg cat "$t" '.[] | select(.category == $cat) | .source' <<<"$_conformance_json" | head -1)
+    if [[ -n "$_conf_match" ]]; then
+      _conf_confidence=$(jq -r --arg cat "$t" '.[] | select(.category == $cat) | .confidence' <<<"$_conformance_json" | head -1)
+      _conf_target=$(jq -r --arg cat "$t" '.[] | select(.category == $cat) | .target' <<<"$_conformance_json" | head -1)
+      add_misplaced "$_conf_match" "$_conf_target" "$t" "${_conf_confidence:-0.7}"
+    else
+      case "$t" in
+        architecture)  add_missing "doc" "docs/architecture.md"  "profile scaffolds architecture" ;;
+        prd)           add_missing "doc" "docs/prd.md"           "profile scaffolds prd" ;;
+        adrs)          add_missing "doc" "docs/decisions/ADR-000-record-architecture-decisions.md" "profile scaffolds ADRs" ;;
+        research)      add_missing "doc" "docs/research"         "profile scaffolds research" ;;
+        api_reference) add_missing "doc" "docs/api-reference.md" "archetype scaffolds api-reference" ;;
+        runbook)       add_missing "doc" "docs/runbook.md"       "archetype scaffolds runbook" ;;
+        deployment)    add_missing "doc" "docs/deployment.md"    "archetype scaffolds deployment" ;;
+        glossary)      add_missing "doc" "docs/glossary.md"      "archetype scaffolds glossary" ;;
+      esac
+    fi
   done < <(jq -r '.[]?' <<<"$expected_types_json")
 fi
 
@@ -303,6 +351,7 @@ fi
 n_missing=$(jq 'length' <<<"$missing_json")
 n_mis=$(jq 'length' <<<"$misconfigured_json")
 n_off=$(jq 'length' <<<"$offenders_json")
+n_misplaced=$(jq 'length' <<<"$misplaced_json")
 
 # --- DOCUMENTATION tier: CLAUDE.md size + link check + orphans --------------
 
@@ -405,6 +454,7 @@ jq -n \
   --arg profile "$profile_name" \
   --argjson missing "$missing_json" \
   --argjson misconfigured "$misconfigured_json" \
+  --argjson misplaced "$misplaced_json" \
   --argjson checked "$checked" \
   --argjson offenders "$offenders_json" \
   --argjson claude_md "$claude_md_json" \
@@ -416,6 +466,7 @@ jq -n \
   --argjson n_missing "$n_missing" \
   --argjson n_mis "$n_mis" \
   --argjson n_off "$n_off" \
+  --argjson n_misplaced "$n_misplaced" \
   --argjson n_broken "$n_broken" \
   --argjson n_orphans "$n_orphans" \
   --argjson n_stale "$n_stale" \
@@ -427,6 +478,7 @@ jq -n \
     scope_applied: $scope_applied,
     missing: $missing,
     misconfigured: $misconfigured,
+    misplaced: $misplaced,
     non_compliant_history: { checked: $checked, offenders: $offenders },
     documentation: {
       subsystem_errors: $subsys_errors,
@@ -438,6 +490,7 @@ jq -n \
     summary: {
       missing: $n_missing,
       misconfigured: $n_mis,
+      misplaced: $n_misplaced,
       non_compliant_commits: $n_off,
       broken_links: $n_broken,
       orphans: $n_orphans,

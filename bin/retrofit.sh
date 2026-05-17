@@ -72,6 +72,7 @@ report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_pr
 n_missing=$(jq '.summary.missing' <<<"$report")
 n_mis=$(jq '.summary.misconfigured' <<<"$report")
 n_off=$(jq '.summary.non_compliant_commits' <<<"$report")
+n_misplaced=$(jq '.summary.misplaced // 0' <<<"$report")
 n_broken=$(jq '.summary.broken_links' <<<"$report")
 n_orphans=$(jq '.summary.orphans' <<<"$report")
 n_stale=$(jq '.summary.stale_docs' <<<"$report")
@@ -168,6 +169,12 @@ render_report() {
       jq -r '.documentation.orphans.orphans[] | "      - " + .path + "  (" + (.last_modified_days_ago|tostring) + " days)"' <<<"$report"
     fi
 
+    # Misplaced docs (v1.9.0)
+    if [[ "${n_misplaced:-0}" != "0" ]]; then
+      printf '  ⚠ %s doc(s) at non-canonical paths (can be reorganized):\n' "$n_misplaced"
+      jq -r '.misplaced[] | "      - " + .source + " → " + .target + "  (confidence: " + (.confidence|tostring) + ")"' <<<"$report"
+    fi
+
     # Staleness (opt-in per profile)
     staleness_enabled=$(jq -r '.documentation.staleness.enabled' <<<"$report")
     if [[ "$staleness_enabled" == "true" ]]; then
@@ -215,6 +222,7 @@ has_warn=false
 (( n_mis > 0 )) && has_warn=true
 (( n_off > 0 )) && has_warn=true
 (( n_orphans > 0 )) && has_warn=true
+(( ${n_misplaced:-0} > 0 )) && has_warn=true
 (( n_stale > 0 )) && has_warn=true
 # Subsystem-execution failures are warnings, not criticals. They
 # signify "the report is incomplete" rather than a detected problem in

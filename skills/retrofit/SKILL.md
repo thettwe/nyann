@@ -125,6 +125,34 @@ When drift exists (exit 4 or 5) and the user confirms they want to fix it:
    - Missing/oversized `CLAUDE.md` → `gen-claudemd.sh`
    - Missing `.editorconfig` → include in plan if profile declares it
 
+   **Misplaced docs (v1.9.0+):** If the DriftReport's `misplaced[]`
+   array is non-empty, docs exist at non-canonical paths. Before
+   scaffolding new docs, offer to reorganize the existing ones:
+
+   ```json
+   {
+     "questions": [{
+       "question": "Found docs at non-standard paths. Reorganize to nyann conventions?",
+       "header": "Doc layout",
+       "options": [
+         {"label": "Yes, reorganize", "description": "Move docs to canonical paths (uses git mv). Content is preserved."},
+         {"label": "No, scaffold fresh", "description": "Leave existing files and create new ones at canonical paths."}
+       ],
+       "multiSelect": false
+     }]
+   }
+   ```
+
+   If **Yes**: write the `misplaced[]` array to a temp file and run
+   `bin/reorganize-docs.sh --target <cwd> --moves <temp.json> --apply`
+   before the scaffold step. (Without `--apply`, the script previews
+   only — pass `--apply` after the user confirms.) After moves complete,
+   the scaffold step detects the files at canonical paths and skips
+   creation — preserving user content.
+
+   If **No**: proceed normally — scaffold-docs creates fresh templates
+   at canonical paths (existing non-canonical files remain untouched).
+
 2. **Route docs** via `bin/route-docs.sh --profile <path>` to get the
    DocumentationPlan (needed by bootstrap for scaffold-docs and gen-claudemd).
 

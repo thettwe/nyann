@@ -26,7 +26,7 @@
       "format": "date-time"
     },
     "target": {
-      "description": "Absolute path of the target repo at record time.",
+      "description": "Repo basename at record time (NOT an absolute path). Informational — undo-bootstrap.sh verifies portability by checking that the manifest lives under the user's `$target`, not by comparing this string. Stored as the basename so the manifest (committed by default under `memory/.nyann/bootstraps/`) doesn't leak the original author's username or filesystem layout to teammates who pull the bootstrap PR.",
       "type": "string",
       "minLength": 1
     },

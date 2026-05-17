@@ -22,11 +22,8 @@ You are the suggest skill. You analyze a repository's actual state (dependencies
 ### Phase 1: Detect stack and resolve profile
 
 1. Run `bin/detect-stack.sh --path .` to get a StackDescriptor JSON.
-2. Resolve the active profile:
-   - Check `~/.claude/nyann/preferences.json` for a profile name
-   - Fall back to CLAUDE.md markers (`<!-- nyann:start -->` block → profile name)
-   - Fall back to `"default"`
-3. Load the profile via `bin/load-profile.sh <profile-name>`.
+2. Resolve and load the active profile via `bin/load-profile.sh <name>`
+   (resolves preferences → CLAUDE.md markers → `"default"` fallback).
 
 ### Phase 2: Run the suggestion engine
 

@@ -10,7 +10,7 @@ description: >
   <name>", "/nyann:learn-profile".
   Do NOT trigger on "what does this profile do?" — that's `inspect-profile`. Do NOT trigger on "apply profile X to this repo" —
   that's `bootstrap-project`. Do NOT trigger on "fix drift" — that's
-  `bootstrap-project` retrofit.
+  `retrofit`.
 ---
 
 # learn-profile
