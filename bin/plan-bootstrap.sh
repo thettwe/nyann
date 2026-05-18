@@ -61,13 +61,7 @@ profile_json=$(cat "$profile_path")
 doc_plan_json=$(cat "$doc_plan_path")
 stack_json=$(cat "$stack_path")
 
-# Note + still emit a usable plan when the repo is a monorepo. The
-# skill caller is the one that knows how to add per-workspace writes;
-# this script only composes the universal entries.
 is_monorepo=$(jq -r '.is_monorepo // false' <<<"$stack_json")
-if [[ "$is_monorepo" == "true" ]]; then
-  nyann::warn "stack reports is_monorepo=true; per-workspace writes are NOT included in this plan. The skill layer should append them."
-fi
 
 # --- writes[] ----------------------------------------------------------------
 # Build the writes array as a JSON list of objects. Each entry mirrors
@@ -141,6 +135,10 @@ add_write ".git/hooks/pre-commit" "create"
 # CI workflow
 if [[ "$(jq -r '.ci.enabled // false' <<<"$profile_json")" == "true" ]]; then
   add_write ".github/workflows/ci.yml"
+  ws_count=$(jq '[.workspaces // [] | length] | .[0]' <<<"$stack_json")
+  if (( ws_count >= 2 )); then
+    add_write ".github/workflows/ci-workspaces.yml"
+  fi
 fi
 
 # GitHub templates
@@ -181,6 +179,56 @@ done < <(
     | @tsv
   ' <<<"$doc_plan_json"
 )
+
+# --- per-workspace writes (monorepo, v1.9.0) ---------------------------------
+# When the stack reports is_monorepo, resolve workspace configs and enumerate
+# every workspace-local file bootstrap.sh will materialise. Without this,
+# bootstrap.sh's step 4c/5b/5c would write under packages/* without the
+# operator ever previewing those paths — a preview-before-mutate violation
+# (Codex adversarial review #2). Putting them in plan.writes[] also makes
+# the BootRecord snapshot loop (bootstrap.sh:292-296) cover them, so
+# undo-bootstrap can reverse a monorepo bootstrap cleanly.
+
+if [[ "$is_monorepo" == "true" ]]; then
+  _ws_configs=$("${_script_dir}/resolve-workspace-configs.sh" \
+    --stack "$stack_path" --profile "$profile_path" 2>/dev/null || echo '[]')
+  _ws_count=$(jq 'length' <<<"$_ws_configs")
+  if (( _ws_count > 0 )); then
+    for (( _wi=0; _wi<_ws_count; _wi++ )); do
+      _ws=$(jq -c ".[$_wi]" <<<"$_ws_configs")
+      _ws_path=$(jq -r '.path' <<<"$_ws")
+      [[ -z "$_ws_path" || "$_ws_path" == "null" ]] && continue
+      # Path safety — same checks as scaffold-docs / bootstrap apply later.
+      [[ "$_ws_path" == /* || "$_ws_path" == *".."* ]] && continue
+
+      # Per-workspace .gitignore (gated by workspace extras.gitignore).
+      if [[ "$(jq -r '.extras.gitignore // false' <<<"$_ws")" == "true" ]]; then
+        add_write "${_ws_path}/.gitignore"
+      fi
+
+      # Per-workspace doc scaffolds (gated by documentation.scaffold_types).
+      _ws_doc=$(jq -c '.documentation // null' <<<"$_ws")
+      if [[ "$_ws_doc" != "null" ]]; then
+        while IFS= read -r _stype; do
+          [[ -z "$_stype" ]] && continue
+          case "$_stype" in
+            architecture)  add_write "${_ws_path}/docs/architecture.md" ;;
+            prd)           add_write "${_ws_path}/docs/prd.md" ;;
+            adrs)
+              add_write "${_ws_path}/docs/decisions/README.md"
+              add_write "${_ws_path}/docs/decisions/ADR-template.md"
+              ;;
+            research)      add_write "${_ws_path}/docs/research/README.md" ;;
+            api_reference) add_write "${_ws_path}/docs/api-reference.md" ;;
+            runbook)       add_write "${_ws_path}/docs/runbook.md" ;;
+            deployment)    add_write "${_ws_path}/docs/deployment.md" ;;
+            glossary)      add_write "${_ws_path}/docs/glossary.md" ;;
+          esac
+        done < <(jq -r '.scaffold_types // [] | .[]' <<<"$_ws_doc")
+      fi
+    done
+  fi
+fi
 
 # --- commands[] --------------------------------------------------------------
 # bootstrap.sh runs git init when the target lacks .git; otherwise no

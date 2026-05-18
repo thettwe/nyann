@@ -32,6 +32,14 @@ template_root="${_script_dir}/../templates"
 auto_glossary=false
 glossary_max_terms=50
 glossary_languages="auto"
+workspace_configs_path=""
+# When set, every workspace-doc write target is checked against this
+# newline-delimited list of approved paths before being written. Lets
+# bootstrap.sh enforce preview-before-mutate at execution time even
+# when scaffold-docs.sh and plan-bootstrap.sh disagree on which paths
+# should land in plan.writes[]. When unset, the workspace-doc loop
+# writes every scaffold the workspace config declares (back-compat).
+allowed_writes_path=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,6 +58,10 @@ while [[ $# -gt 0 ]]; do
     --glossary-max-terms=*) glossary_max_terms="${1#--glossary-max-terms=}"; shift ;;
     --glossary-languages)   glossary_languages="${2:-auto}"; shift 2 ;;
     --glossary-languages=*) glossary_languages="${1#--glossary-languages=}"; shift ;;
+    --workspace-configs)    workspace_configs_path="${2:-}"; shift 2 ;;
+    --workspace-configs=*)  workspace_configs_path="${1#--workspace-configs=}"; shift ;;
+    --allowed-writes)       allowed_writes_path="${2:-}"; shift 2 ;;
+    --allowed-writes=*)     allowed_writes_path="${1#--allowed-writes=}"; shift ;;
     -h|--help)
       sed -n '3,18p' "${BASH_SOURCE[0]}"
       exit 0
@@ -342,3 +354,186 @@ while IFS= read -r key; do
   t="$(target_type "$key")"
   case "$t" in local|"") ;; *) nyann::warn "skipped non-local target $key (type=$t); MCP routing planned for a future release" ;; esac
 done < <(jq -r '(.targets // {}) | keys[]' <<<"$plan_json")
+
+# --- per-workspace docs (v1.9.0) ---------------------------------------------
+# When workspace configs are provided, scaffold workspace-local docs/ directories
+# for workspaces whose assigned profile declares documentation.scaffold_types.
+
+if [[ -n "${workspace_configs_path:-}" && -f "${workspace_configs_path:-}" ]]; then
+  ws_count=$(jq 'length' "$workspace_configs_path")
+  for (( wi=0; wi<ws_count; wi++ )); do
+    # Subshell isolates per-workspace stack context (primary_language,
+    # framework, package_manager, *_or_na, project_name) from the root
+    # render context. Without this, every workspace doc would inherit
+    # the root repo's stack metadata — a Python workspace under a TS
+    # root would get TS-flavoured architecture/PRD copy. Codex
+    # adversarial review #3.
+    (
+      ws_entry=$(jq -c ".[$wi]" "$workspace_configs_path")
+      ws_path=$(jq -r '.path' <<<"$ws_entry")
+      ws_doc=$(jq -c '.documentation // null' <<<"$ws_entry")
+      [[ "$ws_doc" == "null" ]] && exit 0
+
+      ws_scaffold_types=$(jq -r '.scaffold_types // [] | .[]' <<<"$ws_doc")
+      [[ -z "$ws_scaffold_types" ]] && exit 0
+
+      # Path traversal guard — same check as the main scaffold path
+      if [[ -z "$ws_path" || "$ws_path" == /* || "$ws_path" == *".."* ]]; then
+        nyann::warn "skipping workspace with unsafe path: $ws_path"
+        exit 0
+      fi
+      ws_doc_dir="$target_root/$ws_path/docs"
+      if ! nyann::assert_path_under_target "$target_root" "$ws_doc_dir" "workspace docs dir" 2>/dev/null; then
+        nyann::warn "skipping workspace path escaping target: $ws_path"
+        exit 0
+      fi
+      ws_name=$(basename "$ws_path")
+
+      # --- per-workspace template context overrides --------------------------
+      # Shadow the root-level globals so render_template uses the workspace's
+      # stack metadata. Variables read by render_template: primary_language,
+      # framework, package_manager, framework_or_na, package_manager_or_na,
+      # is_monorepo (kept as root), project_name (now the workspace name).
+      primary_language=$(jq -r '.primary_language // "unknown"' <<<"$ws_entry")
+      _ws_fw=$(jq -r '.framework // empty' <<<"$ws_entry")
+      framework="${_ws_fw:-null}"
+      _ws_pm=$(jq -r '.package_manager // empty' <<<"$ws_entry")
+      package_manager="${_ws_pm:-null}"
+      framework_or_na="$framework"
+      package_manager_or_na="$package_manager"
+      [[ "$framework_or_na"      == "null" ]] && framework_or_na="(none)"
+      [[ "$package_manager_or_na" == "null" ]] && package_manager_or_na="(none)"
+      project_name="$ws_name"
+      # is_monorepo intentionally stays true (inherited from root) — workspace
+      # docs render in the context of a monorepo.
+
+      nyann::log "scaffolding workspace docs: $ws_path (language=$primary_language)"
+
+      # Runtime preview-before-mutate gate. When --allowed-writes is set,
+      # only write workspace doc paths that the operator explicitly saw
+      # in the ActionPlan preview. Defends against planner/executor drift
+      # — e.g., if plan-bootstrap.sh and resolve-workspace-configs.sh ever
+      # disagree on which scaffolds should fire, this catches the gap at
+      # write time. When --allowed-writes is unset, the function allows
+      # every write (back-compat for direct callers).
+      _ws_allowed_check() {
+        local _rel="$1"
+        [[ -z "$allowed_writes_path" ]] && return 0
+        if [[ ! -f "$allowed_writes_path" ]]; then
+          return 0  # absent file → no gating, same back-compat
+        fi
+        if grep -Fxq "$_rel" "$allowed_writes_path"; then
+          return 0
+        fi
+        nyann::warn "skipping workspace doc: $_rel not in ActionPlan.writes[] (plan-builder must enumerate it for preview-before-mutate)"
+        return 1
+      }
+
+      # Symlink-mediated escape guard. write_if_missing refuses leaf
+      # symlinks at the destination, but mkdir -p happily follows
+      # symlinks at INTERMEDIATE path components. A repo with a
+      # pre-placed symlink at packages/<ws>/docs/decisions (or any
+      # ancestor) pointing to /etc/ would otherwise redirect doc
+      # scaffolding outside the target tree on `mkdir -p
+      # "$ws_doc_dir/decisions"` + the subsequent README.md write.
+      # Verify every existing component from target_root down to the
+      # destination dir is a real directory, then mkdir, then re-verify
+      # the resolved canonical path stays under target.
+      _ws_safe_mkdir() {
+        local _rel_dir="$1"            # e.g. packages/api/docs/decisions
+        local _full="$target_root/$_rel_dir"
+        local _walk="$target_root" _seg
+        local _ifs_save="$IFS"
+        IFS='/'
+        # shellcheck disable=SC2086
+        set -- $_rel_dir
+        IFS="$_ifs_save"
+        for _seg in "$@"; do
+          [[ -z "$_seg" ]] && continue
+          _walk="$_walk/$_seg"
+          if [[ -L "$_walk" ]]; then
+            nyann::warn "skipping workspace doc: intermediate component is a symlink: $_walk"
+            return 1
+          fi
+        done
+        mkdir -p "$_full" || {
+          nyann::warn "skipping workspace doc: mkdir failed for $_rel_dir"
+          return 1
+        }
+        if ! nyann::path_under_target "$target_root" "$_full" >/dev/null 2>&1; then
+          nyann::warn "skipping workspace doc: resolved path escapes target: $_rel_dir"
+          return 1
+        fi
+        return 0
+      }
+
+      while IFS= read -r stype; do
+        [[ -z "$stype" ]] && continue
+        case "$stype" in
+          architecture)
+            if _ws_allowed_check "${ws_path}/docs/architecture.md" && \
+               _ws_safe_mkdir "${ws_path}/docs"; then
+              write_if_missing "$template_root/docs/architecture.tmpl" \
+                "$ws_doc_dir/architecture.md" "workspace $ws_name architecture"
+            fi
+            ;;
+          prd)
+            if _ws_allowed_check "${ws_path}/docs/prd.md" && \
+               _ws_safe_mkdir "${ws_path}/docs"; then
+              write_if_missing "$template_root/docs/prd.tmpl" \
+                "$ws_doc_dir/prd.md" "workspace $ws_name PRD"
+            fi
+            ;;
+          adrs)
+            if _ws_allowed_check "${ws_path}/docs/decisions/README.md" && \
+               _ws_safe_mkdir "${ws_path}/docs/decisions"; then
+              write_if_missing "$template_root/docs/decisions/README.tmpl" \
+                "$ws_doc_dir/decisions/README.md" "workspace $ws_name ADR index"
+            fi
+            if _ws_allowed_check "${ws_path}/docs/decisions/ADR-template.md" && \
+               _ws_safe_mkdir "${ws_path}/docs/decisions"; then
+              write_if_missing "$template_root/docs/decisions/ADR-template.md" \
+                "$ws_doc_dir/decisions/ADR-template.md" "workspace $ws_name ADR template"
+            fi
+            ;;
+          research)
+            if _ws_allowed_check "${ws_path}/docs/research/README.md" && \
+               _ws_safe_mkdir "${ws_path}/docs/research"; then
+              write_if_missing "$template_root/docs/research-README.tmpl" \
+                "$ws_doc_dir/research/README.md" "workspace $ws_name research index"
+              [[ -e "$ws_doc_dir/research/.gitkeep" ]] || : > "$ws_doc_dir/research/.gitkeep"
+            fi
+            ;;
+          api_reference)
+            if _ws_allowed_check "${ws_path}/docs/api-reference.md" && \
+               _ws_safe_mkdir "${ws_path}/docs"; then
+              write_if_missing "$template_root/docs/api-reference.tmpl" \
+                "$ws_doc_dir/api-reference.md" "workspace $ws_name API reference"
+            fi
+            ;;
+          runbook)
+            if _ws_allowed_check "${ws_path}/docs/runbook.md" && \
+               _ws_safe_mkdir "${ws_path}/docs"; then
+              write_if_missing "$template_root/docs/runbook.tmpl" \
+                "$ws_doc_dir/runbook.md" "workspace $ws_name runbook"
+            fi
+            ;;
+          deployment)
+            if _ws_allowed_check "${ws_path}/docs/deployment.md" && \
+               _ws_safe_mkdir "${ws_path}/docs"; then
+              write_if_missing "$template_root/docs/deployment.tmpl" \
+                "$ws_doc_dir/deployment.md" "workspace $ws_name deployment doc"
+            fi
+            ;;
+          glossary)
+            if _ws_allowed_check "${ws_path}/docs/glossary.md" && \
+               _ws_safe_mkdir "${ws_path}/docs"; then
+              write_if_missing "$template_root/docs/glossary.tmpl" \
+                "$ws_doc_dir/glossary.md" "workspace $ws_name glossary"
+            fi
+            ;;
+        esac
+      done <<<"$ws_scaffold_types"
+    )
+  done
+fi

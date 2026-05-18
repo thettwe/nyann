@@ -151,9 +151,11 @@ fi
 build_output() {
   # $1 = status, $2 = new_head (optional)
   local status="$1" new_head="${2:-}"
+  local emitted_scope="$scope"
+  [[ "$scope" == "last-N-commits" ]] && emitted_scope="last-n"
   jq -n \
     --arg status "$status" \
-    --arg scope "$scope" \
+    --arg scope "$emitted_scope" \
     --argjson count "$count" \
     --arg strategy "$strategy" \
     --arg target_sha "$head_sha" \

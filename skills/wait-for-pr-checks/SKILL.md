@@ -8,15 +8,16 @@ description: >
   "block until checks pass", "/nyann:wait-for-pr-checks".
   Do NOT trigger on "what's the PR status" (that's a one-off
   `gh pr view` — no polling). Do NOT trigger on "merge this PR" —
-  that's the action AFTER waiting; consider auto-merge via
-  `/nyann:pr --auto-merge` instead, which combines wait + merge.
+  that's the action AFTER waiting; consider `/nyann:ship` instead,
+  which combines wait + merge.
 ---
 
 # wait-for-pr-checks
 
 Wraps `bin/wait-for-pr-checks.sh`. Poll-based; uses `gh pr checks
 <num>` under the hood. The script is the same one `release.sh` will
-soon gate the tag step on, so the contract is shared.
+uses to gate the tag step (when `--wait-for-checks` is passed),
+so the contract is shared.
 
 ## 1. Resolve the PR number
 
@@ -58,15 +59,15 @@ for fail / timeout — caller scripts can gate on `$?`.
 ## 4. Combining with merge
 
 This skill only waits. To wait-then-merge in one step, use
-`/nyann:pr --auto-merge` — it sets up GitHub's native auto-merge
-(which already handles "wait for required checks") instead of
-polling client-side. Reserve this skill for cases where the user
-wants the wait surfaced explicitly (release runs, manual gating).
+`/nyann:ship` — it opens a PR and merges it in one flow (either via
+GitHub auto-merge or by polling CI client-side). Reserve this skill
+for cases where the user wants the wait surfaced explicitly (release
+runs, manual gating).
 
 ## When to hand off
 
-- "Merge it for me when CI passes" → `/nyann:pr --auto-merge`
-  (server-side; doesn't tie up your terminal).
+- "Merge it for me when CI passes" → `/nyann:ship`
+  (opens a PR and merges it, waiting for CI as needed).
 - "I just want the current status, don't wait" → `gh pr checks`
   directly; no polling needed.
 - "Why did check X fail?" → `gh run view <run-id> --log-failed`;

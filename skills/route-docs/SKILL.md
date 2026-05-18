@@ -101,6 +101,20 @@ Output is a DocumentationPlan JSON
 - Which MCP targets require skill-layer creation (Obsidian pages,
   Notion databases).
 
+## 3b. Doc conformance check (v1.9.0+)
+
+Before scaffolding, check for existing docs at non-canonical paths:
+
+```
+bin/detect-doc-conformance.sh --target <cwd> --archetype <archetype>
+```
+
+If the output is non-empty, offer to reorganize before scaffolding
+(same flow as bootstrap step 4c — "reorganize all" / "let me pick" /
+"leave as-is"). Reorganization ensures content is preserved at the
+canonical paths rather than creating blank templates alongside existing
+docs at wrong paths.
+
 ## 4. Scaffold local targets
 
 On confirmation:

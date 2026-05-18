@@ -311,6 +311,36 @@ ${ws_table_rows%$'\n'}
 "
 fi
 
+# --- per-workspace profile guidance (v1.9.0) ---------------------------------
+# When workspaces have their own assigned profiles, render per-workspace
+# guidance notes so Claude knows which conventions apply in each workspace.
+
+ws_guidance=""
+if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
+  profiled_ws=$(jq '[.[] | select(.profile != null)]' "$workspace_configs_path" 2>/dev/null)
+  profiled_count=$(jq 'length' <<<"$profiled_ws")
+  if (( profiled_count > 0 )); then
+    ws_guidance=$'\n'"## Workspace-specific conventions"$'\n'
+    while IFS=$'\t' read -r g_path g_profile g_lang g_hooks; do
+      [[ -z "$g_path" ]] && continue
+      g_path=$(nyann::safe_md_cell "$g_path")
+      g_profile=$(nyann::safe_md_cell "$g_profile")
+      g_lang=$(nyann::safe_md_cell "$g_lang")
+      ws_guidance+=$'\n'"### \`${g_path}\` (profile: \`${g_profile}\`)"$'\n'
+      ws_guidance+="- Language: ${g_lang}"$'\n'
+      if [[ -n "$g_hooks" && "$g_hooks" != "null" ]]; then
+        g_hooks=$(nyann::safe_md_cell "$g_hooks")
+        ws_guidance+="- Pre-commit hooks: ${g_hooks}"$'\n'
+      fi
+    done < <(jq -r '.[] | select(.profile != null) | [
+      .path,
+      .profile,
+      .primary_language,
+      (.hooks.pre_commit // [] | join(", "))
+    ] | @tsv' <<<"$profiled_ws")
+  fi
+fi
+
 # --- assemble nyann block ---------------------------------------------------
 
 block="$(cat <<EOF
@@ -326,7 +356,7 @@ block="$(cat <<EOF
 | Framework | ${stack_framework} |
 | Package manager | ${stack_pkgmgr} |
 | Monorepo | ${stack_monorepo} |
-${ws_section}
+${ws_section}${ws_guidance}
 ## How to work here
 | Task | Command / convention |
 |---|---|

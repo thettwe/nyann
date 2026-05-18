@@ -225,9 +225,9 @@ required to pass the four-question test retroactively.
   "every endpoint appears in `api-reference.md`"; CLIs should match
   documented commands against `--help`. The CLI variant was scoped
   for v1.8.0 but deferred so the headline reversibility work could
-  ship cleanly. Now targeting v1.9+ for both archetypes.
+  ship cleanly. Now targeting v1.10+ for both archetypes.
 - **MCP-side templates.** Obsidian and Notion users get the same
-  Markdown today. Notion-block-formatted variants remain a v1.9+
+  Markdown today. Notion-block-formatted variants remain a v1.10+
   question.
 - **Glossary depth — comments + private types.** v1.7.0 only seeds
   exported / public types. A future iteration could surface JSDoc /

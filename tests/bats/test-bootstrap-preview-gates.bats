@@ -115,6 +115,84 @@ JSON
   [ -f "$REPO/docs/README.md" ]  || [ -f "$REPO/docs/architecture.md" ]
 }
 
+@test "workspace .gitignore NOT written when absent from plan writes[] (Codex regression)" {
+  # Regression guard: bootstrap step 5b used to unconditionally write per-
+  # workspace .gitignore for every workspace whose extras.gitignore=true.
+  # A buggy/older plan that omits those paths would leak workspace writes
+  # the operator never previewed. Now gated on plan.writes[].
+  monorepo_profile="$TMP/profile-monorepo.json"
+  jq '. + {workspaces: {"packages/api": {extras: {gitignore: true}}}}' \
+    "$PROFILE" > "$monorepo_profile"
+  cat > "$TMP/stack.json" <<'EOF'
+{"primary_language":"typescript","secondary_languages":[],"is_monorepo":true,"monorepo_tool":"pnpm-workspaces",
+ "workspaces":[{"path":"packages/api","primary_language":"python","framework":null,"package_manager":"pip"}]}
+EOF
+  mkdir -p "$REPO/packages/api"
+  # Plan deliberately OMITS packages/api/.gitignore.
+  echo '{"writes":[],"commands":[],"remote":[]}' > "$TMP/plan.json"
+  run bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$monorepo_profile" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json"
+  [ "$status" -eq 0 ]
+  [ ! -f "$REPO/packages/api/.gitignore" ]
+  echo "$output" | grep -Fq "skipping workspace gitignore"
+  echo "$output" | grep -Fq "packages/api/.gitignore"
+}
+
+@test "workspace .gitignore IS written when declared in plan writes[] (Codex regression)" {
+  monorepo_profile="$TMP/profile-monorepo.json"
+  jq '. + {workspaces: {"packages/api": {extras: {gitignore: true}}}}' \
+    "$PROFILE" > "$monorepo_profile"
+  cat > "$TMP/stack.json" <<'EOF'
+{"primary_language":"typescript","secondary_languages":[],"is_monorepo":true,"monorepo_tool":"pnpm-workspaces",
+ "workspaces":[{"path":"packages/api","primary_language":"python","framework":null,"package_manager":"pip"}]}
+EOF
+  mkdir -p "$REPO/packages/api"
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[
+  {"path":"packages/api/.gitignore","action":"create","bytes":0}
+],"commands":[],"remote":[]}
+JSON
+  run bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$monorepo_profile" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json"
+  [ "$status" -eq 0 ]
+  [ -f "$REPO/packages/api/.gitignore" ]
+}
+
+@test "scaffold-docs runs when plan declares ONLY workspace-nested doc writes (Codex regression)" {
+  # Regression guard: the docs_in_plan gate used to count only root-level
+  # docs/ + memory/ entries. A monorepo whose root profile has no docs but
+  # a workspace profile does would show workspace doc writes in preview
+  # and then silently skip scaffold-docs at execution time. The gate now
+  # recognizes nested workspace paths too.
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[
+  {"path":"packages/api/docs/architecture.md","action":"create","bytes":0}
+],"commands":[],"remote":[]}
+JSON
+  run bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$PROFILE" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json"
+  [ "$status" -eq 0 ]
+  # Even though we don't pass --workspace-configs in this minimal harness,
+  # the gate must NOT short-circuit before reaching scaffold-docs.sh. The
+  # surest signal is the absence of the skip-warn in stderr.
+  ! echo "$output" | grep -Fq "skipping scaffold-docs"
+}
+
 # ---- remote[] gate ---------------------------------------------------------
 # preview.sh renders ActionPlan.remote[] but bootstrap has no dispatcher
 # yet. Silently dropping the entries would lie to preview-before-mutate

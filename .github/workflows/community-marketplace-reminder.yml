@@ -1,0 +1,194 @@
+# Open a tracking issue on every published release so filing a new
+# submission for the Claude Code community marketplace doesn't get
+# forgotten.
+#
+# Why this exists:
+# anthropics/claude-plugins-community is a read-only mirror, SHA-pinned
+# per plugin (~99.8% of listed plugins have an explicit source.sha).
+# Tagging a new nyann release does NOT advance the pin — only
+# Anthropic's internal review pipeline does, and the pipeline's only
+# entry points are the in-app submission forms documented at
+# code.claude.com/docs/en/plugins ("Submit your plugin to the official
+# marketplace" section). The UI has no "update existing" path; each
+# release is a fresh "New submission" that supersedes the previous pin.
+# Without this reminder, community-install users keep seeing the prior
+# version even after a fresh tag ships.
+#
+# Security: every reference to event/input data flows through env:
+# blocks (per github.blog/security/vulnerability-research/
+# how-to-catch-github-actions-workflow-injections-before-attackers-do).
+# No untrusted value is ever inlined into a run: body.
+
+name: Community marketplace reminder
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version/tag to file (e.g. v1.9.0). Leave blank to use the latest published release.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  open-reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -n "${MANUAL_VERSION:-}" ]; then
+            v="$MANUAL_VERSION"
+          elif [ -n "${RELEASE_TAG:-}" ]; then
+            v="$RELEASE_TAG"
+          else
+            # workflow_dispatch with blank input → fall back to the
+            # repository's latest published release. Documented in the
+            # input description above. `gh release view --json tagName`
+            # returns the most recent non-draft, non-prerelease release;
+            # we accept prereleases too because the reminder is a hand-
+            # off, not a release gate.
+            v=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""')
+            if [ -z "$v" ]; then
+              echo "no version resolved (input blank, no release event, no published releases on the repo)" >&2
+              exit 1
+            fi
+            echo "resolved blank workflow_dispatch input to latest release: $v" >&2
+          fi
+          # Defensive: tag names are user-controllable. Reject anything
+          # that isn't safe to embed in a search query / issue body.
+          case "$v" in
+            *[!A-Za-z0-9._-]*)
+              echo "refusing to use version with unexpected characters: $v" >&2
+              exit 1
+              ;;
+          esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch current upstream pin
+        id: pin
+        run: |
+          # Best-effort: hit the public raw URL. On any failure we fall
+          # back to "unknown" so the issue still opens — the maintainer
+          # can fill the gap manually.
+          set +e
+          json=$(curl -sLf --max-time 30 \
+            https://raw.githubusercontent.com/anthropics/claude-plugins-community/main/.claude-plugin/marketplace.json)
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] || [ -z "$json" ]; then
+            echo "sha=unknown" >> "$GITHUB_OUTPUT"
+            echo "short=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The schema may evolve; treat absence as unknown rather than
+          # failing the job.
+          sha=$(printf '%s' "$json" | jq -r '.plugins[]? | select(.name == "nyann") | .source.sha // empty')
+          if [ -z "$sha" ]; then
+            sha="unknown"
+            short="unknown"
+          else
+            short=$(printf '%s' "$sha" | cut -c1-7)
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if a reminder issue already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          title="File a new community-marketplace submission for ${VERSION}"
+          # gh issue list defaults to OPEN state. If a previous reminder
+          # was closed (submission done), opening a fresh reminder on a
+          # re-run is acceptable — the maintainer can close it again.
+          existing=$(gh issue list \
+            --search "in:title \"$title\"" \
+            --state open \
+            --json number \
+            --jq '.[0].number // ""')
+          if [ -n "$existing" ]; then
+            echo "found=$existing" >> "$GITHUB_OUTPUT"
+            echo "skipping issue creation — open issue #$existing already tracks this version" >&2
+          else
+            echo "found=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open reminder issue
+        if: steps.existing.outputs.found == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PIN_SHA: ${{ steps.pin.outputs.sha }}
+          PIN_SHORT: ${{ steps.pin.outputs.short }}
+          REPO: ${{ github.repository }}
+        run: |
+          title="File a new community-marketplace submission for ${VERSION}"
+
+          if [ "$PIN_SHA" = "unknown" ]; then
+            compare_line="Compare URL: could not resolve the current upstream pin — fill in by hand before submitting."
+          else
+            compare_line="Compare URL (for the reviewer's convenience): https://github.com/${REPO}/compare/${PIN_SHA}...${VERSION}"
+          fi
+
+          body=$(cat <<BODY_EOF
+          This issue tracks getting community-marketplace users onto **${VERSION}**.
+
+          ## Why this needs a manual step
+
+          \`anthropics/claude-plugins-community\` is a read-only mirror. The nyann
+          entry there pins \`source.sha\` to a specific commit, and the only way
+          to advance the pin is through Anthropic's internal review pipeline.
+          The UI has no "update existing plugin" path — each release is a fresh
+          **New submission** that supersedes the previous pin. PRs against the
+          mirror are auto-closed.
+
+          - **Currently pinned SHA**: \`${PIN_SHORT}\` (full: \`${PIN_SHA}\`)
+          - **This release**: \`${VERSION}\`
+
+          ${compare_line}
+
+          ## Where to file the submission
+
+          Pick one (both feed the same review pipeline; both are auth-gated):
+
+          - **claude.ai** → Settings → Plugin submissions → New submission
+            <https://claude.ai/settings/plugins>
+          - **Console** → Plugins → Submit
+            <https://platform.claude.com/plugins/submit>
+          - Shortlink: <https://clau.de/plugin-directory-submission> (redirects to docs)
+
+          ## Action checklist
+
+          - [ ] 1. Open one of the submission portals above
+          - [ ] 2. Click **New submission** and file \`https://github.com/${REPO}\` at tag \`${VERSION}\`
+          - [ ] 3. Wait for the review pipeline to approve (security scan + manual review)
+          - [ ] 4. Confirm the new SHA lands in the upstream mirror:
+                <https://github.com/anthropics/claude-plugins-community/blob/main/.claude-plugin/marketplace.json>
+                (synced nightly after approval)
+          - [ ] 5. Close this issue once the SHA is live
+
+          ## Notes
+
+          - Direct-install users (\`@nyann-plugins\`) already have ${VERSION};
+            this issue is only for community-install (\`@claude-community\`) users.
+          - You aren't required to file every release. The marketplace stores
+            one entry per plugin, so if a previous release was never submitted,
+            this submission jumps community users straight to ${VERSION}.
+          - Opened automatically by \`.github/workflows/community-marketplace-reminder.yml\`.
+          BODY_EOF
+          )
+
+          gh issue create \
+            --title "$title" \
+            --body "$body"

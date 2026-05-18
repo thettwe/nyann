@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-1044%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1147%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -31,7 +31,7 @@
 - **Working hooks for 18 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
 - **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
 - **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
-- **Schema-validated contracts between every script.** All 47 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1044 bats tests** cover the surface.
+- **Schema-validated contracts between every script.** All 49 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1147 bats tests** cover the surface.
 - **Team-shareable governance.** Profiles are pure data — register a git URL and your team's branching, hooks, conventions, and doc routing sync across every repo automatically. Stale-team-profile detection nudges before the next bootstrap.
 - **Health-graded, drift-aware.** `doctor` produces a 0–100 score with per-category deltas and trend sparklines from `memory/health.json`. Inline drift checks at commit / PR / ship time nudge (don't gate) when the repo drifts from its profile; `governance-check.yml` upgrades that to a CI gate when desired.
 
@@ -68,19 +68,21 @@ Don't see your stack? You can [create a custom profile](#customizing-profiles) o
 
 **1. Install nyann as a Claude Code plugin.**
 
-Install from the community marketplace:
+Install from the community marketplace (Anthropic-curated, reviewed releases):
 
 ```text
 claude plugin marketplace add anthropics/claude-plugins-community
 claude plugin install nyann@claude-community
 ```
 
-Or install from the nyann repo directly:
+Or install from the nyann repo directly (latest tag, fastest to update):
 
 ```text
 /plugin marketplace add thettwe/nyann
-/plugin install nyann@nyann
+/plugin install nyann@nyann-plugins
 ```
+
+> The community-marketplace listing is SHA-pinned and syncs nightly after Anthropic's review pipeline approves a new version, so it can lag behind by one or more tags. The direct path picks up new tags as soon as you run `/plugin marketplace update`. Use the direct path if you want the newest fixes immediately; use the community path if you prefer to wait for an Anthropic-reviewed release.
 
 For development / hacking on nyann itself, clone directly:
 
@@ -306,7 +308,7 @@ schemas/               # 47 JSON Schemas for every exchanged shape
 skills/                # 32 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 1044 bats tests + fixtures
+tests/                 # 1147 bats tests + fixtures
 ```
 
 ## Recent changes

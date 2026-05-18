@@ -283,7 +283,9 @@ profile_json=$(jq -n \
       "storage_strategy": "local",
       "adr_format": "madr",
       "claude_md_mode": "router",
-      "claude_md_size_budget_kb": 3
+      "claude_md_size_budget_kb": 3,
+      "staleness_days": null,
+      "preferred_mcp": null
     }
   }
   ' )

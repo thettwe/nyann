@@ -163,11 +163,12 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
 
   # Parse summary counters once. IFS=$'\t' so empty middle fields don't
   # shift later variables under default IFS (which collapses tab runs).
-  IFS=$'\t' read -r n_missing n_mis n_off n_broken n_orphans n_stale n_subsys_errs claude_md_status < <(
+  IFS=$'\t' read -r n_missing n_mis n_off n_misplaced n_broken n_orphans n_stale n_subsys_errs claude_md_status < <(
     jq -r '[
       (.summary.missing // 0),
       (.summary.misconfigured // 0),
       (.summary.non_compliant_commits // 0),
+      (.summary.misplaced // 0),
       (.summary.broken_links // 0),
       (.summary.orphans // 0),
       (.summary.stale_docs // 0),
@@ -259,6 +260,11 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
       jq -r '.documentation.orphans.orphans[] | "      - " + .path + "  (" + (.last_modified_days_ago|tostring) + " days)"' <<<"$report"
     fi
 
+    if [[ "${n_misplaced:-0}" != "0" ]]; then
+      printf '  ⚠ %s doc(s) at non-canonical paths (run /nyann:retrofit to reorganize):\n' "$n_misplaced"
+      jq -r '.misplaced[] | "      - " + .source + " → " + .target + "  (confidence: " + (.confidence|tostring) + ")"' <<<"$report"
+    fi
+
     staleness_enabled=$(jq -r '.documentation.staleness.enabled' <<<"$report")
     if [[ "$staleness_enabled" == "true" ]]; then
       threshold=$(jq -r '.documentation.staleness.threshold_days' <<<"$report")
@@ -288,6 +294,7 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
   (( n_mis > 0 )) && has_warn=true
   (( n_off > 0 )) && has_warn=true
   (( n_orphans > 0 )) && has_warn=true
+  (( ${n_misplaced:-0} > 0 )) && has_warn=true
   (( n_stale > 0 )) && has_warn=true
   (( n_subsys_errs > 0 )) && has_warn=true
   # `skipped` is "docs scope wasn't run", not real drift; only `absent`

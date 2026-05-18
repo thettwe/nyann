@@ -238,7 +238,7 @@ if [[ "$source_label" == "starter" ]]; then
     _profile_sha=$(sha256sum "$tmp_resolved" 2>/dev/null | awk '{print $1}')
   fi
   if [[ -n "$_plugin_version" && -n "$_profile_sha" ]]; then
-    _sentinel_file="${plugin_root}/profiles/_validated/$(basename "$resolved")"
+    _sentinel_file="${plugin_root}/profiles/_validated/$(basename "${resolved%.json}").stamp"
     if [[ -f "$_sentinel_file" ]]; then
       _sentinel_value=$(<"$_sentinel_file")
       [[ "$_sentinel_value" == "${_plugin_version}:${_profile_sha}" ]] && _skip_validation=true

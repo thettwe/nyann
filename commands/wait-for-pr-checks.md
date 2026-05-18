@@ -45,12 +45,11 @@ soft-skips when gh is missing or unauthenticated.
 ## When NOT to invoke
 
 - The user wants to merge immediately when checks pass — use
-  `/nyann:pr --auto-merge` (server-side, doesn't tie up the terminal).
+  `/nyann:ship` (server-side, doesn't tie up the terminal).
 - The user just wants the current status snapshot — `gh pr checks
   <num>` directly.
 
 See also:
-- `/nyann:pr --auto-merge` — combines wait + merge via GitHub's
-  native auto-merge feature.
+- `/nyann:ship` — combines commit, PR, and merge into a single flow.
 - `/nyann:release` — uses this script to gate the tag step on green
   checks (when invoked with `--wait-for-checks`).

@@ -2,12 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nyann.dev/schemas/mcp-doc-targets/v1.json",
   "title": "MCPDocTargets",
-  "description": "Output of bin/detect-mcp-docs.sh. Lists Claude Code MCP servers classified against templates/mcp-registry.json. Read-only — the detector never invokes MCP tools.",
+  "description": "Output of bin/detect-mcp-docs.sh. Lists Claude Code MCP servers classified against templates/mcp-registry.json, plus locally discoverable vaults. Read-only — the detector never invokes MCP tools.",
   "type": "object",
   "additionalProperties": false,
   "required": ["available", "configured_but_disabled", "unknown_servers_skipped"],
   "properties": {
     "settings_path": { "type": "string" },
+    "settings_sources": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "All settings files that were checked (global + project-level)."
+    },
     "available": {
       "type": "array",
       "items": {
@@ -38,6 +43,19 @@
     "unknown_servers_skipped": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "discoverable_vaults": {
+      "type": "array",
+      "description": "Obsidian vaults found on disk but not connected via MCP. The skill layer can offer to connect these.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["vault_name", "vault_path"],
+        "properties": {
+          "vault_name": { "type": "string", "description": "Name of the vault (parent directory of .obsidian)." },
+          "vault_path": { "type": "string", "description": "Absolute path to the vault root." }
+        }
+      }
     }
   }
 }

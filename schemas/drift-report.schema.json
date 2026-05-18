@@ -44,6 +44,21 @@
         }
       }
     },
+    "misplaced": {
+      "description": "Docs found at non-canonical paths that can be reorganized to nyann conventions.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "target", "category", "confidence"],
+        "properties": {
+          "source":     { "type": "string", "description": "Current (non-canonical) path" },
+          "target":     { "type": "string", "description": "Canonical nyann path" },
+          "category":   { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
     "non_compliant_history": {
       "type": "object",
       "additionalProperties": false,
@@ -134,6 +149,7 @@
       "properties": {
         "missing":               { "type": "integer", "minimum": 0 },
         "misconfigured":         { "type": "integer", "minimum": 0 },
+        "misplaced":             { "type": "integer", "minimum": 0 },
         "non_compliant_commits": { "type": "integer", "minimum": 0 },
         "broken_links":          { "type": "integer", "minimum": 0 },
         "orphans":               { "type": "integer", "minimum": 0 },

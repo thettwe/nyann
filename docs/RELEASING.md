@@ -110,7 +110,17 @@ After the tag pushes, verify:
 2. **The release commit is on `origin/main`.** `git fetch && git log origin/main --oneline | head -5` shows the `chore(release): v1.0.0` commit at the top.
 3. **CI on `main` passes against the release SHA.** GitHub Actions → CI → most recent main run is green on both ubuntu and macos.
 4. **The CHANGELOG link works.** Open the link from `CHANGELOG.md`'s `[1.0.0]:` reference in a browser.
-5. **`/plugin install nyann@nyann` against a fresh checkout actually installs.** Ideally test in a throwaway terminal session.
+5. **`/plugin install nyann@nyann-plugins` against a fresh checkout actually installs.** Ideally test in a throwaway terminal session. (`nyann-plugins` is the value of `name` in `.claude-plugin/marketplace.json` — the `@` token Claude Code expects.)
+6. **Distribution paths advance on different cadences.** Nyann ships through two marketplaces and only one updates automatically when you tag:
+   - **Direct (`nyann@nyann-plugins`)** — your own marketplace at `thettwe/nyann`. Updates as soon as the tag pushes to `origin/main`; users see it on their next `/plugin marketplace update`. No further action from you.
+   - **Community (`nyann@claude-community`)** — Anthropic's curated mirror at `anthropics/claude-plugins-community`. The entry there pins `source.sha` to a specific commit. The SHA only advances when Anthropic's review pipeline approves a new version. To advance it, **file a new submission** at one of these in-app pages (all gated by claude.ai / platform.claude.com login):
+     - **claude.ai**: `Settings → Plugin submissions → New submission` at <https://claude.ai/settings/plugins>
+     - **Console**: <https://platform.claude.com/plugins/submit>
+     - Shortlink: <https://clau.de/plugin-directory-submission> (redirects to the submission section of `code.claude.com/docs/en/plugins`)
+
+     **About the "New submission" wording.** There is no "update existing plugin" path in the UI — every release is a fresh submission alongside the historical record. The marketplace stores **one entry per plugin name** (verified across all 1,715 community-marketplace entries), so a new submission supersedes the previous SHA pin rather than creating a parallel listing. You don't have to file a submission for every patch — if you skip a release, the next submission jumps community users straight from the prior pinned version to the newly approved one. One submission per release is recommended because smaller diffs review faster.
+
+     PRs against the mirror are auto-closed; the in-app forms are the only update channel. Until the pipeline approves and the next nightly sync runs, community-install users stay on the prior SHA. The `.github/workflows/community-marketplace-reminder.yml` action opens a tracking issue on every published release as a forcing function — close it once the new SHA is live in the upstream mirror at <https://github.com/anthropics/claude-plugins-community/blob/main/.claude-plugin/marketplace.json>.
 
 ## Recovery from partial-failure states
 

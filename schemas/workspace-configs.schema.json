@@ -51,6 +51,18 @@
         "type": "string",
         "pattern": "^@[a-zA-Z0-9_/-]+$",
         "description": "GitHub handle (@user or @org/team) for CODEOWNERS — forwarded from profile.workspaces.<key>.owner. Optional; gen-codeowners.sh falls back to --default-owner when absent."
+      },
+      "profile": {
+        "type": "string",
+        "description": "Named profile assigned to this workspace, if any."
+      },
+      "ci": {
+        "type": "object",
+        "description": "CI config inherited from the workspace's named profile."
+      },
+      "documentation": {
+        "type": "object",
+        "description": "Documentation config inherited from the workspace's named profile."
       }
     }
   }

@@ -209,12 +209,13 @@ _rollback_on_signal() {
       _full="$target/$_f"
       _snap="$_rollback_dir/$_f"
       if [[ -f "$_snap.existed" ]]; then
-        # File existed at snapshot time → restore byte-for-byte.
-        cp "$_snap" "$_full" 2>/dev/null || true
+        if ! cp "$_snap" "$_full" 2>/dev/null; then
+          nyann::warn "rollback: failed to restore $_f from snapshot"
+        fi
       else
-        # File was created during mutation → remove it. We never delete
-        # files we didn't create (the .existed sentinel disambiguates).
-        rm -f "$_full" 2>/dev/null || true
+        if ! rm -f "$_full" 2>/dev/null; then
+          nyann::warn "rollback: failed to remove $_f"
+        fi
       fi
     done
   fi
@@ -558,8 +559,13 @@ compute_bump_plan() {
       script)
         command=$(jq -r '.command // empty' <<<"$entry")
         [[ -n "$command" ]] || nyann::die "release.bump_files[$i]: script requires .command"
-        # script format has no idempotency check — the command owns
-        # whatever before/after read it needs. from_version stays null.
+        # Safety: script format executes arbitrary shell. Warn at apply
+        # time so the operator gets a final alarm right before the script
+        # runs. In dry-run the planned command is already surfaced in the
+        # bump-plan JSON (payload field), so an extra warn just adds noise.
+        if ! $dry_run; then
+          nyann::warn "release.bump_files[$i]: script format will execute shell command: $command"
+        fi
         _bp_paths+=("$path")
         _bp_formats+=("$format")
         _bp_payload+=("$command")

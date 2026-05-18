@@ -328,6 +328,11 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "profile": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "Name of a profile to apply to this workspace (e.g. 'flutter-app', 'node-api'). When set, resolve-workspace-configs.sh loads the full profile and merges its hooks/extras/ci into this workspace's config. If absent, the workspace inherits the root profile."
+          },
           "hooks": {
             "type": "object",
             "additionalProperties": false,
@@ -343,6 +348,36 @@
             "properties": {
               "gitignore":    { "type": "boolean" },
               "editorconfig": { "type": "boolean" }
+            }
+          },
+          "ci": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Per-workspace CI overrides applied on top of the workspace's resolved profile (named or root). Booleans toggle individual phases; version fields override the matrix runtime.",
+            "properties": {
+              "enabled":        { "type": "boolean" },
+              "lint":           { "type": "boolean" },
+              "typecheck":      { "type": "boolean" },
+              "test":           { "type": "boolean" },
+              "node_version":   { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" },
+              "python_version": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" },
+              "go_version":     { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" },
+              "dart_version":   { "type": "string" }
+            }
+          },
+          "documentation": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Per-workspace documentation scaffolding override. When present, the workspace's doc scaffolds are driven by this subset of fields (merged onto the named-profile or root documentation block).",
+            "properties": {
+              "scaffold_types": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["architecture", "prd", "adrs", "research", "api_reference", "runbook", "deployment", "glossary"]
+                },
+                "uniqueItems": true
+              }
             }
           },
           "owner": {

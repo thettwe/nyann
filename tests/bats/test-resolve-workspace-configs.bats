@@ -274,6 +274,97 @@ EOF
   fi
 }
 
+@test "named profile + wildcard: wildcard hooks/extras layer onto named profile" {
+  write_stack
+  # Create a named profile that the workspace will reference
+  mkdir -p "$TMP/plugin/profiles"
+  cat > "$TMP/plugin/profiles/react-vite.json" <<'EOF'
+{
+  "name": "react-vite", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": ["eslint"], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false},
+  "conventions": {"commit_format": "conventional-commits"},
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  # Profile assigns named profile to web, wildcard adds shared policy
+  cat > "$TMP/profile.json" <<'EOF'
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {},
+  "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "packages/web": { "profile": "react-vite" },
+    "*": { "extras": {"gitignore": true, "editorconfig": true}, "owner": "@platform" }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json" \
+    --plugin-root "$TMP/plugin"
+  [ "$status" -eq 0 ]
+  # The named-profile workspace (packages/web) must pick up wildcard extras
+  web_gi=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .extras.gitignore')
+  web_ec=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .extras.editorconfig')
+  [ "$web_gi" = "true" ]
+  [ "$web_ec" = "true" ]
+  # Named profile's hooks should still be the base
+  web_hooks=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .hooks.pre_commit | join(",")')
+  [[ "$web_hooks" == *"eslint"* ]]
+  # Owner from wildcard
+  web_owner=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .owner')
+  [ "$web_owner" = "@platform" ]
+}
+
+@test "named profile + exact override: exact beats wildcard and named profile" {
+  write_stack
+  mkdir -p "$TMP/plugin/profiles"
+  cat > "$TMP/plugin/profiles/react-vite.json" <<'EOF'
+{
+  "name": "react-vite", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": ["eslint"], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false},
+  "conventions": {"commit_format": "conventional-commits"},
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  cat > "$TMP/profile.json" <<'EOF'
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {},
+  "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "packages/web": { "profile": "react-vite", "extras": {"gitignore": true}, "owner": "@web-team" },
+    "*": { "extras": {"editorconfig": true}, "owner": "@platform" }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json" \
+    --plugin-root "$TMP/plugin"
+  [ "$status" -eq 0 ]
+  # Exact override sets gitignore=true, wildcard sets editorconfig=true — both apply
+  web_gi=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .extras.gitignore')
+  web_ec=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .extras.editorconfig')
+  [ "$web_gi" = "true" ]
+  [ "$web_ec" = "true" ]
+  # Exact-path owner beats wildcard owner
+  web_owner=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .owner')
+  [ "$web_owner" = "@web-team" ]
+}
+
 @test "rust workspace gets fmt + clippy defaults (matches installed hooks)" {
   # Hook IDs must match what the rust pre-commit template actually
   # exposes (doublify/pre-commit-rust → fmt + clippy). cargo-check /
@@ -292,6 +383,160 @@ EOF
   [ "$status" -eq 0 ]
   hooks=$(echo "$output" | jq -r '.[0].hooks.pre_commit | join(",")')
   [ "$hooks" = "fmt,clippy" ]
+}
+
+@test "named profile + inline ci override: exact ci wins over named profile ci" {
+  # Regression guard: previously the named-profile branch only merged
+  # hooks/extras/owner in the exact-override layer. ci/documentation
+  # were forwarded from the named profile and inline workspace overrides
+  # were silently dropped, making per-workspace CI opt-outs impossible.
+  write_stack
+  mkdir -p "$TMP/plugin/profiles"
+  cat > "$TMP/plugin/profiles/react-vite.json" <<'EOF'
+{
+  "name": "react-vite", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": ["eslint"], "commit_msg": [], "pre_push": []},
+  "extras": {"gitignore": false, "editorconfig": false},
+  "conventions": {"commit_format": "conventional-commits"},
+  "ci": {"enabled": true, "node_version": "20"},
+  "documentation": {"scaffold_types": ["architecture"], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  cat > "$TMP/profile.json" <<'EOF'
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {}, "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "packages/web": {
+      "profile": "react-vite",
+      "ci": {"enabled": false, "lint": false},
+      "documentation": {"scaffold_types": ["prd"]}
+    }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json" \
+    --plugin-root "$TMP/plugin"
+  [ "$status" -eq 0 ]
+  # Inline ci.enabled override wins: false (named profile said true)
+  web_ci_enabled=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .ci.enabled')
+  [ "$web_ci_enabled" = "false" ]
+  # Inline lint=false override is preserved
+  web_ci_lint=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .ci.lint')
+  [ "$web_ci_lint" = "false" ]
+  # Inline documentation override wins: scaffold_types=["prd"] (named profile said ["architecture"])
+  web_doc=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .documentation.scaffold_types | join(",")')
+  [ "$web_doc" = "prd" ]
+  # Fields not in the inline override deep-merge from the named profile.
+  # The named profile declared node_version=20; the inline override didn't
+  # touch it, so it must survive.
+  web_ci_node=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .ci.node_version')
+  [ "$web_ci_node" = "20" ]
+}
+
+@test "named profile + wildcard ci/documentation override: wildcard merges onto named profile" {
+  write_stack
+  mkdir -p "$TMP/plugin/profiles"
+  cat > "$TMP/plugin/profiles/react-vite.json" <<'EOF'
+{
+  "name": "react-vite", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": ["eslint"], "commit_msg": [], "pre_push": []},
+  "extras": {}, "conventions": {"commit_format": "conventional-commits"},
+  "ci": {"enabled": true, "node_version": "20"},
+  "documentation": {"scaffold_types": ["architecture"], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  cat > "$TMP/profile.json" <<'EOF'
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {}, "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "packages/web": { "profile": "react-vite" },
+    "*": { "ci": {"typecheck": true} }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json" \
+    --plugin-root "$TMP/plugin"
+  [ "$status" -eq 0 ]
+  # Wildcard's ci.typecheck merges onto named profile's ci object
+  web_ci_typecheck=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .ci.typecheck')
+  [ "$web_ci_typecheck" = "true" ]
+  # Named profile's ci.enabled preserved through the merge
+  web_ci_enabled=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .ci.enabled')
+  [ "$web_ci_enabled" = "true" ]
+  # Named profile's ci.node_version preserved
+  web_ci_node=$(echo "$output" | jq -r '.[] | select(.path == "packages/web") | .ci.node_version')
+  [ "$web_ci_node" = "20" ]
+}
+
+@test "load_named_profile rejects path traversal in profile name (security)" {
+  write_stack
+  mkdir -p "$TMP/plugin/profiles"
+  cat > "$TMP/profile.json" <<EOF
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {}, "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "packages/web": { "profile": "../../etc/passwd" }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json" \
+    --plugin-root "$TMP/plugin"
+  # Resolver should warn + fall back to defaults, NOT cat an arbitrary file.
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "profile name rejected"
+}
+
+@test "exact override forwards inline documentation + ci to entry (Codex regression)" {
+  # Before the v1.9.0 Codex fix, an inline workspace override with
+  # documentation.scaffold_types was dropped — plan-bootstrap.sh then
+  # couldn't enumerate workspace docs. Regression guard: assert both
+  # documentation and ci are forwarded to the resolver output.
+  write_stack
+  cat > "$TMP/profile.json" <<'EOF'
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "typescript"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {}, "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "packages/api": {
+      "documentation": {"scaffold_types": ["architecture", "prd"]},
+      "ci": {"enabled": true, "lint": true}
+    }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  doc_types=$(echo "$output" | jq -r '.[0].documentation.scaffold_types | join(",")')
+  [ "$doc_types" = "architecture,prd" ]
+  ci_enabled=$(echo "$output" | jq -r '.[0].ci.enabled')
+  [ "$ci_enabled" = "true" ]
 }
 
 @test "go workspace gets go-vet and gofmt defaults" {
