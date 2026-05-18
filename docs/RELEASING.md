@@ -120,7 +120,7 @@ After the tag pushes, verify:
 
      **About the "New submission" wording.** There is no "update existing plugin" path in the UI — every release is a fresh submission alongside the historical record. The marketplace stores **one entry per plugin name** (verified across all 1,715 community-marketplace entries), so a new submission supersedes the previous SHA pin rather than creating a parallel listing. You don't have to file a submission for every patch — if you skip a release, the next submission jumps community users straight from the prior pinned version to the newly approved one. One submission per release is recommended because smaller diffs review faster.
 
-     PRs against the mirror are auto-closed; the in-app forms are the only update channel. Until the pipeline approves and the next nightly sync runs, community-install users stay on the prior SHA. The `.github/workflows/community-marketplace-reminder.yml` action opens a tracking issue on every published release as a forcing function — close it once the new SHA is live in the upstream mirror at <https://github.com/anthropics/claude-plugins-community/blob/main/.claude-plugin/marketplace.json>.
+     PRs against the mirror are auto-closed; the in-app forms are the only update channel. Until the pipeline approves and the next nightly sync runs, community-install users stay on the prior SHA. Confirm the new SHA is live in the upstream mirror at <https://github.com/anthropics/claude-plugins-community/blob/main/.claude-plugin/marketplace.json> (synced nightly after approval).
 
 ## Recovery from partial-failure states
 
