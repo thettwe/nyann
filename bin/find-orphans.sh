@@ -87,7 +87,15 @@ corpus_buf=""
 orphans_tsv=""
 trap 'rm -f ${corpus_buf:+"$corpus_buf"} ${orphans_tsv:+"$orphans_tsv"}' EXIT
 corpus_buf=$(mktemp -t nyann-corpus.XXXXXX)
-for ref in "${corpus[@]}"; do
+# Defensive expansion: under `set -u` an empty array `corpus=()` makes
+# `"${corpus[@]}"` throw "unbound variable" and abort silently. That
+# leaves compute-drift's downstream `jq --argjson orphans ""` with no
+# input and triggers a cryptic "invalid JSON text" failure. Trigger
+# case: a memory/ that exists but contains no `.md` files (e.g. only a
+# health.json written by --persist), with no CLAUDE.md either. The
+# `${corpus[@]+...}` form expands to nothing when the array is unset
+# OR empty, sidestepping the abort while leaving the iteration empty.
+for ref in ${corpus[@]+"${corpus[@]}"}; do
   printf '\n%s%s\n' "$CORPUS_MARKER" "$ref" >> "$corpus_buf"
   cat "$ref" >> "$corpus_buf" 2>/dev/null || true
 done

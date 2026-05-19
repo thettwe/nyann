@@ -14,3 +14,8 @@ SECURITY.md
 # ADRs: numbered sequentially, discoverable via decisions/ directory listing.
 # Don't expect inbound links from other docs.
 ADR-*.md
+
+# nyann-internal state. health.json is written by --persist and grows
+# every doctor run; surfacing it as an orphan on every audit would
+# clutter the report (and reduce the signal of real orphans).
+health.json

@@ -40,6 +40,44 @@ teardown() { rm -rf "$TMP"; }
   [ "$age" -ge 0 ]
 }
 
+# Regression: when CLAUDE.md is absent and scan_dirs contain no `.md`
+# files, the `corpus` array is empty. Under `set -u`, expanding
+# `"${corpus[@]}"` aborted the script with "unbound variable" and no
+# stdout — which then crashed compute-drift's outer `jq --argjson
+# orphans ""` with a cryptic "invalid JSON text" error. The fix is to
+# use `${corpus[@]+"${corpus[@]}"}` so the iteration is empty rather
+# than fatal. Trigger case: a `memory/` containing only a JSON file
+# (e.g. `health.json` written by `doctor --persist`) with no CLAUDE.md
+# at the repo root.
+@test "empty corpus (no CLAUDE.md, no .md files) returns 0 orphans cleanly" {
+  empty="$TMP/empty"
+  mkdir -p "$empty/memory"
+  printf '{"scores":[],"trend":{"direction":"stable","delta":0,"window_days":7}}\n' \
+    > "$empty/memory/health.json"
+  run bash "$FIND" --target "$empty"
+  [ "$status" -eq 0 ]
+  # health.json is in the default-exclusion list (see next test), so
+  # scanned counts it (file enumerated) but orphans[] stays empty.
+  [ "$(echo "$output" | jq '.orphans | length')" -eq 0 ]
+}
+
+# Regression: `doctor --persist` writes memory/health.json on every
+# run. Without this exclusion the file would surface as an orphan on
+# every subsequent doctor run — pure noise. Default-excluded by
+# templates/orphan-exclusions.txt.
+@test "health.json is excluded by default (no orphan noise from --persist)" {
+  withhealth="$TMP/withhealth"
+  mkdir -p "$withhealth/memory" "$withhealth/docs"
+  printf '# Project\n' > "$withhealth/CLAUDE.md"
+  printf '# Architecture\n' > "$withhealth/docs/architecture.md"
+  printf '{"scores":[],"trend":{"direction":"stable","delta":0,"window_days":7}}\n' \
+    > "$withhealth/memory/health.json"
+  run bash "$FIND" --target "$withhealth"
+  [ "$status" -eq 0 ]
+  # No orphan should be named health.json.
+  ! echo "$output" | jq -r '.orphans[].path' | grep -q "health.json"
+}
+
 # ---- perf regression: inverted-index scaling --------------------------------
 # The concatenated-corpus + one-awk-pass-per-candidate shape keeps
 # find-orphans linear in the corpus size rather than quadratic in the

@@ -43,6 +43,7 @@ identifier consumers can pin against.
 | `diagnose-bundle.schema.json` | `bin/diagnose.sh --json` | maintainer-side support flow; `skills/diagnose/SKILL.md` |
 | `documentation-plan.schema.json` | `bin/route-docs.sh` | `bin/bootstrap.sh`, `bin/scaffold-docs.sh` |
 | `drift-report.schema.json` | `bin/compute-drift.sh` | `bin/retrofit.sh`, `bin/doctor.sh`, `bin/session-check.sh` |
+| `drift-narrative.schema.json` | `bin/explain-diff.sh --format json` | `skills/explain-diff/SKILL.md`, `bin/doctor.sh --explain` (markdown path) |
 | `gh-integration-result.schema.json` | `bin/gh-integration.sh` | `bin/bootstrap.sh`, `bin/retrofit.sh`, skill layer |
 | `glossary-draft.schema.json` | `bin/scaffold-glossary.sh --json` | `bin/scaffold-docs.sh`, skill layer |
 | `governance-ci-result.schema.json` | `bin/doctor-ci.sh` | governance-check workflow, `skills/gen-ci/SKILL.md` |

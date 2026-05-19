@@ -77,6 +77,20 @@ validate_stdout_against() {
       --target "$REPO" --profile "${REPO_ROOT}/profiles/default.json"
 }
 
+# --- DriftNarrative (explain-diff.sh --format json) -------------------------
+# Producer takes a DriftReport on stdin. We chain compute-drift into
+# explain-diff so a regression on either side surfaces here, not just
+# in the standalone test fixtures of test-explain-diff.bats.
+
+@test "drift-narrative schema: explain-diff --format json output validates" {
+  bash "${REPO_ROOT}/bin/compute-drift.sh" \
+    --target "$REPO" --profile "${REPO_ROOT}/profiles/default.json" \
+    > "$TMP/drift.json"
+  validate_stdout_against drift-narrative.schema.json \
+    bash "${REPO_ROOT}/bin/explain-diff.sh" \
+      --file "$TMP/drift.json" --format json --with-health 80 --with-trend -3
+}
+
 # --- MCPDocTargets (detect-mcp-docs.sh) -------------------------------------
 
 @test "mcp-doc-targets schema: detect-mcp-docs output validates (no settings)" {

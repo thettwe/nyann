@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/drift-narrative/v1.json",
+  "title": "DriftNarrative",
+  "description": "Structured wrapper around a human-readable DriftReport rendering, produced by bin/explain-diff.sh when --format json is requested. The default markdown output is also derivable from this shape, so downstream consumers (chat bots, dashboards, custom PR templates) can re-render with their own copy. action_items[] mirrors the bullets the markdown narrative would suggest at the foot of the report so a consumer can build a checklist UI without re-parsing the prose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "profile", "health", "sections", "action_items"],
+  "properties": {
+    "target": { "type": "string", "minLength": 1, "description": "Display name for the target repo. Pulled from the source DriftReport.target field; may be a basename or path depending on how the producer was invoked." },
+    "profile": { "type": "string", "minLength": 1, "description": "Active profile name." },
+    "scope_applied": {
+      "description": "Mirrors DriftReport.scope_applied so consumers can render a 'partial scope' header. Omitted when the report covered the canonical 7-category set.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["docs", "hooks", "branching", "gitignore", "editorconfig", "github", "history"]
+      },
+      "uniqueItems": true
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score"],
+      "properties": {
+        "score": {
+          "oneOf": [
+            { "type": "null", "description": "Score not supplied to explain-diff (the consumer must skip the score-line in their rendering)." },
+            { "type": "integer", "minimum": 0, "maximum": 100 }
+          ]
+        },
+        "trend_delta": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "description": "Signed delta from the previous session. Positive = improvement, negative = regression. null when no previous health snapshot exists." }
+          ]
+        },
+        "trend_direction": {
+          "type": "string",
+          "enum": ["up", "down", "stable", "unknown"],
+          "description": "Derived from trend_delta when available; 'unknown' when no prior session exists."
+        }
+      }
+    },
+    "sections": {
+      "description": "One entry per drift category that had at least one finding. Order is significant: rendered in the same order in the markdown output, with critical/high severity floating to the top.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "severity", "count", "summary", "items"],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["hooks", "documentation", "branching", "gitignore", "editorconfig", "github", "history", "claude_md", "links", "orphans", "staleness", "misplaced"],
+            "description": "Drift sub-category. Wider than DriftReport.scope_applied because the report's `documentation` block fans out into claude_md / links / orphans / staleness / misplaced sub-sections in the narrative."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"],
+            "description": "Lead-phrase severity. Maps to: critical='Action required', high='Worth fixing', medium='Drifted', low='Minor', info=suppressed in the markdown render but kept in JSON for downstream filtering."
+          },
+          "count": { "type": "integer", "minimum": 0 },
+          "summary": {
+            "type": "string",
+            "description": "One-line plain-English summary of this section. Suitable as a bullet in a digest."
+          },
+          "items": {
+            "type": "array",
+            "description": "Concrete per-finding lines (already formatted for display, not the raw JSON entry from the source DriftReport).",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "action_items": {
+      "description": "Ordered list of next steps the operator can take. Each item is a single imperative sentence (e.g. 'Run nyann:retrofit to fix the missing hooks').",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
