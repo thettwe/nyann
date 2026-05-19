@@ -122,7 +122,14 @@
         "claude_md":               { "type": "boolean" },
         "github_actions_ci":       { "type": "boolean" },
         "github_templates":        { "type": "boolean" },
-        "commit_message_template": { "type": "boolean" }
+        "commit_message_template": { "type": "boolean" },
+        "dependency_updater": {
+          "description": "Generate a dependency-updater config when bootstrapping or retrofitting (bin/gen-dependency-updater.sh). Three valid forms: `false` (off — current default; preserves backward-compat), `\"dependabot\"` (emit .github/dependabot.yml using the profile's stack to pick ecosystems), or `\"renovate\"` (emit renovate.json with config:recommended). Opt-in: starter profiles do NOT flip this on automatically — set it explicitly to opt your repo in.",
+          "oneOf": [
+            { "type": "boolean", "const": false },
+            { "type": "string", "enum": ["dependabot", "renovate"] }
+          ]
+        }
       }
     },
     "ci": {

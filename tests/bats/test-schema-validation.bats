@@ -91,6 +91,44 @@ validate_stdout_against() {
       --file "$TMP/drift.json" --format json --with-health 80 --with-trend -3
 }
 
+# --- DependencyUpdaterConfig (gen-dependency-updater.sh input contract) -----
+# The schema is the *input* contract — gen-dependency-updater.sh accepts
+# CLI flags rather than a JSON payload, so we validate a hand-rolled
+# fixture against the schema (the rendered Dependabot YAML / Renovate
+# JSON have their own first-party schemas owned by GitHub / Mend, not
+# nyann). This lock catches schema drift from a future CLI flag whose
+# enum diverges from the schema's allowlist.
+
+@test "dependency-updater-config schema: minimal hand-rolled config validates" {
+  cat > "$TMP/dep-config.json" <<'EOF'
+{
+  "updater": "dependabot",
+  "ecosystems": [
+    { "ecosystem": "npm", "directory": "/" },
+    { "ecosystem": "github-actions", "directory": "/", "schedule_interval": "weekly", "grouping": "minor-patch", "open_pull_requests_limit": 5 }
+  ],
+  "snapshot_version": "1.10.0"
+}
+EOF
+  "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/dependency-updater-config.schema.json" \
+    "$TMP/dep-config.json"
+}
+
+@test "dependency-updater-config schema: rejects unknown ecosystem" {
+  cat > "$TMP/dep-config.json" <<'EOF'
+{
+  "updater": "dependabot",
+  "ecosystems": [
+    { "ecosystem": "haskell", "directory": "/" }
+  ]
+}
+EOF
+  ! "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/dependency-updater-config.schema.json" \
+    "$TMP/dep-config.json"
+}
+
 # --- MCPDocTargets (detect-mcp-docs.sh) -------------------------------------
 
 @test "mcp-doc-targets schema: detect-mcp-docs output validates (no settings)" {
