@@ -28,7 +28,10 @@ json_valid() {
 @test "rejects missing --updater" {
   run bash "$GEN" --ecosystem npm
   [ "$status" -ne 0 ]
-  echo "$output" | grep -qF "--updater"
+  # `--` separator: BSD grep on macOS parses `--updater` as an unknown
+  # flag without it. Asserting on the unprefixed substring is enough
+  # to discriminate from other failure modes.
+  echo "$output" | grep -qF -- "updater"
 }
 
 @test "rejects unknown updater value" {

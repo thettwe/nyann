@@ -27,13 +27,13 @@
   "properties": {
     "primary_language": {
       "type": "string",
-      "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "unknown"]
+      "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "unknown"]
     },
     "secondary_languages": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby"]
+        "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp"]
       },
       "uniqueItems": true
     },
@@ -44,7 +44,9 @@
           "type": "string",
           "enum": [
             "next", "nuxt", "remix", "sveltekit", "react", "vue",
-            "express", "fastify",
+            "astro",
+            "express", "fastify", "nestjs",
+            "deno",
             "django", "flask", "fastapi",
             "gin", "echo",
             "actix", "axum", "rocket",
@@ -52,7 +54,9 @@
             "aspnet", "blazor", "maui",
             "laravel", "symfony",
             "flutter",
-            "rails", "sinatra"
+            "rails", "sinatra",
+            "phoenix",
+            "cmake"
           ]
         }
       ]
@@ -72,7 +76,9 @@
             "dotnet",
             "composer",
             "pub",
-            "bundler"
+            "bundler",
+            "deno",
+            "mix"
           ]
         }
       ]

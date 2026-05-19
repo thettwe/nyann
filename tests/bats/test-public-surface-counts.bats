@@ -24,9 +24,9 @@ setup() {
   [ "$count" = "35" ]
 }
 
-@test "starter profile count matches the documented number (18)" {
+@test "starter profile count matches the documented number (26)" {
   count=$(find "$REPO_ROOT/profiles" -maxdepth 1 -name '*.json' -type f -not -name '_schema.json' | wc -l | tr -d ' ')
-  [ "$count" = "18" ]
+  [ "$count" = "26" ]
 }
 
 @test "schema count matches the documented number (50)" {
