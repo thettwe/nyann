@@ -129,6 +129,10 @@
             { "type": "boolean", "const": false },
             { "type": "string", "enum": ["dependabot", "renovate"] }
           ]
+        },
+        "devcontainer": {
+          "type": "boolean",
+          "description": "When true, bin/gen-devcontainer.sh emits a .devcontainer/devcontainer.json keyed to the profile's primary_language. Default false (opt-in) so existing repos don't get a devcontainer materialised on the next bootstrap/retrofit without explicit consent. The generated file is preview-then-apply with idempotent re-runs; user edits survive on subsequent regenerations only when the rendered output happens to match byte-for-byte (otherwise the operator sees a diff and chooses overwrite vs. preserve)."
         }
       }
     },

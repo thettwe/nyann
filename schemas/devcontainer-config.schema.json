@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/devcontainer-config/v1.json",
+  "title": "DevcontainerConfig",
+  "description": "Input contract for bin/gen-devcontainer.sh — describes the stack + knobs that drive a .devcontainer/devcontainer.json emission. Nyann's role here is to pick a stable base image, wire a small set of high-impact VS Code extensions, and embed the right `postCreateCommand` for the package manager. The full devcontainer spec (microsoft/dev-containers) is much wider; this schema covers only the knobs we expose. Operators who need more can hand-edit the emitted file and re-run with --force-overwrite at the next refresh.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["language"],
+  "properties": {
+    "language": {
+      "type": "string",
+      "enum": [
+        "node",
+        "python",
+        "go",
+        "rust",
+        "dart",
+        "java",
+        "dotnet",
+        "php",
+        "ruby",
+        "swift",
+        "elixir",
+        "cpp"
+      ],
+      "description": "Primary language the devcontainer is built for. Picks the base image, VS Code extension set, and postCreateCommand. Maps 1:1 to StackDescriptor.primary_language with two normalizations: typescript/javascript both → 'node', csharp → 'dotnet'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Devcontainer display name. Defaults to the repo basename when omitted; surfaced in the VS Code 'Open in Container' picker."
+    },
+    "forwarded_ports": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1, "maximum": 65535 },
+      "description": "Ports to forward from the container to the host. Empty by default — most stacks declare these via a Dockerfile EXPOSE or per-app config and don't need a static list here. Common picks: 3000/4200/5173 for web dev, 8000/8080 for APIs."
+    },
+    "post_create_command": {
+      "type": "string",
+      "description": "Override the default per-language postCreateCommand. Useful when the project uses a non-standard package manager (e.g. pnpm rather than npm) or needs additional setup steps (e.g. database migrations). Empty string disables the postCreateCommand entirely."
+    },
+    "additional_features": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Extra `features` entries to merge onto the base set (gh CLI, git-lfs, common-utils). Each entry is the full feature ref including version pin — e.g. 'ghcr.io/devcontainers/features/docker-in-docker:2'. Avoid omitting the version pin; floating tags re-broadcast quietly."
+    },
+    "additional_extensions": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-zA-Z0-9-]+(\\.[a-zA-Z0-9-]+)+$" },
+      "description": "Extra VS Code extension IDs (publisher.extension format) merged onto the per-language base set. Pre-installed in the container."
+    },
+    "host_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Codespaces machine-size hints. Defaults provide enough headroom for most dev-only workflows; bump for CI-style projects that compile large native dependencies.",
+      "properties": {
+        "cpus":    { "type": "integer", "minimum": 2, "maximum": 32 },
+        "memory":  { "type": "string", "pattern": "^[0-9]+(gb|GB|gib|GiB)$" },
+        "storage": { "type": "string", "pattern": "^[0-9]+(gb|GB|gib|GiB)$" }
+      }
+    },
+    "snapshot_version": {
+      "type": "string",
+      "description": "Optional. Records the nyann release whose defaults the emitted config snapshots. Surfaced as a comment so a future operator can tell when the file was last regenerated.",
+      "default": ""
+    }
+  }
+}

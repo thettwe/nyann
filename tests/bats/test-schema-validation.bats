@@ -129,6 +129,49 @@ EOF
     "$TMP/dep-config.json"
 }
 
+# --- DevcontainerConfig (gen-devcontainer.sh input contract) ---------------
+# Like the dependency-updater contract, the schema describes the *input*
+# shape — the script accepts CLI flags rather than a JSON payload.
+# These tests pin the enum / required-field surface so a future CLI
+# flag that drops out of the schema's allowlist surfaces here.
+
+@test "devcontainer-config schema: minimal hand-rolled config validates" {
+  cat > "$TMP/dc-config.json" <<'EOF'
+{
+  "language": "python",
+  "name": "test-app",
+  "forwarded_ports": [8000, 8080],
+  "host_requirements": { "cpus": 4, "memory": "8gb" },
+  "additional_extensions": ["ms-azuretools.vscode-docker"],
+  "snapshot_version": "1.10.0"
+}
+EOF
+  "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/devcontainer-config.schema.json" \
+    "$TMP/dc-config.json"
+}
+
+@test "devcontainer-config schema: rejects unknown language" {
+  cat > "$TMP/dc-config.json" <<'EOF'
+{ "language": "fortran" }
+EOF
+  ! "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/devcontainer-config.schema.json" \
+    "$TMP/dc-config.json"
+}
+
+@test "devcontainer-config schema: rejects malformed extension id" {
+  cat > "$TMP/dc-config.json" <<'EOF'
+{
+  "language": "node",
+  "additional_extensions": ["not-a-publisher-format"]
+}
+EOF
+  ! "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/devcontainer-config.schema.json" \
+    "$TMP/dc-config.json"
+}
+
 # --- MCPDocTargets (detect-mcp-docs.sh) -------------------------------------
 
 @test "mcp-doc-targets schema: detect-mcp-docs output validates (no settings)" {
