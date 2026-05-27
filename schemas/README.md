@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (50)
+## Schemas in this directory (53)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -80,6 +80,9 @@ identifier consumers can pin against.
 | `undo-result.schema.json` | `bin/undo.sh` | `skills/undo/SKILL.md` |
 | `version-recommendation.schema.json` | `bin/recommend-version.sh` | `skills/release/SKILL.md` |
 | `workspace-configs.schema.json` | `bin/resolve-workspace-configs.sh` | `bin/bootstrap.sh`, `bin/gen-codeowners.sh` |
+| `workspace-release-result.schema.json` | `bin/release/release-workspace.sh` | `bin/release.sh --workspace`, `skills/release/SKILL.md` |
+| `pr-risk-score.schema.json` | `bin/pr-risk-score.sh` | `bin/ship.sh`, `skills/ship/SKILL.md` |
+| `team-profile-changelog.schema.json` | `bin/sync-team-profiles.sh --check-updates` | `skills/sync-team-profiles/SKILL.md` |
 
 ### Cross-referenced schemas (live elsewhere)
 
