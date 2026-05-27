@@ -199,7 +199,8 @@ CURRENT_SCHEMA="$NYANN_CURRENT_SCHEMA"
 #      the profile JSON (which may contain credentials) in /tmp.
 tmp_resolved=$(mktemp -t nyann-load-resolved.XXXXXX)
 validate_err=$(mktemp -t nyann-load-validate.XXXXXX)
-trap 'rm -f "$tmp_resolved" "$validate_err"' EXIT
+_extends_tmpfiles=()
+trap 'rm -f "$tmp_resolved" "$validate_err" "${_extends_tmpfiles[@]+"${_extends_tmpfiles[@]}"}"' EXIT
 
 file_version=$(jq -r '.schemaVersion // 1' "$resolved" 2>/dev/null || echo 1)
 if [[ "$file_version" =~ ^[0-9]+$ ]] && (( file_version < CURRENT_SCHEMA )); then
@@ -207,9 +208,71 @@ if [[ "$file_version" =~ ^[0-9]+$ ]] && (( file_version < CURRENT_SCHEMA )); the
   migrated=$("${_script_dir}/migrate-profile.sh" "$resolved")
   printf '%s\n' "$migrated" > "$tmp_resolved"
 else
-  # Snapshot the resolved profile into tmp_resolved so validate + emit
-  # operate on the same bytes even if $resolved is swapped concurrently.
   cp "$resolved" "$tmp_resolved"
+fi
+
+# --- extends resolution -------------------------------------------------------
+# When the profile declares `extends`, recursively resolve the parent
+# chain and deep-merge. Max depth: 3. Circular detection via visited set.
+# Depth and visited are tracked via env vars so they persist across the
+# recursive load-profile.sh subprocess calls.
+_extends_chain=()
+_extends_resolved=false
+
+# Inherit depth/visited from parent process (recursive load-profile.sh calls)
+_NYANN_EXTENDS_DEPTH="${_NYANN_EXTENDS_DEPTH:-0}"
+_NYANN_EXTENDS_VISITED="${_NYANN_EXTENDS_VISITED:-}"
+
+extends_field=$(jq -r '.extends // empty' "$tmp_resolved" 2>/dev/null)
+if [[ -n "$extends_field" ]]; then
+  parent_name="$extends_field"
+
+  current_depth=$((_NYANN_EXTENDS_DEPTH + 1))
+  if (( current_depth > 3 )); then
+    nyann::die "profile inheritance chain exceeds max depth of 3 (chain: ${_NYANN_EXTENDS_VISITED} $name → $parent_name)"
+  fi
+
+  if [[ " $_NYANN_EXTENDS_VISITED " == *" $parent_name "* ]]; then
+    nyann::die "circular profile inheritance detected: ${_NYANN_EXTENDS_VISITED} $name → $parent_name"
+  fi
+
+  nyann::log "extends: resolving parent '$parent_name' (depth $current_depth)"
+
+  parent_file=$(mktemp -t nyann-extends-parent.XXXXXX)
+  _extends_tmpfiles+=("$parent_file")
+
+  # Pass depth and visited set via env vars to the child load-profile.sh
+  _extends_load_err=$(mktemp -t nyann-extends-err.XXXXXX)
+  _extends_tmpfiles+=("$_extends_load_err")
+  if ! _NYANN_EXTENDS_DEPTH="$current_depth" \
+       _NYANN_EXTENDS_VISITED="${_NYANN_EXTENDS_VISITED} $name" \
+       "${_script_dir}/load-profile.sh" "$parent_name" \
+       --user-root "$user_root" --plugin-root "$plugin_root" > "$parent_file" 2>"$_extends_load_err"; then
+    # Propagate the child's error message so depth/circular errors surface
+    cat "$_extends_load_err" >&2 2>/dev/null || true
+    nyann::die "extends: parent profile '$parent_name' could not be loaded"
+  fi
+
+  # Extract the parent's extends chain from _meta (if it also extended something)
+  parent_chain=$(jq -r '._meta.extends_chain // [] | .[]' "$parent_file" 2>/dev/null)
+  _extends_chain=("$name")
+  while IFS= read -r pc; do
+    [[ -n "$pc" ]] && _extends_chain+=("$pc")
+  done <<<"$parent_chain"
+  # If parent didn't extend, just add its name
+  if (( ${#_extends_chain[@]} == 1 )); then
+    _extends_chain+=("$parent_name")
+  fi
+
+  # Merge: parent is base, current is overlay
+  merged_file=$(mktemp -t nyann-extends-merged.XXXXXX)
+  _extends_tmpfiles+=("$merged_file")
+
+  "${_script_dir}/merge-profiles.sh" --base "$parent_file" --overlay "$tmp_resolved" > "$merged_file"
+  cp "$merged_file" "$tmp_resolved"
+
+  _extends_resolved=true
+  nyann::log "extends: resolved chain: ${_extends_chain[*]}"
 fi
 
 # Validate via validate-profile.sh against the snapshot.
@@ -273,13 +336,20 @@ if [[ -n "$shadowed_team_csv" ]]; then
   shadowed_team_json=$(printf '%s' "$shadowed_team_csv" | tr '\t' '\n' \
     | jq -R . | jq -s 'map(select(. != ""))')
 fi
+extends_chain_json='[]'
+if (( ${#_extends_chain[@]} > 0 )); then
+  extends_chain_json=$(printf '%s\n' "${_extends_chain[@]}" | jq -R . | jq -s .)
+fi
 jq \
   --arg src "$source_label" \
   --arg src_path "$resolved" \
   --arg shadowed_starter "$shadowed_starter" \
   --argjson shadowed_team "$shadowed_team_json" \
+  --argjson extends_chain "$extends_chain_json" \
+  --argjson extends_resolved "$_extends_resolved" \
   '. + {
      _meta: ({source: $src, source_path: $src_path}
        + (if $shadowed_starter != "" then {shadowed_starter: $shadowed_starter} else {} end)
-       + (if ($shadowed_team | length) > 0 then {shadowed_team: $shadowed_team} else {} end))
+       + (if ($shadowed_team | length) > 0 then {shadowed_team: $shadowed_team} else {} end)
+       + (if $extends_resolved then {extends_chain: $extends_chain, extends_resolved: true} else {} end))
    }' "$tmp_resolved"

@@ -29,6 +29,17 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Paths to team profiles shadowed by this user profile."
+        },
+        "extends_chain": {
+          "type": "array",
+          "items": { "type": "string" },
+          "$comment": "v1.11.0 — ordered list of profile names from child to root when extends was used.",
+          "description": "Profile name chain from child to root ancestor, e.g. [\"my-react\", \"react-vite\", \"node-api\"]."
+        },
+        "extends_resolved": {
+          "type": "boolean",
+          "$comment": "v1.11.0 — true when extends was present and successfully resolved.",
+          "description": "True when the profile used extends and the chain was resolved."
         }
       }
     },
@@ -36,6 +47,12 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "Lowercase-kebab profile identifier."
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "$comment": "v1.11.0 — optional parent profile name to inherit from. Child fields overlay parent via deep merge; arrays replace (not concatenate). Max chain depth: 3. Workspace inline profiles cannot use extends.",
+      "description": "Name of a parent profile to inherit from. Resolution follows the same user > team > starter chain as load-profile.sh."
     },
     "description": { "type": "string" },
     "schemaVersion": {
