@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/workspace-release-result/v1.json",
+  "title": "WorkspaceReleaseResult",
+  "description": "Per-workspace release output from release-workspace.sh.",
+  "$comment": "v1.11.0 — monorepo release support.",
+  "type": "object",
+  "required": ["workspace", "version", "tag", "from", "commits", "changelog_section", "status"],
+  "additionalProperties": true,
+  "properties": {
+    "workspace":         { "type": "string", "description": "Workspace path relative to repo root." },
+    "version":           { "type": "string" },
+    "tag":               { "type": "string" },
+    "from":              { "type": "string", "description": "Ref the changelog range started from." },
+    "commits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sha":      { "type": "string" },
+          "type":     { "type": "string" },
+          "scope":    { "type": "string" },
+          "subject":  { "type": "string" },
+          "breaking": { "type": "boolean" }
+        }
+      }
+    },
+    "changelog_section": { "type": "string" },
+    "status":            { "type": "string", "enum": ["released", "noop", "preview"] },
+    "dry_run":           { "type": "boolean" }
+  }
+}

@@ -65,6 +65,9 @@ gh_bin="gh"
 bump_manifests=false
 gh_release=false
 profile_path=""
+workspace_path=""
+all_workspaces=false
+batch_commit=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -96,6 +99,10 @@ while [[ $# -gt 0 ]]; do
     --gh-release)     gh_release=true; shift ;;
     --profile)        profile_path="${2:-}"; shift 2 ;;
     --profile=*)      profile_path="${1#--profile=}"; shift ;;
+    --workspace)      workspace_path="${2:-}"; shift 2 ;;
+    --workspace=*)    workspace_path="${1#--workspace=}"; shift ;;
+    --all-workspaces) all_workspaces=true; shift ;;
+    --batch-commit)   batch_commit=true; shift ;;
     -h|--help)        sed -n '3,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
@@ -153,6 +160,75 @@ if [[ -n "$from_ref" ]] && ! nyann::valid_git_ref "$from_ref"; then
 fi
 
 tag="${tag_prefix}${version}"
+
+# --- monorepo workspace release path -----------------------------------------
+# When --workspace or --all-workspaces is set, delegate to release-workspace.sh
+# instead of the single-repo flow below.
+
+if [[ -n "$workspace_path" ]] || $all_workspaces; then
+  ws_results='[]'
+
+  if [[ -n "$workspace_path" ]]; then
+    ws_list="$workspace_path"
+  else
+    if [[ -n "$profile_path" && -f "$profile_path" ]]; then
+      ws_list=$(jq -r '.workspaces[]?.path // empty' "$profile_path" 2>/dev/null)
+    else
+      ws_list=$(jq -r '.workspaces[]?.path // empty' "${target}/.nyann-profile.json" 2>/dev/null || true)
+    fi
+    if [[ -z "$ws_list" ]]; then
+      nyann::die "--all-workspaces: no workspaces found in profile"
+    fi
+  fi
+
+  ws_args=(--target "$target" --version "$version")
+  if $dry_run; then
+    ws_args+=(--dry-run)
+  fi
+  if $confirm; then
+    ws_args+=(--yes)
+  fi
+
+  while IFS= read -r ws; do
+    [[ -z "$ws" ]] && continue
+    [[ -d "$target/$ws" ]] || { nyann::warn "workspace not found: $ws"; continue; }
+
+    ws_result=$("${_release_dir}/release-workspace.sh" "${ws_args[@]}" --workspace "$ws") || true
+    ws_results=$(jq --argjson r "$ws_result" '. + [$r]' <<<"$ws_results")
+
+    ws_status=$(jq -r '.status' <<<"$ws_result" 2>/dev/null || echo "error")
+    ws_tag=$(jq -r '.tag' <<<"$ws_result" 2>/dev/null || echo "")
+
+    if [[ "$ws_status" == "released" && -n "$ws_tag" ]] && ! $dry_run; then
+      nyann::resolve_identity "$target"
+      git -C "$target" \
+        -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
+        tag -a -m "release $ws_tag" -- "$ws_tag"
+      nyann::log "tagged: $ws_tag"
+    fi
+  done <<<"$ws_list"
+
+  if $batch_commit && ! $dry_run; then
+    changed=$(git -C "$target" status --porcelain 2>/dev/null | grep -v '^$' || true)
+    if [[ -n "$changed" ]]; then
+      nyann::resolve_identity "$target"
+      git -C "$target" add -A
+      git -C "$target" \
+        -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
+        commit -q -m "chore(release): workspace releases for v${version}" >/dev/null
+    fi
+  fi
+
+  jq -n \
+    --arg status "released" \
+    --arg strategy "$strategy" \
+    --arg version "$version" \
+    --argjson workspaces "$ws_results" \
+    --argjson dry_run "$($dry_run && echo true || echo false)" \
+    '{status:$status, strategy:$strategy, version:$version, workspaces:$workspaces}
+     + (if $dry_run then {dry_run:true} else {} end)'
+  exit 0
+fi
 
 # --- signal-rollback state ---------------------------------------------------
 
