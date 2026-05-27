@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-1147%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1250%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -31,13 +31,13 @@
 - **Working hooks for 18 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
 - **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
 - **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
-- **Schema-validated contracts between every script.** All 49 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1147 bats tests** cover the surface.
+- **Schema-validated contracts between every script.** All 52 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1250 bats tests** cover the surface.
 - **Team-shareable governance.** Profiles are pure data — register a git URL and your team's branching, hooks, conventions, and doc routing sync across every repo automatically. Stale-team-profile detection nudges before the next bootstrap.
 - **Health-graded, drift-aware.** `doctor` produces a 0–100 score with per-category deltas and trend sparklines from `memory/health.json`. Inline drift checks at commit / PR / ship time nudge (don't gate) when the repo drifts from its profile; `governance-check.yml` upgrades that to a CI gate when desired.
 
 ## Supported stacks
 
-**Working hooks, branching, commits, and docs across 18 stacks.** Nyann detects yours automatically and applies the right profile — branching strategy, commit conventions, language-specific hooks (Husky, pre-commit.com, lefthook, …) wired up to run on day one, and archetype-aware documentation scaffolding. All profiles default to Conventional Commits + GitHub Flow.
+**Working hooks, branching, commits, and docs across 26 stacks.** Nyann detects yours automatically and applies the right profile — branching strategy, commit conventions, language-specific hooks (Husky, pre-commit.com, lefthook, …) wired up to run on day one, and archetype-aware documentation scaffolding. All profiles default to Conventional Commits + GitHub Flow.
 
 | Stack | Profile | Linting | Formatting | Package Manager |
 |---|---|---|---|---|
@@ -58,6 +58,14 @@
 | PHP / Laravel | `php-laravel` | Pint | Pint | Composer |
 | Dart / Flutter | `flutter-app` | dart analyze | dart format | pub |
 | Ruby / Rails | `ruby-rails` | RuboCop | RuboCop | Bundler |
+| Deno | `deno-app` | deno lint | deno fmt | deno |
+| Bun | `bun-app` | ESLint (opt) | Biome / Prettier | bun |
+| SvelteKit | `sveltekit-app` | ESLint, svelte-check | Prettier | npm / pnpm / yarn / bun |
+| Astro | `astro-site` | ESLint, astro-check | Prettier | npm / pnpm / yarn / bun |
+| Nuxt | `nuxt-app` | ESLint | Prettier | npm / pnpm / yarn / bun |
+| Elixir / Phoenix | `phoenix-app` | mix credo | mix format | mix |
+| NestJS | `nestjs-service` | ESLint | Prettier | npm / pnpm |
+| C/C++ CMake | `cpp-cmake` | clang-tidy | clang-format | - |
 | Any / Unknown | `default` | - | - | - |
 
 All profiles also include `block-main` (prevent direct commits to main) and `gitleaks` (secret scanning) hooks.
@@ -299,21 +307,21 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 ## Repository layout
 
 ```
-bin/                   # 68 shell scripts + 1 python helper (orchestrators + subsystems)
-commands/              # 32 Claude Code slash-command registrations
+bin/                   # 75 shell scripts + 1 python helper (orchestrators + subsystems)
+commands/              # 35 Claude Code slash-command registrations
 evals/                 # 24 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse block-main hook
-profiles/              # 18 starter profiles (+ _schema.json)
-schemas/               # 47 JSON Schemas for every exchanged shape
-skills/                # 32 skills (SKILL.md, optionally with references/ and scripts/)
+profiles/              # 28 starter profiles (+ _schema.json)
+schemas/               # 52 JSON Schemas for every exchanged shape
+skills/                # 35 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 1147 bats tests + fixtures
+tests/                 # 1250 bats tests + fixtures
 ```
 
 ## Recent changes
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.8.0** ships reversibility — every `bootstrap` and `retrofit` run is now undoable via `/nyann:undo-bootstrap`.
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.10.0** adds 8 new starter profiles, dependency-updater and devcontainer generation, and a plain-English drift explainer.
 
 ---
 

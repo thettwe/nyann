@@ -1,3 +1,43 @@
+## [1.10.0] — 2026-05-28
+
+### Added
+
+- **8 new starter profiles** — `deno-app`, `bun-app`, `sveltekit-app`, `astro-site`, `nuxt-app`, `phoenix-app`, `nestjs-service`, `cpp-cmake`. Each ships with detect-stack signatures, hook templates, CI generation support, and archetype mapping. Brings the starter profile count from 20 to 28.
+- **`bin/gen-dependency-updater.sh` + `/nyann:gen-dependency-updater` skill** — profile-aware Dependabot or Renovate config generation. Opt-in via `extras.dependency_updater: "dependabot" | "renovate"` on the active profile. Templates cover all supported ecosystems (npm, pip, Go modules, Cargo, Maven, Gradle, Composer, Bundler, Pub, NuGet, Mix). Defaults: weekly schedule Monday 04:00 UTC, 5 open-PR limit, minor+patch grouped. Idempotent — diffs against existing config and refuses to overwrite without `--force-overwrite`.
+- **`bin/gen-devcontainer.sh` + `/nyann:gen-devcontainer` skill** — profile-aware `.devcontainer/devcontainer.json` generation for Codespaces and VS Code Remote Containers. Templates per primary language (Node, Python, Go, Rust, Dart, Java, .NET, PHP, Ruby, Swift, Elixir, C++). Includes pinned dev-container features (GitHub CLI, git-lfs, common-utils). Opt-in via `extras.devcontainer: true`. Codespaces-aware: emits `hostRequirements` for resource sizing.
+- **`bin/explain-diff.sh` + `/nyann:explain-diff` skill** — translates a DriftReport JSON into plain-English markdown narrative without requiring LLM access. Pure template substitution with severity-to-tone mapping (critical → "Action required", high → "Worth fixing", medium → "Drifted", low → "Minor"). Includes actionable remediation suggestions per drift category.
+- **`doctor --explain` flag** — pipes the drift report through `explain-diff.sh` and writes both the JSON and the narrative. Gives operators a paste-ready summary for PRs and team channels.
+- **`bin/detect-stack.sh` gains 8 new detector functions** — `detect_deno()`, `detect_bun_native()`, `detect_sveltekit()`, `detect_astro()`, `detect_nuxt()`, `detect_phoenix()`, `detect_nestjs()`, `detect_cpp_cmake()`. Each returns the standard `StackDescriptor` JSON shape (no schema change). Archetype ladder extended to map all new frameworks.
+- **`bin/_lib.sh` new validators** — `nyann::valid_dependency_updater`, `nyann::valid_devcontainer_stack` for input validation in the new generators.
+
+### Changed
+
+- **`profiles/_schema.json`** — gains `extras.dependency_updater` (string or bool) and `extras.devcontainer` (bool). Both optional, backward-compatible.
+- **`bin/inspect-profile.sh`** — surfaces the new `dependency_updater` and `devcontainer` extras in profile summaries.
+- **`bin/scaffold-docs.sh`** — minor refactor to doc-archetype mapping for the new stacks.
+- **`bin/find-orphans.sh`** — respects `templates/orphan-exclusions.txt` so new template directories don't trigger false positives.
+- **`docs/RELEASING.md`** — corrects the `@nyann` → `@nyann-plugins` marketplace token.
+
+### Schemas added
+
+- `dependency-updater-config.schema.json` — input shape for gen-dependency-updater.sh.
+- `devcontainer-config.schema.json` — input shape for gen-devcontainer.sh.
+- `drift-narrative.schema.json` — output shape of explain-diff.sh (header, sections, action items).
+- `stack-descriptor.schema.json` extended with new framework enum values.
+
+### CI + tests
+
+- **6 new bats test files** — `test-detect-v110-stacks.bats` (300 lines, 8-stack detection coverage), `test-gen-dependency-updater.bats` (265 lines), `test-gen-devcontainer.bats` (254 lines), `test-explain-diff.bats` (217 lines), `test-doctor-explain-flag.bats` (109 lines), `test-schema-validation.bats` (95 lines for the 3 new schemas).
+- **`test-find-orphans.bats`** — 38 lines covering exclusion-list support.
+- **`test-public-surface-counts.bats`** — updated: profile count 20 → 28, schema count 49 → 52, skill count 34 → 37.
+- **`community-marketplace-reminder.yml` removed** (PR #23) — replaced by the `--prepare-submission` workflow documented in RELEASING.md.
+- Suite: 1147 → 1250 tests. Schemas: 49 → 52. Starter profiles: 20 → 28.
+
+### Deferred
+
+- **Orchestrator extraction** — `release.sh` (1,059 lines), `gh-integration.sh` (885 lines), `detect-stack.sh` (1,496 lines) remain monolithic. Deferred again from v1.9.0; tracked for v1.11+.
+- **Profile composition / `extends`** — deferred to v1.11.0 (spec: `docs/roadmap/v1.11.0-spec.md`).
+
 ## [1.9.0] — 2026-05-16
 
 ### Added
