@@ -286,8 +286,15 @@ shared_features=(
 )
 all_features=("${shared_features[@]}" "${extra_features[@]+"${extra_features[@]}"}")
 
-# Convert arrays to JSON arrays.
-extensions_json=$(printf '%s\n' "${all_extensions[@]}" | jq -R . | jq -s 'unique')
+# Convert arrays to JSON arrays. Dedup preserves first-occurrence order
+# (per-language defaults → shared baseline → user-supplied) so the
+# rendered list matches the SKILL.md's documented ordering. Earlier
+# `jq -s 'unique'` sorted alphabetically, which made diffs noisier and
+# contradicted the doc. `awk '!seen[$0]++'` is the standard
+# order-preserving dedup primitive in shell.
+extensions_json=$(printf '%s\n' "${all_extensions[@]}" \
+  | awk '!seen[$0]++' \
+  | jq -R . | jq -s .)
 features_obj=$(jq -n --args '[$ARGS.positional[]] | map({ (.): {} }) | add // {}' \
   -- "${all_features[@]}")
 ports_json="[]"
@@ -357,7 +364,13 @@ if [[ -L "$dest" ]]; then
   nyann::die "refusing to write through a symlink: $dest"
 fi
 
-mkdir -p "$(dirname "$dest")"
+# Symlink-mediated escape guard: `mkdir -p` happily follows symlinks
+# at intermediate components, so the leaf-only check above can't catch
+# a pre-placed `$target/.devcontainer → /etc/` symlink. Walk the
+# ancestry explicitly via the shared helper from _lib.sh.
+if ! nyann::safe_mkdir_under_target "$target" ".devcontainer" >/dev/null; then
+  nyann::die "refusing to write $dest: ancestor is a symlink or mkdir failed"
+fi
 
 if [[ -f "$dest" ]]; then
   existing="$(cat "$dest")"

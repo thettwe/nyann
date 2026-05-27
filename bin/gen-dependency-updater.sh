@@ -228,7 +228,11 @@ render_renovate() {
       ],
       "labels": ["dependencies", "automated"],
       "schedule": (
-        if $schedule == "daily" then ["* 0-3 * * *"]
+        # Renovate natural-language schedules — keep the three branches
+        # consistent. Earlier `* 0-3 * * *` for daily was a cron typo
+        # that meant "every minute in the 0-3 window" (240 scans/day),
+        # not "once daily in the quiet window".
+        if $schedule == "daily" then ["before 5am every day"]
         elif $schedule == "monthly" then ["before 5am on the first day of the month"]
         else ["before 5am on Monday"]
         end
@@ -266,9 +270,10 @@ if ! $apply; then
 fi
 
 dest=""
+dest_dir_rel=""
 case "$updater" in
-  dependabot) dest="$target/.github/dependabot.yml" ;;
-  renovate)   dest="$target/renovate.json"          ;;
+  dependabot) dest="$target/.github/dependabot.yml"; dest_dir_rel=".github" ;;
+  renovate)   dest="$target/renovate.json";           dest_dir_rel=""        ;;
 esac
 
 # Reject symlink-as-destination, matching the bootstrap/scaffold-docs
@@ -278,7 +283,16 @@ if [[ -L "$dest" ]]; then
   nyann::die "refusing to write through a symlink: $dest"
 fi
 
-mkdir -p "$(dirname "$dest")"
+# Symlink-mediated escape guard: `mkdir -p` happily follows symlinks at
+# intermediate components, so the leaf-only check above can't catch a
+# pre-placed `$target/.github → /etc/` symlink. Walk the ancestry
+# explicitly via the shared helper. For Renovate (writes at repo root),
+# there's no intermediate directory to mkdir, so the helper is skipped.
+if [[ -n "$dest_dir_rel" ]]; then
+  if ! nyann::safe_mkdir_under_target "$target" "$dest_dir_rel" >/dev/null; then
+    nyann::die "refusing to write $dest: ancestor is a symlink or mkdir failed"
+  fi
+fi
 
 # Idempotency: identical-content apply is a no-op. Different-content
 # apply requires --force-overwrite + emits a diff to stderr first.

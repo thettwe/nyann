@@ -185,6 +185,21 @@ json_valid() {
   [ ! -f "/etc/decoy-target" ]
 }
 
+@test "apply refuses when .devcontainer ancestor is itself a symlink" {
+  # Same H1 escape vector as the dependabot path: a pre-existing
+  # symlink at `<target>/.devcontainer → decoy` would cause `mkdir -p`
+  # to follow the link and write devcontainer.json into the decoy.
+  # The shared safe_mkdir_under_target helper must catch this before
+  # any write happens.
+  decoy="$TMP/decoy-devc"
+  mkdir -p "$decoy"
+  ln -s "$decoy" "$TMP/.devcontainer"
+
+  run bash "$GEN" --language node --target "$TMP" --apply
+  [ "$status" -ne 0 ]
+  [ ! -f "$decoy/devcontainer.json" ]
+}
+
 @test "apply rejects nonexistent --target" {
   run bash "$GEN" --language node --target "$TMP/missing" --apply
   [ "$status" -ne 0 ]

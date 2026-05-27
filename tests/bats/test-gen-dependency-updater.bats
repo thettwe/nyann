@@ -144,6 +144,18 @@ json_valid() {
   jq -e '.schedule[0] | contains("first day of the month")' "$TMP/out.json" >/dev/null
 }
 
+@test "renovate --schedule daily emits natural-language (not raw cron)" {
+  # Regression: an earlier version emitted `* 0-3 * * *` for daily,
+  # which Renovate parses as "every minute in the 0-3 hour window" —
+  # 240 scans per day rather than one. Renovate's natural-language
+  # form is the consistent shape across all three schedule branches.
+  bash "$GEN" --updater renovate --ecosystem npm --schedule daily > "$TMP/out.json"
+  json_valid "$TMP/out.json"
+  jq -e '.schedule[0] | contains("every day")' "$TMP/out.json" >/dev/null
+  # Pin against the raw cron regression specifically.
+  ! jq -e '.schedule[0] | test("^\\*")' "$TMP/out.json" >/dev/null
+}
+
 @test "renovate --grouping minor-patch emits matching packageRule" {
   bash "$GEN" --updater renovate --ecosystem npm > "$TMP/out.json"
   json_valid "$TMP/out.json"
@@ -186,6 +198,21 @@ json_valid() {
   echo "$output" | grep -qF "symlink"
   # Decoy target must not have been created (it shouldn't exist regardless).
   [ ! -f "/etc/shadow-decoy" ]
+}
+
+@test "apply refuses when .github ancestor is itself a symlink (escape via mkdir -p)" {
+  # Pre-existing symlink at .github → an outside-target directory.
+  # `mkdir -p $target/.github` would follow the symlink and write
+  # dependabot.yml into the decoy. The shared safe_mkdir_under_target
+  # helper detects intermediate-component symlinks and refuses.
+  decoy="$TMP/decoy-github"
+  mkdir -p "$decoy"
+  ln -s "$decoy" "$TMP/.github"
+
+  run bash "$GEN" --updater dependabot --ecosystem npm --target "$TMP" --apply
+  [ "$status" -ne 0 ]
+  # Decoy must not contain the generated file.
+  [ ! -f "$decoy/dependabot.yml" ]
 }
 
 # ---------------------------------------------------------------------------

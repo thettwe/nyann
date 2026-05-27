@@ -151,15 +151,23 @@ nyann::eds_push() {
 }
 
 # MISSING — top-level "the profile expected this and it's not here" set.
+# Category name mirrors the source DriftReport array (.missing[]) rather
+# than fanning out by kind — the entries inside are heterogeneous
+# (hooks, configs, scaffolded docs, …) and labelling them all "hooks"
+# was misleading. Items already include each entry's path + detail
+# so the narrative still tells the operator WHAT is missing.
 if (( n_missing > 0 )); then
-  nyann::eds_push "hooks" "critical" "$n_missing" \
+  nyann::eds_push "missing" "critical" "$n_missing" \
     "$n_missing required file(s) are missing — the profile expects them but they're not in the repo." \
     '[.missing[] | "Missing: " + .path + (if .detail then " (" + .detail + ")" else "" end)]'
 fi
 
 # MISCONFIGURED — profile expected a specific config; the file exists but its contents drift.
+# Same rationale as MISSING: mirror the source-array name rather than
+# guessing a per-entry kind, since misconfigured[] holds .gitignore /
+# .editorconfig / hook chains / etc. as a flat heterogeneous set.
 if (( n_mis > 0 )); then
-  nyann::eds_push "github" "high" "$n_mis" \
+  nyann::eds_push "misconfigured" "high" "$n_mis" \
     "$n_mis file(s) exist but differ from what the profile expects (drift, not absence)." \
     '[.misconfigured[] | "Drifted: " + .path + " — " + .reason +
        (if .missing_entries and (.missing_entries | length) > 0
@@ -176,17 +184,21 @@ if (( ${n_misplaced:-0} > 0 )); then
 fi
 
 # CLAUDE.md size — sub-section of documentation.
+# Defensive `// 0` defaults guard against partial DriftReports a caller
+# may have hand-crafted or pulled from cache; the source schema marks
+# bytes / budget_bytes as required but we shouldn't render "null B"
+# into the prose if the input slipped through validation.
 case "$claude_md_status" in
   error)
-    bytes=$(jq -r '.documentation.claude_md.bytes' <<<"$report")
+    bytes=$(jq -r '.documentation.claude_md.bytes // 0' <<<"$report")
     hard=$(jq -r '.documentation.claude_md.hard_cap_bytes // 8192' <<<"$report")
     nyann::eds_push "claude_md" "critical" 1 \
       "CLAUDE.md is over the hard cap ($bytes B vs. $hard B) — extract content into linked docs." \
       '["CLAUDE.md exceeds the hard cap; move detail into docs/ files and link from CLAUDE.md instead"]'
     ;;
   warn)
-    bytes=$(jq -r '.documentation.claude_md.bytes' <<<"$report")
-    budget=$(jq -r '.documentation.claude_md.budget_bytes' <<<"$report")
+    bytes=$(jq -r '.documentation.claude_md.bytes // 0' <<<"$report")
+    budget=$(jq -r '.documentation.claude_md.budget_bytes // 3072' <<<"$report")
     nyann::eds_push "claude_md" "high" 1 \
       "CLAUDE.md is over the soft budget ($bytes B vs. $budget B); consider trimming." \
       "[\"CLAUDE.md exceeds the soft budget — \`nyann:optimize-claudemd\` will analyse what to trim\"]"
@@ -298,12 +310,21 @@ narrative=$(jq -n \
   --arg tdir "$trend_dir" \
   --argjson sections "$sections_json" \
   --argjson actions "$action_items" \
-  '{
+  '
+  # Stable severity ordering so the schema description ("critical/high
+  # severity float to the top") is enforced regardless of which order
+  # the builders appended sections in. The mapping is `info` highest
+  # (== 4) so a `sort_by(-severity_rank)` puts critical first; `info`
+  # is suppressed in the markdown render but kept in the JSON.
+  ($sections | map(. + {
+    _sev_rank: ({"critical":0,"high":1,"medium":2,"low":3,"info":4}[.severity] // 5)
+  }) | sort_by(._sev_rank) | map(del(._sev_rank))) as $sorted_sections |
+  {
     target: $target,
     profile: $profile,
     scope_applied: (if ($scope | length) == 7 or ($scope | length) == 0 then null else $scope end),
     health: { score: $hscore, trend_delta: $tdelta, trend_direction: $tdir },
-    sections: $sections,
+    sections: $sorted_sections,
     action_items: $actions
   } | with_entries(select(.value != null))')
 

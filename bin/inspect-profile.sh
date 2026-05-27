@@ -72,6 +72,7 @@ hook_blurb() {
     bun-test)             echo "bun test --bail before push" ;;
     mix-format)           echo "mix format on staged Elixir files" ;;
     mix-credo)            echo "mix credo for static analysis on staged Elixir files" ;;
+    mix-test)             echo "mix test before push" ;;
     clang-format)         echo "clang-format on staged C / C++ source files" ;;
     *)                    echo "custom hook" ;;
   esac

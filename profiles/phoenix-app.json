@@ -26,7 +26,9 @@
     "commit_msg": [
       "conventional-commits"
     ],
-    "pre_push": []
+    "pre_push": [
+      "mix-test"
+    ]
   },
   "extras": {
     "gitignore": true,

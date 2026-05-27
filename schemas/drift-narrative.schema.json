@@ -52,8 +52,8 @@
         "properties": {
           "category": {
             "type": "string",
-            "enum": ["hooks", "documentation", "branching", "gitignore", "editorconfig", "github", "history", "claude_md", "links", "orphans", "staleness", "misplaced"],
-            "description": "Drift sub-category. Wider than DriftReport.scope_applied because the report's `documentation` block fans out into claude_md / links / orphans / staleness / misplaced sub-sections in the narrative."
+            "enum": ["missing", "misconfigured", "claude_md", "links", "orphans", "staleness", "misplaced", "history", "documentation"],
+            "description": "Drift sub-category emitted by explain-diff. Maps 1:1 to the source DriftReport block: `missing`/`misconfigured` from the top-level arrays, `claude_md`/`links`/`orphans`/`staleness` from `documentation.*`, `misplaced` from the misplaced-docs array, `history` from non_compliant_history.offenders, `documentation` reserved for subsystem-error reporting. Wider categories like `hooks` / `gitignore` aren't emitted because compute-drift already folds them into the missing/misconfigured arrays — explain-diff stays one-to-one with the source shape rather than re-classifying."
           },
           "severity": {
             "type": "string",
