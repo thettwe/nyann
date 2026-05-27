@@ -23,7 +23,19 @@
           "url":                  { "type": "string", "minLength": 1 },
           "ref":                  { "type": "string", "default": "main" },
           "sync_interval_hours":  { "type": "integer", "minimum": 0, "default": 24 },
-          "last_synced_at":       { "type": "integer", "minimum": 0, "description": "Unix timestamp of last successful sync." }
+          "last_synced_at":       { "type": "integer", "minimum": 0, "description": "Unix timestamp of last successful sync." },
+          "pin_strategy": {
+            "type": "string",
+            "enum": ["branch", "tag", "sha"],
+            "default": "branch",
+            "$comment": "v1.11.0 — branch (default): fetch+reset to HEAD. tag: checkout specific tag. sha: checkout specific commit.",
+            "description": "How to pin this source. 'branch' follows HEAD; 'tag' and 'sha' are immutable until explicitly updated."
+          },
+          "pin": {
+            "type": "string",
+            "$comment": "v1.11.0 — the SHA to pin to when pin_strategy is 'sha'. Ignored for 'branch' and 'tag' (which use 'ref').",
+            "description": "Commit SHA to pin to (only used when pin_strategy is 'sha')."
+          }
         }
       }
     }

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/team-profile-changelog/v1.json",
+  "title": "TeamProfileChangelog",
+  "description": "Changelog between a pinned team-profile source and its latest available version.",
+  "$comment": "v1.11.0 — emitted by sync-team-profiles.sh --check-updates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_name", "pinned_at", "latest", "commits_behind", "changed_profiles", "commit_log"],
+  "properties": {
+    "source_name":     { "type": "string" },
+    "pinned_at":       { "type": "string", "description": "Current pinned ref (SHA or tag)." },
+    "latest":          { "type": "string", "description": "Latest available ref on the remote." },
+    "commits_behind":  { "type": "integer", "minimum": 0 },
+    "changed_profiles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Profile filenames that changed between pinned and latest."
+    },
+    "commit_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sha":     { "type": "string" },
+          "subject": { "type": "string" }
+        }
+      },
+      "description": "Commits between pinned and latest (newest first)."
+    }
+  }
+}
