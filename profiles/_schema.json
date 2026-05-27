@@ -235,6 +235,28 @@
           "type": "string",
           "enum": ["squash", "rebase", "merge"],
           "description": "Merge strategy `bin/pr.sh --auto-merge` uses when calling `gh pr merge --auto`. Default `squash` when unset. The repo must allow the chosen strategy via .github.allow_*_merge for auto-merge to succeed; the audit catches that mismatch in the repo_settings section."
+        },
+        "codeowners": {
+          "$comment": "v1.11.0 — explicit path → owner mappings for CODEOWNERS generation. Applies to both monorepo and single-repo profiles. Listed last in generated CODEOWNERS so they take precedence (GitHub uses last-match-wins).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pattern", "owners"],
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "CODEOWNERS glob pattern (e.g. '/src/api/' or '*.proto')."
+              },
+              "owners": {
+                "type": "array",
+                "items": { "type": "string", "pattern": "^@[a-zA-Z0-9_/-]+$" },
+                "minItems": 1,
+                "description": "GitHub handles or team slugs (e.g. '@alice', '@org/team-name')."
+              }
+            }
+          }
         }
       }
     },
