@@ -76,7 +76,7 @@ result_json='[]'
 
 while IFS= read -r sha; do
   [[ -z "$sha" ]] && continue
-  subject=$(git -C "$target" log -1 --format='%s' "$sha" 2>/dev/null || continue)
+  subject=$(git -C "$target" log -1 --format='%s' "$sha" 2>/dev/null) || continue
   ctype=""; cscope=""; csubject="$subject"; breaking=false
   if [[ "$subject" =~ $cc_regex ]]; then
     ctype="${BASH_REMATCH[1]}"
