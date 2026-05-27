@@ -133,7 +133,7 @@
           "path":             { "type": "string", "minLength": 1 },
           "primary_language": {
             "type": "string",
-            "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "unknown"]
+            "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "unknown"]
           },
           "framework": {
             "oneOf": [

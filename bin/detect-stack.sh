@@ -1385,7 +1385,7 @@ fi
 #    ahead of artifact-based api-service for that case.
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
-    next|nuxt|remix|sveltekit|react|vue)
+    next|nuxt|remix|sveltekit|react|vue|astro)
       # Frontend framework present — defer to web-app at step 4.
       ;;
     *)
@@ -1405,7 +1405,7 @@ fi
 #    a frontend framework alongside artifact signals).
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
-    next|nuxt|remix|sveltekit|react|vue)
+    next|nuxt|remix|sveltekit|react|vue|astro)
       archetype="web-app"
       ;;
   esac
@@ -1415,7 +1415,7 @@ fi
 #    web-app step so frontend frameworks win the tie-break)
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
-    express|fastify|fastapi|flask|django|gin|echo|actix|axum|rocket| \
+    express|fastify|fastapi|flask|django|gin|echo|actix|axum|rocket|phoenix|nestjs| \
     spring-boot|quarkus|micronaut|aspnet|blazor|laravel|symfony|rails|sinatra)
       archetype="api-service"
       ;;

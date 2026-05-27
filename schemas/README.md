@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (47)
+## Schemas in this directory (50)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
