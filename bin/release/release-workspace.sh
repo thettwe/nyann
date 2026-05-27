@@ -56,6 +56,7 @@ done
 target="$(cd "$target" && pwd)"
 [[ -n "$workspace" ]] || nyann::die "release-workspace: --workspace is required"
 [[ -n "$version" ]] || nyann::die "release-workspace: --version is required"
+nyann::assert_path_under_target "$target" "$target/$workspace" "--workspace" >/dev/null
 
 ws_name=$(basename "$workspace")
 if [[ -z "$tag_prefix" ]]; then

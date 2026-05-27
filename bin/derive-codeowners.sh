@@ -67,6 +67,9 @@ while IFS= read -r dir; do
 
   count=$(echo "$top_author" | awk '{print $1}')
   author=$(echo "$top_author" | sed 's/^[[:space:]]*[0-9]*[[:space:]]*//')
+  # Sanitize: strip characters unsafe for CODEOWNERS entries
+  author=$(printf '%s' "$author" | tr -cd 'A-Za-z0-9@._/-')
+  [[ -z "$author" ]] && continue
 
   if (( count < min_commits )); then
     continue

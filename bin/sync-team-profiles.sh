@@ -330,16 +330,16 @@ while IFS=$'\t' read -r name url ref interval last pin_strategy pin; do
       invalid_json=$(jq --arg n "$name" --arg err "$err_msg" '. + [{name:$n, kind:"clone-failed", error:$err}]' <<<"$invalid_json")
       continue
     fi
-    # After clone, apply pin strategy checkout
+    # After clone, apply pin strategy checkout (with safe git config)
     case "$pin_strategy" in
       tag)
-        if git -C "$cache_dir" rev-parse --verify "refs/tags/$ref" >/dev/null 2>&1; then
-          git -C "$cache_dir" checkout "refs/tags/$ref" >/dev/null 2>&1
+        if git "${git_safe[@]}" -C "$cache_dir" rev-parse --verify "refs/tags/$ref" >/dev/null 2>&1; then
+          git "${git_safe[@]}" -C "$cache_dir" checkout "refs/tags/$ref" >/dev/null 2>&1
         fi
         ;;
       sha)
-        if [[ -n "$pin" ]] && git -C "$cache_dir" cat-file -t "$pin" >/dev/null 2>&1; then
-          git -C "$cache_dir" checkout "$pin" >/dev/null 2>&1
+        if [[ -n "$pin" ]] && git "${git_safe[@]}" -C "$cache_dir" cat-file -t "$pin" >/dev/null 2>&1; then
+          git "${git_safe[@]}" -C "$cache_dir" checkout "$pin" >/dev/null 2>&1
         fi
         ;;
     esac

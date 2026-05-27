@@ -225,6 +225,9 @@ _NYANN_EXTENDS_VISITED="${_NYANN_EXTENDS_VISITED:-}"
 
 extends_field=$(jq -r '.extends // empty' "$tmp_resolved" 2>/dev/null)
 if [[ -n "$extends_field" ]]; then
+  if ! [[ "$extends_field" =~ ^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$ ]]; then
+    nyann::die "extends: invalid parent profile name in '$name': $extends_field"
+  fi
   parent_name="$extends_field"
 
   current_depth=$((_NYANN_EXTENDS_DEPTH + 1))

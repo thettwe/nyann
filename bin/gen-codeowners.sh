@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # gen-codeowners.sh — generate .github/CODEOWNERS from workspace configs.
 #
 # Usage:
