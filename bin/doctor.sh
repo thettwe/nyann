@@ -2,7 +2,7 @@
 # doctor.sh — read-only hygiene audit.
 #
 # Usage: doctor.sh --target <repo> --profile <name>
-#                  [--json] [--persist] [--scope <csv>]
+#                  [--json | --explain] [--persist] [--scope <csv>]
 #
 # Wraps bin/retrofit.sh --report-only so hygiene + profile-compliance
 # output is always identical between doctor and retrofit. doctor is the
@@ -19,6 +19,12 @@
 # health score to memory/health.json so trend deltas show up on
 # subsequent runs. Without --persist, doctor stays strictly read-only.
 # Trend display still works against any existing memory/health.json.
+#
+# --explain pipes the computed DriftReport through bin/explain-diff.sh
+# and emits a markdown narrative suitable for pasting into a PR body
+# or chat. Mutually exclusive with --json. Health score + trend delta
+# are forwarded so the narrative header line matches what text-mode
+# would print at the foot of the report.
 #
 # Covers hygiene + profile compliance + documentation drift (link check,
 # orphans, CLAUDE.md size).
@@ -45,6 +51,7 @@ json_out=false
 persist=false
 scope="all"
 gh_bin="gh"
+explain=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,10 +65,18 @@ while [[ $# -gt 0 ]]; do
     --scope=*)   scope="${1#--scope=}"; shift ;;
     --gh)        gh_bin="${2:-}"; shift 2 ;;
     --gh=*)      gh_bin="${1#--gh=}"; shift ;;
-    -h|--help)   sed -n '3,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --explain)   explain=true; shift ;;
+    -h|--help)   sed -n '3,28p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
+
+# --explain and --json are mutually exclusive — the narrative is
+# markdown for human consumption, not a JSON shape. If both are passed,
+# fail early rather than silently picking one.
+if $explain && $json_out; then
+  nyann::die "--explain and --json are mutually exclusive (one produces markdown, the other JSON)"
+fi
 
 [[ -n "$target" && -d "$target" ]] || nyann::die "--target <repo> is required and must be a directory"
 [[ -n "$profile_name" ]] || nyann::die "--profile <name> is required"
@@ -192,6 +207,55 @@ re-run with NYANN_DEBUG=1 to see compute-drift's stderr"
       *)        return 1 ;;
     esac
   }
+
+  # --- Explain mode: short-circuit text rendering -------------------------
+  # When --explain is set, bypass the text render block entirely and
+  # pipe the report through explain-diff.sh with health + trend hints.
+  # Exit code is still derived from drift signals so `doctor --explain;
+  # echo $?` discriminates clean / warn / critical the same way text
+  # mode does. Persist still honours --persist.
+  if $explain; then
+    # Exit code from drift signals (same logic as below).
+    has_critical=false
+    has_warn=false
+    (( n_missing > 0 )) && has_critical=true
+    (( n_broken > 0 )) && has_critical=true
+    [[ "$claude_md_status" == "error" ]] && has_critical=true
+    (( n_mis > 0 )) && has_warn=true
+    (( n_off > 0 )) && has_warn=true
+    (( n_orphans > 0 )) && has_warn=true
+    (( ${n_misplaced:-0} > 0 )) && has_warn=true
+    (( n_stale > 0 )) && has_warn=true
+    (( n_subsys_errs > 0 )) && has_warn=true
+    [[ "$claude_md_status" == "warn" || "$claude_md_status" == "absent" ]] && has_warn=true
+    if $has_critical; then retro_rc=5
+    elif $has_warn; then retro_rc=4
+    fi
+
+    # Compute score + trend (same source as text mode).
+    score_json=$(printf '%s\n' "$report" | "${_script_dir}/compute-health-score.sh" 2>/dev/null || echo '{"score":0,"breakdown":{}}')
+    score_val=$(jq -r '.score' <<<"$score_json")
+
+    explain_args=(--with-health "$score_val")
+    if [[ -f "$target/memory/health.json" ]]; then
+      delta_signed=$(jq -r '.trend.delta // 0' "$target/memory/health.json")
+      # Only forward if the value passes the same regex explain-diff
+      # validates against; otherwise drop the flag rather than fail.
+      if [[ "$delta_signed" =~ ^-?[0-9]+$ ]] && [[ "$delta_signed" != "0" ]]; then
+        explain_args+=(--with-trend "$delta_signed")
+      fi
+    fi
+
+    if $persist; then
+      score_tmp=$(mktemp -t nyann-score.XXXXXX)
+      printf '%s\n' "$score_json" > "$score_tmp"
+      "${_script_dir}/persist-health-score.sh" --target "$target" --score "$score_tmp" --profile "$profile_name" >/dev/null 2>&1 || true
+      rm -f "$score_tmp"
+    fi
+
+    printf '%s\n' "$report" | "${_script_dir}/explain-diff.sh" - "${explain_args[@]}"
+    exit "$retro_rc"
+  fi
 
   # Render text report (mirrors retrofit.sh render_report).
   {

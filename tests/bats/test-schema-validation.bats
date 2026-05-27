@@ -77,6 +77,101 @@ validate_stdout_against() {
       --target "$REPO" --profile "${REPO_ROOT}/profiles/default.json"
 }
 
+# --- DriftNarrative (explain-diff.sh --format json) -------------------------
+# Producer takes a DriftReport on stdin. We chain compute-drift into
+# explain-diff so a regression on either side surfaces here, not just
+# in the standalone test fixtures of test-explain-diff.bats.
+
+@test "drift-narrative schema: explain-diff --format json output validates" {
+  bash "${REPO_ROOT}/bin/compute-drift.sh" \
+    --target "$REPO" --profile "${REPO_ROOT}/profiles/default.json" \
+    > "$TMP/drift.json"
+  validate_stdout_against drift-narrative.schema.json \
+    bash "${REPO_ROOT}/bin/explain-diff.sh" \
+      --file "$TMP/drift.json" --format json --with-health 80 --with-trend -3
+}
+
+# --- DependencyUpdaterConfig (gen-dependency-updater.sh input contract) -----
+# The schema is the *input* contract — gen-dependency-updater.sh accepts
+# CLI flags rather than a JSON payload, so we validate a hand-rolled
+# fixture against the schema (the rendered Dependabot YAML / Renovate
+# JSON have their own first-party schemas owned by GitHub / Mend, not
+# nyann). This lock catches schema drift from a future CLI flag whose
+# enum diverges from the schema's allowlist.
+
+@test "dependency-updater-config schema: minimal hand-rolled config validates" {
+  cat > "$TMP/dep-config.json" <<'EOF'
+{
+  "updater": "dependabot",
+  "ecosystems": [
+    { "ecosystem": "npm", "directory": "/" },
+    { "ecosystem": "github-actions", "directory": "/", "schedule_interval": "weekly", "grouping": "minor-patch", "open_pull_requests_limit": 5 }
+  ],
+  "snapshot_version": "1.10.0"
+}
+EOF
+  "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/dependency-updater-config.schema.json" \
+    "$TMP/dep-config.json"
+}
+
+@test "dependency-updater-config schema: rejects unknown ecosystem" {
+  cat > "$TMP/dep-config.json" <<'EOF'
+{
+  "updater": "dependabot",
+  "ecosystems": [
+    { "ecosystem": "haskell", "directory": "/" }
+  ]
+}
+EOF
+  ! "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/dependency-updater-config.schema.json" \
+    "$TMP/dep-config.json"
+}
+
+# --- DevcontainerConfig (gen-devcontainer.sh input contract) ---------------
+# Like the dependency-updater contract, the schema describes the *input*
+# shape — the script accepts CLI flags rather than a JSON payload.
+# These tests pin the enum / required-field surface so a future CLI
+# flag that drops out of the schema's allowlist surfaces here.
+
+@test "devcontainer-config schema: minimal hand-rolled config validates" {
+  cat > "$TMP/dc-config.json" <<'EOF'
+{
+  "language": "python",
+  "name": "test-app",
+  "forwarded_ports": [8000, 8080],
+  "host_requirements": { "cpus": 4, "memory": "8gb" },
+  "additional_extensions": ["ms-azuretools.vscode-docker"],
+  "snapshot_version": "1.10.0"
+}
+EOF
+  "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/devcontainer-config.schema.json" \
+    "$TMP/dc-config.json"
+}
+
+@test "devcontainer-config schema: rejects unknown language" {
+  cat > "$TMP/dc-config.json" <<'EOF'
+{ "language": "fortran" }
+EOF
+  ! "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/devcontainer-config.schema.json" \
+    "$TMP/dc-config.json"
+}
+
+@test "devcontainer-config schema: rejects malformed extension id" {
+  cat > "$TMP/dc-config.json" <<'EOF'
+{
+  "language": "node",
+  "additional_extensions": ["not-a-publisher-format"]
+}
+EOF
+  ! "${VALIDATE[@]}" \
+    --schemafile "${REPO_ROOT}/schemas/devcontainer-config.schema.json" \
+    "$TMP/dc-config.json"
+}
+
 # --- MCPDocTargets (detect-mcp-docs.sh) -------------------------------------
 
 @test "mcp-doc-targets schema: detect-mcp-docs output validates (no settings)" {

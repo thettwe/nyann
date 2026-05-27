@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (47)
+## Schemas in this directory (50)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -43,6 +43,9 @@ identifier consumers can pin against.
 | `diagnose-bundle.schema.json` | `bin/diagnose.sh --json` | maintainer-side support flow; `skills/diagnose/SKILL.md` |
 | `documentation-plan.schema.json` | `bin/route-docs.sh` | `bin/bootstrap.sh`, `bin/scaffold-docs.sh` |
 | `drift-report.schema.json` | `bin/compute-drift.sh` | `bin/retrofit.sh`, `bin/doctor.sh`, `bin/session-check.sh` |
+| `drift-narrative.schema.json` | `bin/explain-diff.sh --format json` | `skills/explain-diff/SKILL.md`, `bin/doctor.sh --explain` (markdown path) |
+| `dependency-updater-config.schema.json` | hand-authored input contract for `bin/gen-dependency-updater.sh` | `skills/gen-dependency-updater/SKILL.md`, future `bin/plan-bootstrap.sh` integration |
+| `devcontainer-config.schema.json` | hand-authored input contract for `bin/gen-devcontainer.sh` | `skills/gen-devcontainer/SKILL.md`, future `bin/plan-bootstrap.sh` integration |
 | `gh-integration-result.schema.json` | `bin/gh-integration.sh` | `bin/bootstrap.sh`, `bin/retrofit.sh`, skill layer |
 | `glossary-draft.schema.json` | `bin/scaffold-glossary.sh --json` | `bin/scaffold-docs.sh`, skill layer |
 | `governance-ci-result.schema.json` | `bin/doctor-ci.sh` | governance-check workflow, `skills/gen-ci/SKILL.md` |

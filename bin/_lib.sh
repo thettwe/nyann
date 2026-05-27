@@ -135,6 +135,49 @@ nyann::assert_path_under_target() {
   nyann::die "$context escapes target directory: $cand"
 }
 
+# nyann::safe_mkdir_under_target <target> <rel_dir>
+# Create <target>/<rel_dir> safely. Walks each path component from
+# <target> down to the destination and refuses if ANY component is a
+# symlink — the leaf `-L` check in writers only catches symlinked
+# destinations, not symlinked ancestors. `mkdir -p` happily follows
+# intermediate symlinks; without this guard, a pre-placed
+# `<target>/.github → /etc/` symlink would redirect generated config
+# writes outside the target tree. After the mkdir, re-canonicalises
+# and verifies the resolved path still lives under <target> so a TOCTOU
+# between the walk and the mkdir can't escape either.
+#
+# Prints the absolute path of the created directory on success. On
+# refusal, prints a warning to stderr and returns 1 — caller decides
+# whether to die or skip.
+nyann::safe_mkdir_under_target() {
+  local target="$1" rel_dir="$2"
+  local full="$target/$rel_dir"
+  local walk="$target" seg
+  local ifs_save="$IFS"
+  IFS='/'
+  # shellcheck disable=SC2086
+  set -- $rel_dir
+  IFS="$ifs_save"
+  for seg in "$@"; do
+    [[ -z "$seg" ]] && continue
+    walk="$walk/$seg"
+    if [[ -L "$walk" ]]; then
+      nyann::warn "refusing safe_mkdir: intermediate component is a symlink: $walk"
+      return 1
+    fi
+  done
+  mkdir -p "$full" || {
+    nyann::warn "safe_mkdir: mkdir failed for $rel_dir under $target"
+    return 1
+  }
+  if ! nyann::path_under_target "$target" "$full" >/dev/null 2>&1; then
+    nyann::warn "safe_mkdir: resolved path escapes target after creation: $rel_dir"
+    return 1
+  fi
+  printf '%s\n' "$full"
+  return 0
+}
+
 # nyann::valid_profile_name <name>
 # Returns 0 if <name> matches ^[a-z0-9][a-z0-9-]*$ (the canonical
 # profile / team-source identifier pattern), 1 otherwise. Kept as a

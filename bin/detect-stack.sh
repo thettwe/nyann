@@ -108,6 +108,12 @@ detect_jsts() {
   add_reason "Found package.json at repo root → JS/TS stack candidate"
 
   # Framework detection — first match wins, in precedence order.
+  # NestJS is checked BEFORE express because NestJS depends on express
+  # under the hood; without the explicit higher-priority check, every
+  # NestJS service would mis-detect as a generic express service.
+  # Astro is checked BEFORE react/vue because Astro projects often
+  # declare react/vue as integrations but the framework signal is
+  # astro itself.
   if grep -Fxq 'next' <<<"$deps"; then
     framework='"next"'
     add_reason "package.json declares 'next' → framework = next"
@@ -120,6 +126,12 @@ detect_jsts() {
   elif grep -Fxq '@sveltejs/kit' <<<"$deps"; then
     framework='"sveltekit"'
     add_reason "package.json declares '@sveltejs/kit' → framework = sveltekit"
+  elif grep -Fxq 'astro' <<<"$deps"; then
+    framework='"astro"'
+    add_reason "package.json declares 'astro' → framework = astro"
+  elif grep -Fxq '@nestjs/core' <<<"$deps"; then
+    framework='"nestjs"'
+    add_reason "package.json declares '@nestjs/core' → framework = nestjs"
   elif grep -Fxq 'react' <<<"$deps"; then
     framework='"react"'
     add_reason "package.json declares 'react' (no higher-level framework) → framework = react"
@@ -880,6 +892,116 @@ detect_ruby() {
   return 0
 }
 
+# --- Deno detection -----------------------------------------------------------
+# Triggered when deno.json or deno.jsonc exists. Distinguishes Deno
+# from Node by precedence: detect_jsts runs first and only matches
+# package.json; a Deno-only project (deno.json + no package.json)
+# falls through to this detector. When BOTH manifests exist, package.json
+# wins (we leave deno as a secondary signal in reasoning).
+
+detect_deno() {
+  local manifest=""
+  if [[ -f "$path/deno.json" ]]; then
+    manifest="deno.json"
+  elif [[ -f "$path/deno.jsonc" ]]; then
+    manifest="deno.jsonc"
+  else
+    return 1
+  fi
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="typescript"
+    add_reason "Found ${manifest} (no package.json) → primary_language = typescript (Deno runtime)"
+  else
+    add_reason "Found ${manifest} alongside $primary_language → Deno is a secondary signal"
+  fi
+
+  if [[ "$framework" == "null" ]]; then
+    framework='"deno"'
+    add_reason "${manifest} present → framework = deno"
+  fi
+
+  if [[ "$package_manager" == "null" ]]; then
+    package_manager='"deno"'
+    [[ -f "$path/deno.lock" ]] && signal_lock=1
+    add_reason "Deno project → package_manager = deno (built-in)"
+  fi
+
+  return 0
+}
+
+# --- Elixir / Phoenix detection ----------------------------------------------
+# Triggered when mix.exs exists. Framework = phoenix iff `:phoenix` is
+# declared in the deps function; otherwise framework stays null (plain
+# Elixir/OTP project). Package manager is always `mix`.
+
+detect_elixir() {
+  local mixfile="$path/mix.exs"
+  [[ -f "$mixfile" ]] || return 1
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="elixir"
+    add_reason "Found mix.exs → primary_language = elixir"
+  else
+    secondary_languages_json="$(jq '. + ["elixir"]' <<<"$secondary_languages_json")"
+    add_reason "Elixir project detected alongside $primary_language → secondary language"
+  fi
+
+  if [[ "$framework" == "null" ]]; then
+    # `:phoenix` declared inside the deps function. Match the literal
+    # atom anywhere in the file rather than parsing Elixir AST — the
+    # false-positive surface (e.g. a comment mentioning :phoenix
+    # without a real dep) is small enough to live with, and avoids
+    # shelling out to mix itself which would require Elixir installed.
+    if grep -Eq '\{[[:space:]]*:phoenix[[:space:]]*,' "$mixfile"; then
+      framework='"phoenix"'
+      add_reason "mix.exs declares :phoenix dep → framework = phoenix"
+    fi
+  fi
+
+  if [[ "$package_manager" == "null" ]]; then
+    package_manager='"mix"'
+    [[ -f "$path/mix.lock" ]] && signal_lock=1
+    add_reason "Elixir project → package_manager = mix"
+  fi
+
+  return 0
+}
+
+# --- C/C++ CMake detection ----------------------------------------------------
+# Triggered when CMakeLists.txt exists at the repo root. Framework =
+# cmake (the build system itself, since C/C++ has no canonical app
+# framework). Package manager stays null — vcpkg / conan are
+# out-of-band and not auto-detected here.
+
+detect_cpp_cmake() {
+  local cmake="$path/CMakeLists.txt"
+  [[ -f "$cmake" ]] || return 1
+
+  signal_manifest=1
+  if [[ "$primary_language" == "unknown" ]]; then
+    primary_language="cpp"
+    add_reason "Found CMakeLists.txt → primary_language = cpp"
+  else
+    secondary_languages_json="$(jq '. + ["cpp"]' <<<"$secondary_languages_json")"
+    add_reason "C/C++ project detected alongside $primary_language → secondary language"
+  fi
+
+  if [[ "$framework" == "null" ]]; then
+    framework='"cmake"'
+    add_reason "CMakeLists.txt present → framework = cmake (build system)"
+  fi
+
+  # Package manager intentionally stays null — vcpkg / conan / system
+  # apt are all valid C++ dependency paths and a CMake repo doesn't
+  # disambiguate. Operators can set ci.package_manager in the profile
+  # by hand when they know what they're using.
+
+  return 0
+}
+
 # --- Shell/Bash detection -----------------------------------------------------
 # Shell projects have no manifest file. Detect by looking for a bin/ or scripts/
 # directory with .sh files, or a shebang-heavy root. Only fires when primary is
@@ -977,6 +1099,14 @@ detect_dotnet || true
 detect_php || true
 detect_dart || true
 detect_ruby || true
+# New v1.10.0 detectors. Ordered after the established stacks so an
+# existing detection path can claim primary first; these only set
+# primary_language when nothing else matched. detect_deno() runs
+# AFTER detect_jsts() so a `deno.json + package.json` polyglot
+# stays on the JS/TS path.
+detect_deno     || true
+detect_elixir   || true
+detect_cpp_cmake || true
 detect_shell || true
 detect_claudemd_hints || true
 detect_doc_hints || true
@@ -1255,7 +1385,7 @@ fi
 #    ahead of artifact-based api-service for that case.
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
-    next|nuxt|remix|sveltekit|react|vue)
+    next|nuxt|remix|sveltekit|react|vue|astro)
       # Frontend framework present — defer to web-app at step 4.
       ;;
     *)
@@ -1275,7 +1405,7 @@ fi
 #    a frontend framework alongside artifact signals).
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
-    next|nuxt|remix|sveltekit|react|vue)
+    next|nuxt|remix|sveltekit|react|vue|astro)
       archetype="web-app"
       ;;
   esac
@@ -1285,7 +1415,7 @@ fi
 #    web-app step so frontend frameworks win the tie-break)
 if [[ "$archetype" == "unknown" ]]; then
   case "$_fw" in
-    express|fastify|fastapi|flask|django|gin|echo|actix|axum|rocket| \
+    express|fastify|fastapi|flask|django|gin|echo|actix|axum|rocket|phoenix|nestjs| \
     spring-boot|quarkus|micronaut|aspnet|blazor|laravel|symfony|rails|sinatra)
       archetype="api-service"
       ;;

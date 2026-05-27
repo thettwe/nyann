@@ -55,7 +55,7 @@
       "properties": {
         "primary_language": {
           "type": "string",
-          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "unknown"]
+          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "unknown"]
         },
         "framework": {
           "oneOf": [
@@ -66,7 +66,7 @@
         "package_manager": {
           "oneOf": [
             { "type": "null" },
-            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler"] }
+            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix"] }
           ]
         }
       }
@@ -122,7 +122,18 @@
         "claude_md":               { "type": "boolean" },
         "github_actions_ci":       { "type": "boolean" },
         "github_templates":        { "type": "boolean" },
-        "commit_message_template": { "type": "boolean" }
+        "commit_message_template": { "type": "boolean" },
+        "dependency_updater": {
+          "description": "Generate a dependency-updater config when bootstrapping or retrofitting (bin/gen-dependency-updater.sh). Three valid forms: `false` (off — current default; preserves backward-compat), `\"dependabot\"` (emit .github/dependabot.yml using the profile's stack to pick ecosystems), or `\"renovate\"` (emit renovate.json with config:recommended). Opt-in: starter profiles do NOT flip this on automatically — set it explicitly to opt your repo in.",
+          "oneOf": [
+            { "type": "boolean", "const": false },
+            { "type": "string", "enum": ["dependabot", "renovate"] }
+          ]
+        },
+        "devcontainer": {
+          "type": "boolean",
+          "description": "When true, bin/gen-devcontainer.sh emits a .devcontainer/devcontainer.json keyed to the profile's primary_language. Default false (opt-in) so existing repos don't get a devcontainer materialised on the next bootstrap/retrofit without explicit consent. The generated file is preview-then-apply with idempotent re-runs; user edits survive on subsequent regenerations only when the rendered output happens to match byte-for-byte (otherwise the operator sees a diff and chooses overwrite vs. preserve)."
+        }
       }
     },
     "ci": {

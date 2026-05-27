@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/dependency-updater-config/v1.json",
+  "title": "DependencyUpdaterConfig",
+  "description": "Input contract for bin/gen-dependency-updater.sh — describes what kind of dependency-updater config to emit (Dependabot vs. Renovate), which ecosystems to enable, and basic scheduling. The schema is small because both Dependabot and Renovate already have their own deep config grammars; nyann's role is to pick sensible defaults and surface a few high-impact knobs, not to re-implement either system's full surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["updater", "ecosystems"],
+  "properties": {
+    "updater": {
+      "type": "string",
+      "enum": ["dependabot", "renovate"],
+      "description": "Which dependency-updater to generate config for. `dependabot` emits a per-ecosystem YAML at .github/dependabot.yml. `renovate` emits a single JSON at renovate.json that uses `config:recommended` so Renovate auto-detects ecosystems — the `ecosystems` field is then only used to validate that at least one is present (Renovate without any ecosystem in the repo would never produce PRs)."
+    },
+    "ecosystems": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Per-ecosystem entries to emit. Order is preserved in the output so a stable diff survives re-generation. Each ecosystem maps to one Dependabot `package-ecosystem` block; Renovate consumes only the list (presence-check) since `config:recommended` handles per-ecosystem behavior.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ecosystem", "directory"],
+        "properties": {
+          "ecosystem": {
+            "type": "string",
+            "enum": [
+              "npm",
+              "pip",
+              "gomod",
+              "cargo",
+              "bundler",
+              "composer",
+              "maven",
+              "gradle",
+              "pub",
+              "nuget",
+              "mix",
+              "swift",
+              "docker",
+              "github-actions"
+            ],
+            "description": "Dependabot's `package-ecosystem` value. `npm` covers npm/pnpm/yarn/bun (Dependabot routes through the npm ecosystem regardless of which lockfile is present). For monorepos, declare one entry per workspace path (caller-side responsibility — this script doesn't auto-walk)."
+          },
+          "directory": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Repo-relative path of the manifest. `/` for the repo root; subpaths like `/packages/api` for workspaces. Must start with `/` per Dependabot's convention."
+          },
+          "schedule_interval": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly"],
+            "default": "weekly",
+            "description": "How often Dependabot polls this ecosystem. Default `weekly` balances PR-noise vs. responsiveness; bump to `daily` for security-critical projects."
+          },
+          "open_pull_requests_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "default": 5,
+            "description": "Max open Dependabot PRs for this ecosystem at any time. Five is enough headroom for routine updates without overwhelming review queues; raise for high-velocity repos."
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["dependencies", "automated"],
+            "description": "GitHub labels applied to opened PRs. `automated` is recommended so a CI label-filter can opt these out of expensive-job matrices when desired."
+          },
+          "grouping": {
+            "type": "string",
+            "enum": ["off", "minor-patch", "all"],
+            "default": "minor-patch",
+            "description": "Bundle multiple updates into a single PR. `off` = one PR per update (Dependabot default). `minor-patch` = group minor + patch updates per ecosystem, keep majors separate (recommended). `all` = group everything regardless of semver tier (use only when review bandwidth is the bottleneck)."
+          }
+        }
+      }
+    },
+    "snapshot_version": {
+      "type": "string",
+      "description": "Optional. Records the nyann release whose defaults the emitted config snapshots. Surfaced as a comment in the generated YAML/JSON so a future operator can tell when the file was last regenerated. Free-form; not enforced.",
+      "default": ""
+    }
+  }
+}

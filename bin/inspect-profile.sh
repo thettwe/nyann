@@ -68,6 +68,12 @@ hook_blurb() {
     dart-format)          echo "Dart formatter on staged files" ;;
     pint)                 echo "Laravel Pint formats PHP code" ;;
     rubocop)              echo "RuboCop lints and formats Ruby code" ;;
+    deno-fmt-lint)        echo "deno fmt --check and deno lint on staged TypeScript files" ;;
+    bun-test)             echo "bun test --bail before push" ;;
+    mix-format)           echo "mix format on staged Elixir files" ;;
+    mix-credo)            echo "mix credo for static analysis on staged Elixir files" ;;
+    mix-test)             echo "mix test before push" ;;
+    clang-format)         echo "clang-format on staged C / C++ source files" ;;
     *)                    echo "custom hook" ;;
   esac
 }

@@ -18,12 +18,14 @@
 profiles/_validated_at_version
 profiles/_validated/
 
-# Design proposals — drafts stay local. Proposals are working
-# documents for the maintainer and don't ship in the repo. Their
-# distilled outcomes land in CHANGELOG and the principles docs
-# instead. Force-add (`git add -f`) is required if a proposal
-# ever genuinely belongs in the tree.
+# Design proposals and roadmap brainstorms — drafts stay local.
+# Distilled outcomes land in CHANGELOG and the principles docs.
+# Force-add (`git add -f`) if a file ever genuinely belongs in the tree.
 docs/proposals/
+docs/roadmap/
+
+# Orphan-detector scratch state (written by find-orphans.sh)
+.orphaned_at
 
 # Language / tooling artifacts (in case contributors run tests against fixtures)
 node_modules/

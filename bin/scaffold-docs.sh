@@ -429,39 +429,17 @@ if [[ -n "${workspace_configs_path:-}" && -f "${workspace_configs_path:-}" ]]; t
         return 1
       }
 
-      # Symlink-mediated escape guard. write_if_missing refuses leaf
-      # symlinks at the destination, but mkdir -p happily follows
-      # symlinks at INTERMEDIATE path components. A repo with a
-      # pre-placed symlink at packages/<ws>/docs/decisions (or any
-      # ancestor) pointing to /etc/ would otherwise redirect doc
-      # scaffolding outside the target tree on `mkdir -p
-      # "$ws_doc_dir/decisions"` + the subsequent README.md write.
-      # Verify every existing component from target_root down to the
-      # destination dir is a real directory, then mkdir, then re-verify
-      # the resolved canonical path stays under target.
+      # Symlink-mediated escape guard. The shared `nyann::safe_mkdir_under_target`
+      # helper (in bin/_lib.sh) walks every component from target_root
+      # down, refusing intermediate symlinks, and re-verifies the
+      # canonical resolved path still lives under target after mkdir.
+      # This wrapper keeps the workspace-doc warning prose ("skipping
+      # workspace doc: …") so the user sees an actionable per-workspace
+      # message rather than the generic helper warning.
       _ws_safe_mkdir() {
         local _rel_dir="$1"            # e.g. packages/api/docs/decisions
-        local _full="$target_root/$_rel_dir"
-        local _walk="$target_root" _seg
-        local _ifs_save="$IFS"
-        IFS='/'
-        # shellcheck disable=SC2086
-        set -- $_rel_dir
-        IFS="$_ifs_save"
-        for _seg in "$@"; do
-          [[ -z "$_seg" ]] && continue
-          _walk="$_walk/$_seg"
-          if [[ -L "$_walk" ]]; then
-            nyann::warn "skipping workspace doc: intermediate component is a symlink: $_walk"
-            return 1
-          fi
-        done
-        mkdir -p "$_full" || {
-          nyann::warn "skipping workspace doc: mkdir failed for $_rel_dir"
-          return 1
-        }
-        if ! nyann::path_under_target "$target_root" "$_full" >/dev/null 2>&1; then
-          nyann::warn "skipping workspace doc: resolved path escapes target: $_rel_dir"
+        if ! nyann::safe_mkdir_under_target "$target_root" "$_rel_dir" >/dev/null; then
+          nyann::warn "skipping workspace doc: $_rel_dir"
           return 1
         fi
         return 0
