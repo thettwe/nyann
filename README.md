@@ -147,17 +147,18 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | **Bootstrap** | Stack-detected, schema-validated `ActionPlan` previewed before any write. Per-language working hooks, archetype-aware doc scaffolds, CI workflow, GitHub templates, branch + tag protection, and `.gitignore` merge with diff-preview. Monorepo-aware (pnpm / Turborepo / Nx / Lerna / Cargo workspaces). |
 | **Reversibility** | `bootstrap` / `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating; `/nyann:undo-bootstrap` reverses the run. Refusal-by-default protects files edited after bootstrap, branches with stacked commits, and HEAD ahead of the bootstrap seed. |
 | **Retrofit** | Scoped audit + remediation against a profile. `--scope docs\|hooks\|branching\|gitignore\|editorconfig\|github` lets you fix one category without touching the others. Idempotent — safe to re-run. Boot-record-backed, so it's reversible too. |
-| **Doctor** | Read-only hygiene audit with a numerical **health score (0–100)** persisted to `memory/health.json`, rendered as a per-category sparkline trend. Covers hook drift, gitignore, non-Conventional history, broken internal links, doc orphans, doc staleness, CLAUDE.md size budget, and GitHub protection drift. |
+| **Doctor** | Read-only hygiene audit with a numerical **health score (0–100)** persisted to `memory/health.json`, rendered as a per-category sparkline trend. Covers hook drift, gitignore, non-Conventional history, broken internal links, doc orphans, doc staleness, archetype conformance (misplaced docs), CLAUDE.md size budget, and GitHub protection drift. `--explain` flag pipes the drift report through `explain-diff` for a plain-English summary. |
 | **Commit** | Reads the staged diff, generates a Conventional Commits message scoped to touched workspaces (monorepo), and retries once on hook rejection. Supports `--amend` and `--edit-message`. |
 | **Branch** | Creates strategy-compliant branch names off the right base for the active strategy (GitHub Flow / GitFlow / trunk-based). Validates slug; switches to an existing branch if one already matches. |
 | **PR** | Opens a GitHub PR with a Conventional-Commits-style title generated from the commit range and a body summarizing the diff. Context-only mode works without `gh`. |
 | **Ship** | Combined PR + merge in one step. Default uses GitHub's native auto-merge so the terminal returns immediately with `outcome:"queued"`. `--client-side` polls CI in the foreground and runs `gh pr merge` when checks pass. |
-| **Release** | **Auto-detects the next semver bump** from Conventional Commits since the last tag. Generates the CHANGELOG section, optionally bumps profile-declared manifest files (`package.json`, `plugin.json`, `pyproject.toml`, …), creates an annotated tag, pushes a GitHub release. Pre-release support for `-rc.N` / `-beta.N`. CI-gated tagging via `--wait-for-checks`. Monorepo: `--workspace` and `--all-workspaces` for per-workspace versioning with scoped tags (`core@2.1.0`). |
+| **Release** | **Auto-detects the next semver bump** from Conventional Commits since the last tag. Generates the CHANGELOG section, optionally bumps profile-declared manifest files (`package.json`, `plugin.json`, `pyproject.toml`, …), creates an annotated tag, pushes a GitHub release. Pre-release support for `-rc.N` / `-beta.N`. CI-gated tagging via `--wait-for-checks`. Monorepo: `--workspace` and `--all-workspaces` for per-workspace versioning with scoped tags (`core@2.1.0`); `--batch-commit` groups all workspace releases into a single commit. |
 | **Hotfix** | Branch topology for patch releases against a previously tagged version. Creates `release/<major>.<minor>` from the source tag if missing, then `hotfix/<slug>` off it. Pairs with `release` for the actual cut. |
 | **PR risk score** | `/nyann:ship` computes a composite risk score (churn × test gap × health delta) and surfaces `low | medium | high` with actionable recommendations before opening the PR. Highlights "many source changes without matching test updates" and hotspot files. |
 | **CI generation** | Generates `.github/workflows/ci.yml` matched to your stack and profile (lint + typecheck + test jobs). Optional `governance-check.yml` posts inline PR comments when drift exceeds threshold or health drops below the floor. |
 | **GitHub protection** | Audit (`--check`) or apply branch protection, tag rulesets, signing requirements, security settings, and Dependabot config. Output validates against `protection-audit.schema.json` so other tooling can consume it. |
 | **Docs routing** | Routes docs to local Markdown, Obsidian (MCP), Notion (MCP), or a per-doc-type split. Standalone re-routing after bootstrap regenerates the scaffold to match. `memory/` stays local. |
+| **Glossary** | Auto-populates `docs/glossary.md` from detected exported types (Go, TS, JS, Python, Rust, Java, Kotlin, Swift) at bootstrap and retrofit time. Marker-bracketed auto block; user content outside markers is preserved. Profile-gated via `documentation.glossary.auto_populate`. |
 | **CLAUDE.md** | Router-mode generation under 3 KB soft / 8 KB hard cap. Standalone regeneration via `gen-claudemd`. **Usage-based optimization** trims sections Claude never references, based on `analytics/claudemd-usage.jsonl`. |
 | **Inline drift checks** | Drift detection runs at point-of-use (commit / PR / ship / release) — not on session start. Surfaces broken links, orphans, doc staleness, CLAUDE.md size, and protection drift. Non-blocking nudge by default; CI gate on opt-in. |
 
@@ -165,10 +166,10 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 
 | Command | Purpose |
 |---|---|
-| `/nyann:setup` | First-run onboarding + preferences. |
+| `/nyann:setup` | First-run onboarding + preferences. Optional `--simulate <path>` previews what `/nyann:bootstrap` would do without writing. |
 | `/nyann:bootstrap [--profile <name>]` | Full setup flow. |
 | `/nyann:retrofit [--profile <name>] [--json]` | Audit drift + offer remediation. |
-| `/nyann:doctor [--profile <name>] [--json]` | Read-only hygiene + docs audit. |
+| `/nyann:doctor [--profile <name>] [--json] [--explain]` | Read-only hygiene + docs audit. `--explain` translates drift to plain English. |
 | `/nyann:commit [--amend \| --no-retry \| --edit-message]` | Generate + commit a Conventional Commits message. |
 | `/nyann:branch <purpose> <slug-or-version>` | Strategy-compliant branch creation. |
 | `/nyann:pr [--draft] [--auto-merge]` | Open a GitHub PR from current branch. |
