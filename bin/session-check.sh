@@ -46,26 +46,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Validate --flow when set. Per design: keep the four canonical verbs
+# Validate --flow when set. Per design: keep the canonical verbs
 # matching the SKILL.md callers; reject anything else loudly so a typo
 # in a skill (e.g. --flow=commits) surfaces immediately rather than
 # silently degrading to no-suffix output.
+# session-start (v1.12.0/P1) is dedup'd via fingerprint cache rather than
+# treated as a flow noun.
 case "$flow" in
-  ""|commit|release|pr|ship) ;;
+  ""|commit|release|pr|ship|session-start) ;;
   *)
-    echo "[nyann] error: --flow value '${flow}' is not one of commit|release|pr|ship" >&2
+    echo "[nyann] error: --flow value '${flow}' is not one of commit|release|pr|ship|session-start" >&2
     exit 2
     ;;
 esac
 
 # Map flow verb to the user-facing noun used in the suffix. Mostly
-# identity, but pr → PR for casing.
+# identity, but pr → PR for casing. session-start has no suffix.
 case "$flow" in
-  commit)  flow_noun="commit" ;;
-  release) flow_noun="release" ;;
-  pr)      flow_noun="PR" ;;
-  ship)    flow_noun="ship" ;;
-  *)       flow_noun="" ;;
+  commit)        flow_noun="commit" ;;
+  release)       flow_noun="release" ;;
+  pr)            flow_noun="PR" ;;
+  ship)          flow_noun="ship" ;;
+  session-start) flow_noun="" ;;
+  *)             flow_noun="" ;;
 esac
 
 prefs="$user_root/preferences.json"
@@ -177,6 +180,42 @@ need_cleanup_nudge=0
 
 # Nothing to surface → exit silently.
 (( drift_total == 0 && need_cleanup_nudge == 0 )) && exit 0
+
+# Fingerprint dedup (P1 — session-start). Suppress repeat output when
+# the drift state hasn't changed since the last session-start check.
+# Other flows (commit/pr/release/ship) bypass this — they need the
+# warning every time because they're about to mutate.
+if [[ "$flow" == "session-start" ]]; then
+  fp_dir="${NYANN_USER_ROOT:-${HOME}/.claude/nyann}/cache"
+  mkdir -p "$fp_dir" 2>/dev/null || true
+  repo_hash=$(printf '%s' "$(pwd)" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
+  if [[ -n "$repo_hash" ]]; then
+    fp_file="$fp_dir/$repo_hash.session-check"
+    new_fp=$(printf '%s|%s|%s|%s|%s|%s\n' \
+      "$n_missing" "$n_misconf" "$n_broken" "$claude_status" "$n_merged" "$profile" \
+      | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) \
+      | cut -c1-32)
+    if [[ -f "$fp_file" ]]; then
+      old_fp=$(head -c 64 "$fp_file" 2>/dev/null | tr -d '\r\n')
+      if [[ "$old_fp" == "$new_fp" ]]; then
+        # Same state as last session-start. Silent.
+        exit 0
+      fi
+    fi
+    # State changed (or first run). Update fingerprint atomically. The
+    # write→rename pair uses explicit nested `if` blocks (rather than
+    # `A && B || C`) so the cleanup branch is unambiguously the failure
+    # path of the whole sequence.
+    fp_tmp="${fp_file}.tmp.$$"
+    if printf '%s\n' "$new_fp" > "$fp_tmp" 2>/dev/null; then
+      if ! mv "$fp_tmp" "$fp_file" 2>/dev/null; then
+        rm -f "$fp_tmp" 2>/dev/null
+      fi
+    else
+      rm -f "$fp_tmp" 2>/dev/null
+    fi
+  fi
+fi
 
 # Health suffix (shared between drift line and cleanup-only line).
 health_suffix=""

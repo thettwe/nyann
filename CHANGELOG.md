@@ -1,3 +1,44 @@
+## [1.12.0] — 2026-05-28
+
+### Theme: Proactive Awareness
+
+nyann shifts from purely reactive (nothing fires unless a skill is triggered) to proactively surfacing drift, validating preconditions, and watching CI state — quiet unless something actually changed.
+
+### Features
+
+- **Mandatory setup gate + interactive settings menu (S0)** — every skill now requires `~/.claude/nyann/preferences.json`. `_lib.sh::nyann::require_setup` returns rc 2 with a clear hint when it's missing; in CI / `NYANN_NONINTERACTIVE=true` mode it synthesizes a defaults-only file automatically. New `bin/settings.sh` + `/nyann:settings` skill render and update individual preferences without rerunning the full wizard (`settings.sh --set <key> <value>`). Preferences schema bumps to v2 with `git_identity`, `session_triage`, `guard_default_severity`, and `notifications.{sentinel, staleness_alerts}` fields. Incremental upgrade path preserves existing values when adding new ones.
+- **Session-start triage (P1)** — `bin/session-triage.sh` is a quiet UserPromptSubmit-hook wrapper that runs `session-check.sh --flow=session-start` with a 2s hard cap and a fingerprint-based dedup cache under `~/.claude/nyann/cache/<repo-hash>.session-check`. Repeat sessions with the same drift state are silent; new drift surfaces a single notification line. Opt-out via `preferences.session_triage = false`.
+- **Pre-action guards (P2)** — `bin/pre-action-guard.sh` orchestrates per-flow checks (commit/pr/release/ship) before the mutating action runs. Built-in guards under `bin/guards/`: `staged-files-exist`, `merge-conflict-markers`, `branch-pushed`, `wip-commits`, `clean-tree`. Profiles can override the active set via `guards.<flow> = [{name, severity}]` and promote `advisory → confirm/critical`. `--skip-guards` always works as an override. New `guard-result.schema.json`.
+- **Documentation staleness detector (P4)** — `bin/docs-staleness.sh` flags docs whose correlated sources have churned (≥5 commits) since the doc was last touched, or whose doc-age exceeds 30 days while correlated sources have changed at least once. Thresholds configurable via `documentation.staleness_threshold_commits` / `.staleness_threshold_days`. New `docs-staleness.schema.json`.
+- **Proactive commit hygiene (P5)** — `bin/commit-hygiene.sh` runs three checks on the staged diff before the commit message is generated: (1) scope suggestion from staged paths, (2) incomplete-staging detection (source↔test pairings, package.json↔lockfile drift), (3) debug-artifact scan with `console.log|debugger|print(|TODO|FIXME|XXX` defaults (profile-overridable via `conventions.commit_hygiene_patterns[]`). Dead-code findings (P6) are folded in under `.dead_code`. New `commit-hygiene.schema.json`.
+- **Dead-code / unused-import detection (P6)** — `bin/dead-code-scan.sh` scans the staged diff with per-stack rules in `bin/dead-code-rules/{js,python,go,rust}.sh`. High-confidence findings only by default (single-file imports clearly not referenced elsewhere in the same file). Opt out via `conventions.dead_code_scan = false`. New `dead-code-scan.schema.json`.
+- **Public-doc governance (P7)** — `bin/docs-drift-scan.sh` orchestrates four detectors under `bin/docs-drift/`: version-refs (semver older than latest git tag — skips CHANGELOG.md), file-refs (broken markdown link targets), script-refs (`npm run X` / `make X` referenced but missing from package.json / Makefile), count-claims (opt-in numeric claims like "1318 tests" cross-referenced against a filesystem-glob source). Respects `<!-- drift-ignore -->` markers per line. Profile block: `documentation.drift_check.{enabled, scanned_files, version_refs, file_refs, script_refs, count_claims}`. New `docs-drift-report.schema.json`.
+- **README SVG toolkit (C3)** — `bin/gen-readme-badges.sh` emits a marker-bracketed shields.io badge block (license, ci, release, tests, health, package-manager — each independently togglable). `bin/gen-readme-stack-icons.sh` emits a `skillicons.dev` block using `templates/stack-icon-map.json` to translate detected stack signals into slugs. `--apply` writes the block into README.md; reruns are idempotent. Master + per-badge flags under `documentation.readme_badges` / `documentation.readme_stack_icons`. New `readme-badge-block.schema.json`.
+- **CI sentinel + notifications (P3)** — `bin/ci-sentinel.sh --repo <owner/repo> [--pr <N>]` polls open PRs via `gh` and emits state-transition notifications (`checks: pending → failure/success`, `review: → changes-requested/approved`, `merged`). `bin/read-notifications.sh` reads + clears the per-repo notification queue (`~/.claude/nyann/notifications/<repo-hash>.jsonl`). `--stop` kills the per-repo pid file. New `/nyann:watch` skill wraps the sentinel for ad-hoc starts. New `sentinel-state.schema.json` + `notification.schema.json`.
+- **IaC minimal (I1)** — new `infra` archetype + `hcl` primary language in `profiles/_schema.json`. `bin/detect-stack/detect-iac.sh` recognizes `*.tf`, `cdk.json`, `Pulumi.yaml`, `Chart.yaml`, `kustomization.yaml`. New `profiles/terraform-monorepo.json` starter wires `terraform-fmt`, `terraform-validate`, `tflint`, `tfsec`, `terraform-docs` (each soft-skips when the underlying tool isn't installed). Templates under `templates/hooks/iac/`. Archetype scaffold map adds `infra → architecture/runbook/deployment/adrs/glossary`. Full IaC coverage (CDK, Pulumi, K8s as first-class profiles) deferred to v1.13.0.
+
+### Schema additions
+
+- `preferences.schema.json` — bumps to `v2` with `git_identity`, `session_triage`, `guard_default_severity`, `notifications`.
+- `profiles/_schema.json` — adds `guards`, `documentation.staleness_threshold_commits`, `documentation.staleness_threshold_days`, `documentation.drift_check`, `documentation.readme_badges`, `documentation.readme_stack_icons`, archetype `infra`, primary_language `hcl`.
+- New: `guard-result`, `dead-code-scan`, `commit-hygiene`, `docs-staleness`, `docs-drift-report`, `readme-badge-block`, `sentinel-state`, `notification`, `session-triage`.
+
+### Stats
+
+- Skills: 35 → 37 (added `settings`, `watch`)
+- Commands: 35 → 37
+- Starter profiles: 26 → 27 (added `terraform-monorepo`)
+- Schemas: 53 → 62
+- New test files: 11 (test-setup-gate, test-settings, test-session-triage, test-pre-action-guards, test-dead-code-scan, test-commit-hygiene, test-docs-staleness, test-docs-drift, test-gen-readme-badges, test-gen-readme-stack-icons, test-detect-iac, test-ci-sentinel)
+
+### Deferred to v1.13.0
+
+- Full IaC coverage (`aws-cdk-app`, `pulumi-app`, `kubernetes-app`, `helm-chart`, `ansible-playbook` profiles + per-module versioning + plan/apply workflow).
+- External notification delivery (Slack/Discord/email webhooks for P3 sentinel).
+- Multi-repo sentinel aggregation.
+- Coverage-delta guard for the PR flow (stack-aware integration with jest/coverage.py/go test/tarpaulin).
+- True backgrounded sentinel daemon (the current `bin/ci-sentinel.sh` is one-shot per call; daemonize via the caller's `nohup` or launchd wrapper).
+
 ## [1.11.0] — 2026-05-28
 
 ### Features
@@ -28,7 +69,7 @@
   - Workspace release path now propagates non-zero exit when any workspace fails (97a7fad)
 - **Tests** — fix git identity and default branch for CI portability (`git init -b main` + `git config user.email/name` in temp repos) (b3679ad, 92187e1)
 - **Lint** — add shellcheck SC2034 directives for variables consumed by sourced modules (31c310f)
-- **Round 2 security pass** — additional hardening from a second adversarial review (bcbac3e)
+- **Additional security hardening** — follow-up adversarial review caught further input-validation and locking edge cases (bcbac3e)
 - **`detect-workspace-changes.sh`** — fix SC2106 (continue inside subshell) (6024847)
 
 ### Schema additions

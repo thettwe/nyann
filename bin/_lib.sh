@@ -378,6 +378,75 @@ nyann::is_excluded() {
 # shellcheck disable=SC2034
 readonly NYANN_CURRENT_SCHEMA=1
 
+# --- Preferences schema version (v1.12.0) -------------------------------------
+# Current preferences.json schemaVersion. v1 was the v1.10.0 baseline.
+# v2 adds git_identity, session_triage, guard_default_severity, notifications.
+# shellcheck disable=SC2034
+readonly NYANN_PREFS_CURRENT_SCHEMA=2
+
+# nyann::require_setup [skill_name]
+# Setup gate (S0). Returns 0 if preferences.json exists at $NYANN_USER_ROOT
+# (default: ~/.claude/nyann). Returns 2 if missing — caller is expected to
+# either auto-launch the setup skill inline or emit a clear "run /nyann:setup"
+# message. Honors CI/non-interactive envs by treating preferences.json as
+# present-on-demand (we write defaults silently rather than block).
+#
+# Why a gate rather than an enforcer:
+# - Bash scripts can't run the AskUserQuestion picker themselves; only the
+#   surrounding skill (the LLM-driven flow) can. So this helper exits with
+#   status 2 + a clear stderr hint, leaving the skill to re-enter setup.
+# - In CI / NYANN_NONINTERACTIVE=true, we synthesize a defaults-only
+#   preferences.json so downstream scripts don't break — same behavior the
+#   spec calls for under "CI / headless environments."
+nyann::require_setup() {
+  local skill="${1-}"
+  local root="${NYANN_USER_ROOT:-${HOME}/.claude/nyann}"
+  local prefs="$root/preferences.json"
+  if [[ -f "$prefs" ]]; then
+    return 0
+  fi
+  if [[ "${CI:-}" == "true" || "${NYANN_NONINTERACTIVE:-}" == "true" ]]; then
+    # Synthesize defaults silently. We don't try to be clever about git
+    # identity here — it'll come from `git config` on demand.
+    mkdir -p "$root/profiles" "$root/cache" 2>/dev/null || true
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    if command -v jq >/dev/null 2>&1; then
+      jq -n --arg ts "$ts" --argjson v "${NYANN_PREFS_CURRENT_SCHEMA}" '{
+        schemaVersion: $v,
+        default_profile: "auto-detect",
+        branching_strategy: "auto-detect",
+        commit_format: "conventional-commits",
+        gh_integration: false,
+        documentation_storage: "local",
+        auto_sync_team_profiles: false,
+        session_triage: true,
+        guard_default_severity: "advisory",
+        notifications: { sentinel: true, staleness_alerts: true },
+        setup_completed_at: $ts
+      }' > "$prefs" 2>/dev/null || return 2
+      nyann::log "non-interactive mode — wrote default preferences to $prefs"
+      return 0
+    fi
+    return 2
+  fi
+  if [[ -n "$skill" ]]; then
+    nyann::warn "nyann setup required before running '$skill' — run /nyann:setup"
+  else
+    nyann::warn "nyann setup required — run /nyann:setup"
+  fi
+  return 2
+}
+
+# nyann::prefs_schema_version
+# Print the schemaVersion of the user's preferences.json, or 0 if missing.
+nyann::prefs_schema_version() {
+  local root="${NYANN_USER_ROOT:-${HOME}/.claude/nyann}"
+  local prefs="$root/preferences.json"
+  [[ -f "$prefs" ]] || { printf '0\n'; return; }
+  jq -r '.schemaVersion // 1' "$prefs" 2>/dev/null || printf '1\n'
+}
+
 # --- URL encoding helper -----------------------------------------------------
 # Percent-encode the common path-unsafe characters we routinely see in
 # Obsidian vault names and folder paths (spaces, hash, question mark,
@@ -505,6 +574,17 @@ nyann::archetype_scaffold_map() {
     plugin)
       printf '%s\n' \
         'architecture:docs/architecture.md' \
+        'adrs:docs/decisions' \
+        'glossary:docs/glossary.md'
+      ;;
+    infra)
+      # v1.12.0 (I1) — IaC monorepo. The 'modules' scaffold type is new
+      # for this archetype: it produces docs/modules/README.md as a
+      # per-module index template, materialized by scaffold-docs.sh.
+      printf '%s\n' \
+        'architecture:docs/architecture.md' \
+        'runbook:docs/runbook.md' \
+        'deployment:docs/deployment.md' \
         'adrs:docs/decisions' \
         'glossary:docs/glossary.md'
       ;;

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/readme-badge-block/v1.json",
+  "title": "ReadmeBadgeBlock",
+  "description": "Output of bin/gen-readme-badges.sh and bin/gen-readme-stack-icons.sh — manifest of the marker-bracketed block that was (or would be) written.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "block_kind", "marker_start", "marker_end", "lines"],
+  "properties": {
+    "target":       { "type": "string" },
+    "block_kind":   { "type": "string", "enum": ["badges", "stack-icons"] },
+    "marker_start": { "type": "string" },
+    "marker_end":   { "type": "string" },
+    "lines":        { "type": "array", "items": { "type": "string" } },
+    "rendered":     { "type": "string", "description": "The full block as it appears in README." },
+    "action":       { "type": "string", "enum": ["preview", "write", "noop"], "description": "preview=stdout only; write=README.md updated; noop=already up to date." },
+    "diff_summary": { "type": "string", "description": "One-line description of the change (added/replaced/no-change)." }
+  }
+}

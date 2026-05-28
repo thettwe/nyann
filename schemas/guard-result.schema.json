@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/guard-result/v1.json",
+  "title": "GuardResult",
+  "description": "Output of bin/pre-action-guard.sh — aggregated per-guard results for one flow (commit|pr|release|ship).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["flow", "pass", "guards"],
+  "properties": {
+    "flow": {
+      "type": "string",
+      "enum": ["commit", "pr", "release", "ship"]
+    },
+    "pass": {
+      "type": "boolean",
+      "description": "True when no guard failed at severity >= 'critical' (or 'confirm' was acknowledged)."
+    },
+    "guards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "pass", "severity"],
+        "properties": {
+          "name":     { "type": "string", "description": "Stable guard identifier (e.g., 'staged-files-exist', 'merge-conflict-markers')." },
+          "pass":     { "type": "boolean" },
+          "severity": { "type": "string", "enum": ["advisory", "confirm", "critical"] },
+          "message":  { "type": "string", "description": "Human-readable detail surfaced when pass == false." },
+          "skipped":  { "type": "boolean", "description": "True if the guard was skipped (e.g., profile-disabled, missing prerequisite)." }
+        }
+      }
+    }
+  }
+}

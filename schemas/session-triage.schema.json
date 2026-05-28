@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/session-triage/v1.json",
+  "title": "SessionTriageOutput",
+  "description": "Output shape for session-triage notifications. The current implementation emits a single human-readable line via session-check.sh; the schema is reserved for the structured JSON variant emitted with --json (planned post-v1.12.0).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fingerprint", "drift_count", "categories"],
+  "properties": {
+    "fingerprint": {
+      "type": "string",
+      "description": "Stable hash of the drift state used to dedup repeat notifications."
+    },
+    "drift_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total drift items detected (missing + misconfigured + broken_links + CLAUDE.md status)."
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["hooks", "docs", "branching", "gitignore", "editorconfig", "github", "history", "merged-branches", "claude-md", "docs-staleness", "docs-drift"]
+      }
+    },
+    "merged_branch_count": { "type": "integer", "minimum": 0 },
+    "since_last_check_seconds": { "type": "integer", "minimum": 0 },
+    "profile": { "type": "string" }
+  }
+}

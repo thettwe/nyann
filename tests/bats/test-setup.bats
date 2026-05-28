@@ -32,7 +32,7 @@ teardown() { rm -rf "$TMP"; }
 @test "setup writes correct default values" {
   bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" >/dev/null 2>&1
   prefs="$USER_ROOT/preferences.json"
-  [ "$(jq -r '.schemaVersion' "$prefs")" = "1" ]
+  [ "$(jq -r '.schemaVersion' "$prefs")" = "2" ]
   [ "$(jq -r '.default_profile' "$prefs")" = "auto-detect" ]
   [ "$(jq -r '.branching_strategy' "$prefs")" = "auto-detect" ]
   [ "$(jq -r '.commit_format' "$prefs")" = "conventional-commits" ]
@@ -66,7 +66,7 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r '.status')" = "ok" ]
   [ "$(echo "$output" | jq -r '.preferences.default_profile')" = "auto-detect" ]
-  [ "$(echo "$output" | jq -r '.preferences.schemaVersion')" = "1" ]
+  [ "$(echo "$output" | jq -r '.preferences.schemaVersion')" = "2" ]
 }
 
 @test "setup --check shows configured after write" {

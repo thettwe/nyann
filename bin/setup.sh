@@ -34,6 +34,8 @@ user_root="${HOME}/.claude/nyann"
 json_out=false
 check_only=false
 simulate_target=""
+inline_mode=false
+incremental_fields=""
 
 default_profile="auto-detect"
 branching_strategy="auto-detect"
@@ -41,6 +43,15 @@ commit_format="conventional-commits"
 gh_integration=true
 documentation_storage="local"
 auto_sync_team_profiles=false
+
+# v1.12.0 (S0) — new v2 fields.
+git_identity_name=""
+git_identity_email=""
+git_identity_confirmed=false
+session_triage=true
+guard_default_severity="advisory"
+notifications_sentinel=true
+notifications_staleness_alerts=true
 
 # Track which flags the caller explicitly set. --simulate falls back
 # to preferences.json for any flag the caller did NOT override, which
@@ -53,6 +64,11 @@ _set_commit_format=false
 _set_gh_integration=false
 _set_documentation_storage=false
 _set_auto_sync_team_profiles=false
+_set_session_triage=false
+_set_guard_default_severity=false
+_set_notifications_sentinel=false
+_set_notifications_staleness_alerts=false
+_set_git_identity=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +88,23 @@ while [[ $# -gt 0 ]]; do
     --no-auto-sync-team-profiles) auto_sync_team_profiles=false; _set_auto_sync_team_profiles=true; shift ;;
     --simulate)                   simulate_target="${2:-}"; shift 2 ;;
     --simulate=*)                 simulate_target="${1#--simulate=}"; shift ;;
+    --session-triage)             session_triage=true; _set_session_triage=true; shift ;;
+    --no-session-triage)          session_triage=false; _set_session_triage=true; shift ;;
+    --guard-default-severity)     guard_default_severity="${2:-}"; _set_guard_default_severity=true; shift 2 ;;
+    --guard-default-severity=*)   guard_default_severity="${1#--guard-default-severity=}"; _set_guard_default_severity=true; shift ;;
+    --notifications-sentinel)     notifications_sentinel=true; _set_notifications_sentinel=true; shift ;;
+    --no-notifications-sentinel)  notifications_sentinel=false; _set_notifications_sentinel=true; shift ;;
+    --notifications-staleness)    notifications_staleness_alerts=true; _set_notifications_staleness_alerts=true; shift ;;
+    --no-notifications-staleness) notifications_staleness_alerts=false; _set_notifications_staleness_alerts=true; shift ;;
+    --git-identity-name)          git_identity_name="${2:-}"; _set_git_identity=true; shift 2 ;;
+    --git-identity-name=*)        git_identity_name="${1#--git-identity-name=}"; _set_git_identity=true; shift ;;
+    --git-identity-email)         git_identity_email="${2:-}"; _set_git_identity=true; shift 2 ;;
+    --git-identity-email=*)       git_identity_email="${1#--git-identity-email=}"; _set_git_identity=true; shift ;;
+    --git-identity-confirmed)     git_identity_confirmed=true; _set_git_identity=true; shift ;;
+    --inline)                     inline_mode=true; shift ;;
+    --incremental)                shift ;;
+    --fields)                     incremental_fields="${2:-}"; shift 2 ;;
+    --fields=*)                   incremental_fields="${1#--fields=}"; shift ;;
     --json)                       json_out=true; shift ;;
     --check)                      check_only=true; shift ;;
     -h|--help)                    sed -n '3,21p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -94,6 +127,11 @@ esac
 case "$documentation_storage" in
   local|obsidian|notion) ;;
   *) nyann::die "invalid --documentation-storage: $documentation_storage (expected local|obsidian|notion)" ;;
+esac
+
+case "$guard_default_severity" in
+  advisory|confirm) ;;
+  *) nyann::die "invalid --guard-default-severity: $guard_default_severity (expected advisory|confirm)" ;;
 esac
 
 if [[ "$default_profile" != "auto-detect" ]]; then
@@ -348,6 +386,81 @@ mkdir -p "${user_root}/cache" 2>/dev/null || true
 
 umask "$old_umask"
 
+# --- Auto-populate git identity from `git config` if not provided ------------
+# Saves the user a manual step in the common case where their git is already
+# configured. If --git-identity-confirmed wasn't passed, the field defaults to
+# false — bootstrap / commit skills will surface a confirm prompt later.
+if [[ -z "$git_identity_name" ]]; then
+  git_identity_name=$(git config --global user.name 2>/dev/null || echo "")
+fi
+if [[ -z "$git_identity_email" ]]; then
+  git_identity_email=$(git config --global user.email 2>/dev/null || echo "")
+fi
+
+# --- Merge with existing preferences (incremental upgrade) -------------------
+# When --incremental + --fields are passed, we want to update ONLY the named
+# fields and preserve everything else from the existing preferences.json.
+# When the file already exists and the caller hasn't passed --incremental, the
+# usual setup re-run still overwrites — this matches v1.10.0 behavior.
+if [[ -f "$prefs_path" ]]; then
+  if [[ -n "$incremental_fields" ]]; then
+    # Pull each unset field from existing prefs.
+    if ! $_set_default_profile; then
+      v=$(jq -r '.default_profile // empty' "$prefs_path" 2>/dev/null || true)
+      [[ -n "$v" ]] && default_profile="$v"
+    fi
+    if ! $_set_branching_strategy; then
+      v=$(jq -r '.branching_strategy // empty' "$prefs_path" 2>/dev/null || true)
+      [[ -n "$v" ]] && branching_strategy="$v"
+    fi
+    if ! $_set_commit_format; then
+      v=$(jq -r '.commit_format // empty' "$prefs_path" 2>/dev/null || true)
+      [[ -n "$v" ]] && commit_format="$v"
+    fi
+    if ! $_set_gh_integration; then
+      v=$(jq -r '.gh_integration // empty' "$prefs_path" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && gh_integration=false
+      [[ "$v" == "true"  ]] && gh_integration=true
+    fi
+    if ! $_set_documentation_storage; then
+      v=$(jq -r '.documentation_storage // empty' "$prefs_path" 2>/dev/null || true)
+      [[ -n "$v" ]] && documentation_storage="$v"
+    fi
+    if ! $_set_auto_sync_team_profiles; then
+      v=$(jq -r '.auto_sync_team_profiles // empty' "$prefs_path" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && auto_sync_team_profiles=false
+      [[ "$v" == "true"  ]] && auto_sync_team_profiles=true
+    fi
+    if ! $_set_session_triage; then
+      v=$(jq -r '.session_triage // empty' "$prefs_path" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && session_triage=false
+      [[ "$v" == "true"  ]] && session_triage=true
+    fi
+    if ! $_set_guard_default_severity; then
+      v=$(jq -r '.guard_default_severity // empty' "$prefs_path" 2>/dev/null || true)
+      [[ -n "$v" ]] && guard_default_severity="$v"
+    fi
+    if ! $_set_notifications_sentinel; then
+      v=$(jq -r '.notifications.sentinel // empty' "$prefs_path" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && notifications_sentinel=false
+      [[ "$v" == "true"  ]] && notifications_sentinel=true
+    fi
+    if ! $_set_notifications_staleness_alerts; then
+      v=$(jq -r '.notifications.staleness_alerts // empty' "$prefs_path" 2>/dev/null || true)
+      [[ "$v" == "false" ]] && notifications_staleness_alerts=false
+      [[ "$v" == "true"  ]] && notifications_staleness_alerts=true
+    fi
+    if ! $_set_git_identity; then
+      v_name=$(jq -r '.git_identity.name // empty' "$prefs_path" 2>/dev/null || true)
+      v_email=$(jq -r '.git_identity.email // empty' "$prefs_path" 2>/dev/null || true)
+      v_conf=$(jq -r '.git_identity.confirmed // empty' "$prefs_path" 2>/dev/null || true)
+      [[ -n "$v_name" ]]  && git_identity_name="$v_name"
+      [[ -n "$v_email" ]] && git_identity_email="$v_email"
+      [[ "$v_conf" == "true" ]] && git_identity_confirmed=true
+    fi
+  fi
+fi
+
 # --- Write preferences --------------------------------------------------------
 
 timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -356,13 +469,20 @@ prefs_tmp=$(mktemp -t nyann-prefs.XXXXXX)
 trap 'rm -f "$prefs_tmp"' EXIT
 
 jq -n \
-  --argjson schema_version 1 \
+  --argjson schema_version "$NYANN_PREFS_CURRENT_SCHEMA" \
   --arg default_profile "$default_profile" \
   --arg branching_strategy "$branching_strategy" \
   --arg commit_format "$commit_format" \
   --argjson gh_integration "$gh_integration" \
   --arg documentation_storage "$documentation_storage" \
   --argjson auto_sync_team_profiles "$auto_sync_team_profiles" \
+  --arg git_identity_name "$git_identity_name" \
+  --arg git_identity_email "$git_identity_email" \
+  --argjson git_identity_confirmed "$git_identity_confirmed" \
+  --argjson session_triage "$session_triage" \
+  --arg guard_default_severity "$guard_default_severity" \
+  --argjson notifications_sentinel "$notifications_sentinel" \
+  --argjson notifications_staleness_alerts "$notifications_staleness_alerts" \
   --arg setup_completed_at "$timestamp" \
   '{
     schemaVersion: $schema_version,
@@ -372,6 +492,17 @@ jq -n \
     gh_integration: $gh_integration,
     documentation_storage: $documentation_storage,
     auto_sync_team_profiles: $auto_sync_team_profiles,
+    git_identity: {
+      name: $git_identity_name,
+      email: $git_identity_email,
+      confirmed: $git_identity_confirmed
+    },
+    session_triage: $session_triage,
+    guard_default_severity: $guard_default_severity,
+    notifications: {
+      sentinel: $notifications_sentinel,
+      staleness_alerts: $notifications_staleness_alerts
+    },
     setup_completed_at: $setup_completed_at
   }' > "$prefs_tmp"
 
@@ -400,15 +531,21 @@ if $json_out; then
       }
     }'
 else
-  printf '\nnyann setup complete\n\n'
-  printf '  %-26s %s\n' "preferences:" "$prefs_path"
-  printf '  %-26s %s\n' "profiles dir:" "${user_root}/profiles"
-  printf '  %-26s %s\n' "cache dir:" "${user_root}/cache"
-  printf '\n  Preferences:\n'
-  printf '  %-26s %s\n' "default_profile:" "$default_profile"
-  printf '  %-26s %s\n' "branching_strategy:" "$branching_strategy"
-  printf '  %-26s %s\n' "commit_format:" "$commit_format"
-  printf '  %-26s %s\n' "gh_integration:" "$gh_integration"
-  printf '  %-26s %s\n' "documentation_storage:" "$documentation_storage"
-  printf '  %-26s %s\n' "auto_sync_team_profiles:" "$auto_sync_team_profiles"
+  if ! $inline_mode; then
+    printf '\nnyann setup complete\n\n'
+    printf '  %-26s %s\n' "preferences:" "$prefs_path"
+    printf '  %-26s %s\n' "profiles dir:" "${user_root}/profiles"
+    printf '  %-26s %s\n' "cache dir:" "${user_root}/cache"
+    printf '\n  Preferences:\n'
+    printf '  %-26s %s\n' "default_profile:" "$default_profile"
+    printf '  %-26s %s\n' "branching_strategy:" "$branching_strategy"
+    printf '  %-26s %s\n' "commit_format:" "$commit_format"
+    printf '  %-26s %s\n' "gh_integration:" "$gh_integration"
+    printf '  %-26s %s\n' "documentation_storage:" "$documentation_storage"
+    printf '  %-26s %s\n' "auto_sync_team_profiles:" "$auto_sync_team_profiles"
+    printf '  %-26s %s\n' "session_triage:" "$session_triage"
+    printf '  %-26s %s\n' "guard_default_severity:" "$guard_default_severity"
+    printf '  %-26s %s/%s\n' "notifications:" "sentinel=$notifications_sentinel" "staleness=$notifications_staleness_alerts"
+    printf '\nRun /nyann:settings anytime to change individual values.\n'
+  fi
 fi

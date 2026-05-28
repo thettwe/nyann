@@ -1,0 +1,110 @@
+#!/usr/bin/env bats
+# IaC detection (I1).
+
+setup() {
+  REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
+  TMP="$(mktemp -d -t nyann-iac.XXXXXX)"
+  TMP="$(cd "$TMP" && pwd -P)"
+  REPO="$TMP/repo"
+  mkdir -p "$REPO"
+}
+
+teardown() { rm -rf "$TMP"; }
+
+@test "*.tf at root: archetype infra, framework terraform" {
+  cat > "$REPO/main.tf" <<'EOF'
+resource "null_resource" "x" {}
+EOF
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+  echo "$out" | jq -e '.framework == "terraform"'
+}
+
+@test "*.tf only under modules/: archetype infra (priority over library)" {
+  mkdir -p "$REPO/modules/network"
+  echo 'resource "null_resource" "x" {}' > "$REPO/modules/network/main.tf"
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+  echo "$out" | jq -e '.framework == "terraform"'
+}
+
+@test "cdk.json present → archetype infra" {
+  echo '{"app":"node"}' > "$REPO/cdk.json"
+  mkdir -p "$REPO/lib"
+  echo 'export const x = 1;' > "$REPO/lib/stack.ts"
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+}
+
+@test "Pulumi.yaml present → archetype infra" {
+  cat > "$REPO/Pulumi.yaml" <<'EOF'
+name: myinfra
+runtime: nodejs
+EOF
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+}
+
+@test "Chart.yaml present → archetype infra" {
+  cat > "$REPO/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: my-chart
+version: 0.1.0
+EOF
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+}
+
+@test "kustomization.yaml present → archetype infra" {
+  cat > "$REPO/kustomization.yaml" <<'EOF'
+resources:
+  - deployment.yaml
+EOF
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+}
+
+@test "Empty repo: archetype unknown (not infra)" {
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  archetype=$(echo "$out" | jq -r '.archetype')
+  [ "$archetype" != "infra" ]
+}
+
+@test "terraform-monorepo profile loads and validates" {
+  if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
+    skip "no schema validator"
+  fi
+  if command -v check-jsonschema >/dev/null 2>&1; then
+    VALIDATE=(check-jsonschema)
+  else
+    VALIDATE=(uvx --quiet check-jsonschema)
+  fi
+  "${VALIDATE[@]}" --schemafile "$REPO_ROOT/profiles/_schema.json" "$REPO_ROOT/profiles/terraform-monorepo.json"
+}
+
+@test "terraform-monorepo profile has expected pre_commit hooks" {
+  jq -e '.hooks.pre_commit | index("terraform-fmt")'     "$REPO_ROOT/profiles/terraform-monorepo.json"
+  jq -e '.hooks.pre_commit | index("terraform-validate")' "$REPO_ROOT/profiles/terraform-monorepo.json"
+  jq -e '.hooks.pre_commit | index("tflint")'             "$REPO_ROOT/profiles/terraform-monorepo.json"
+  jq -e '.hooks.pre_commit | index("tfsec")'              "$REPO_ROOT/profiles/terraform-monorepo.json"
+  jq -e '.hooks.pre_commit | index("terraform-docs")'     "$REPO_ROOT/profiles/terraform-monorepo.json"
+}
+
+@test "IaC hook scripts: terraform-fmt soft-skips when terraform missing" {
+  # Run under a PATH that excludes any real terraform binary.
+  out=$( PATH=/usr/bin:/bin bash "$REPO_ROOT/templates/hooks/iac/terraform-fmt.sh" 2>&1 )
+  echo "$out" | grep -q "terraform CLI not installed"
+}
+
+@test "IaC hook scripts: tflint soft-skips when tflint missing" {
+  out=$( PATH=/usr/bin:/bin bash "$REPO_ROOT/templates/hooks/iac/tflint.sh" 2>&1 )
+  echo "$out" | grep -q "tflint not installed"
+}
+
+@test "infra archetype scaffold map emits IaC-appropriate doc types" {
+  out=$( bash -c "source '$REPO_ROOT/bin/_lib.sh'; nyann::archetype_scaffold_map infra" )
+  echo "$out" | grep -q "^architecture:"
+  echo "$out" | grep -q "^runbook:"
+  echo "$out" | grep -q "^deployment:"
+  echo "$out" | grep -q "^adrs:"
+}

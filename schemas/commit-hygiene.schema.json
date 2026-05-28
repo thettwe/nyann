@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/commit-hygiene/v1.json",
+  "title": "CommitHygieneReport",
+  "description": "Output of bin/commit-hygiene.sh — proactive checks against the staged diff. Surfaced by /nyann:commit before the message is generated.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "summary", "scope_suggestion", "incomplete_staging", "debug_artifacts", "dead_code"],
+  "properties": {
+    "target":     { "type": "string" },
+    "scanned_at": { "type": "string", "format": "date-time" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warnings", "advisories"],
+      "properties": {
+        "warnings":   { "type": "integer", "minimum": 0, "description": "Total findings worth surfacing." },
+        "advisories": { "type": "integer", "minimum": 0, "description": "Total low-priority hints." }
+      }
+    },
+    "scope_suggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopes", "primary"],
+      "properties": {
+        "scopes":  { "type": "array", "items": { "type": "string" }, "description": "All scopes derived from staged paths." },
+        "primary": { "type": ["string", "null"], "description": "Suggested CC scope when unambiguous, else null." }
+      }
+    },
+    "incomplete_staging": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["staged", "missing", "reason"],
+        "properties": {
+          "staged":  { "type": "string" },
+          "missing": { "type": "string" },
+          "reason":  { "type": "string" }
+        }
+      }
+    },
+    "debug_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "line", "pattern", "match"],
+        "properties": {
+          "file":    { "type": "string" },
+          "line":    { "type": "integer", "minimum": 1 },
+          "pattern": { "type": "string" },
+          "match":   { "type": "string" }
+        }
+      }
+    },
+    "dead_code": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Findings forwarded from bin/dead-code-scan.sh (see dead-code-scan.schema.json for shape)."
+    }
+  }
+}

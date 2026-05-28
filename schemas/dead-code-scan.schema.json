@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/dead-code-scan/v1.json",
+  "title": "DeadCodeScanResult",
+  "description": "Output of bin/dead-code-scan.sh — high-confidence dead-code findings against the staged diff.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "findings", "summary"],
+  "properties": {
+    "target":     { "type": "string" },
+    "scanned_at": { "type": "string", "format": "date-time" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "high_confidence", "medium_confidence"],
+      "properties": {
+        "total":             { "type": "integer", "minimum": 0 },
+        "high_confidence":   { "type": "integer", "minimum": 0 },
+        "medium_confidence": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "line", "kind", "name", "confidence"],
+        "properties": {
+          "file":       { "type": "string" },
+          "line":       { "type": "integer", "minimum": 1 },
+          "kind":       { "type": "string", "enum": ["unused-import", "unused-variable", "unreferenced-function"] },
+          "name":       { "type": "string", "description": "The symbol that's unused." },
+          "confidence": { "type": "string", "enum": ["high", "medium"] },
+          "rule":       { "type": "string", "description": "Rule script name (e.g., 'js', 'python')." }
+        }
+      }
+    }
+  }
+}

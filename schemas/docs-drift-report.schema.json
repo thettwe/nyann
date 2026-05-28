@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/docs-drift-report/v1.json",
+  "title": "DocsDriftReport",
+  "description": "Output of bin/docs-drift-scan.sh — aggregated public-doc drift findings across version-refs, file-refs, script-refs, and count-claims detectors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "scanned_files", "summary", "findings"],
+  "properties": {
+    "target":        { "type": "string" },
+    "scanned_at":    { "type": "string", "format": "date-time" },
+    "scanned_files": { "type": "array", "items": { "type": "string" } },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "by_severity", "by_kind"],
+      "properties": {
+        "total":       { "type": "integer", "minimum": 0 },
+        "by_severity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "critical": { "type": "integer", "minimum": 0 },
+            "high":     { "type": "integer", "minimum": 0 },
+            "medium":   { "type": "integer", "minimum": 0 },
+            "low":      { "type": "integer", "minimum": 0 }
+          }
+        },
+        "by_kind":     { "type": "object" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "file", "severity", "message"],
+        "properties": {
+          "kind":        { "type": "string", "enum": ["version-ref", "file-ref", "script-ref", "count-claim", "badge-text", "license-mismatch", "stack-icon"] },
+          "file":        { "type": "string" },
+          "line":        { "type": "integer", "minimum": 1 },
+          "severity":    { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "message":     { "type": "string" },
+          "current":     { "type": "string", "description": "Current value found in the doc." },
+          "expected":    { "type": "string", "description": "Expected value (e.g., latest git tag, count source result)." },
+          "fix_hint":    { "type": "string" }
+        }
+      }
+    }
+  }
+}
