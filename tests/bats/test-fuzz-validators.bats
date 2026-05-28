@@ -239,7 +239,6 @@ teardown() { rm -rf "$TMP" "$HARNESS"; }
       "https://github.com/org/repo.git" \
       "https://user@github.com/org/repo.git" \
       "ssh://git@github.com:22/org/repo.git" \
-      "git://example.com/org/repo.git" \
       "git@github.com:org/repo.git" \
       "file:///srv/mirror/repo.git"; do
     run "$HARNESS" nyann::valid_git_url "$url"
@@ -259,7 +258,8 @@ teardown() { rm -rf "$TMP" "$HARNESS"; }
       "https://token@github.com/org/repo.git|https://***@github.com/org/repo.git" \
       "https://user:pass@github.com/org/repo.git|https://***@github.com/org/repo.git" \
       "ssh://git:secret@github.com/org/repo.git|ssh://***@github.com/org/repo.git" \
-      "git://anything@example.com/x|git://***@example.com/x"; do
+      "git://anything@example.com/x|git://***@example.com/x" \
+      "file:///srv/mirror/repo.git|file:///srv/mirror/repo.git"; do
     input="${pair%%|*}"
     expected="${pair##*|}"
     actual=$("$HARNESS" nyann::redact_url "$input")
