@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-1250%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-1318%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -31,7 +31,7 @@
 - **Working hooks for 18 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
 - **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
 - **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
-- **Schema-validated contracts between every script.** All 52 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1250 bats tests** cover the surface.
+- **Schema-validated contracts between every script.** All 53 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1318 bats tests** cover the surface.
 - **Team-shareable governance.** Profiles are pure data — register a git URL and your team's branching, hooks, conventions, and doc routing sync across every repo automatically. Stale-team-profile detection nudges before the next bootstrap.
 - **Health-graded, drift-aware.** `doctor` produces a 0–100 score with per-category deltas and trend sparklines from `memory/health.json`. Inline drift checks at commit / PR / ship time nudge (don't gate) when the repo drifts from its profile; `governance-check.yml` upgrades that to a CI gate when desired.
 
@@ -152,8 +152,9 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | **Branch** | Creates strategy-compliant branch names off the right base for the active strategy (GitHub Flow / GitFlow / trunk-based). Validates slug; switches to an existing branch if one already matches. |
 | **PR** | Opens a GitHub PR with a Conventional-Commits-style title generated from the commit range and a body summarizing the diff. Context-only mode works without `gh`. |
 | **Ship** | Combined PR + merge in one step. Default uses GitHub's native auto-merge so the terminal returns immediately with `outcome:"queued"`. `--client-side` polls CI in the foreground and runs `gh pr merge` when checks pass. |
-| **Release** | **Auto-detects the next semver bump** from Conventional Commits since the last tag. Generates the CHANGELOG section, optionally bumps profile-declared manifest files (`package.json`, `plugin.json`, `pyproject.toml`, …), creates an annotated tag, pushes a GitHub release. Pre-release support for `-rc.N` / `-beta.N`. CI-gated tagging via `--wait-for-checks`. |
+| **Release** | **Auto-detects the next semver bump** from Conventional Commits since the last tag. Generates the CHANGELOG section, optionally bumps profile-declared manifest files (`package.json`, `plugin.json`, `pyproject.toml`, …), creates an annotated tag, pushes a GitHub release. Pre-release support for `-rc.N` / `-beta.N`. CI-gated tagging via `--wait-for-checks`. Monorepo: `--workspace` and `--all-workspaces` for per-workspace versioning with scoped tags (`core@2.1.0`). |
 | **Hotfix** | Branch topology for patch releases against a previously tagged version. Creates `release/<major>.<minor>` from the source tag if missing, then `hotfix/<slug>` off it. Pairs with `release` for the actual cut. |
+| **PR risk score** | `/nyann:ship` computes a composite risk score (churn × test gap × health delta) and surfaces `low | medium | high` with actionable recommendations before opening the PR. Highlights "many source changes without matching test updates" and hotspot files. |
 | **CI generation** | Generates `.github/workflows/ci.yml` matched to your stack and profile (lint + typecheck + test jobs). Optional `governance-check.yml` posts inline PR comments when drift exceeds threshold or health drops below the floor. |
 | **GitHub protection** | Audit (`--check`) or apply branch protection, tag rulesets, signing requirements, security settings, and Dependabot config. Output validates against `protection-audit.schema.json` so other tooling can consume it. |
 | **Docs routing** | Routes docs to local Markdown, Obsidian (MCP), Notion (MCP), or a per-doc-type split. Standalone re-routing after bootstrap regenerates the scaffold to match. `memory/` stays local. |
@@ -182,6 +183,9 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:gen-ci [--profile <name>]` | Generate GitHub Actions CI workflow. |
 | `/nyann:gen-templates [--profile <name>]` | Generate PR + issue templates. |
 | `/nyann:gen-claudemd [--profile <name>] [--force]` | Regenerate CLAUDE.md without a full bootstrap. |
+| `/nyann:gen-dependency-updater` | Generate profile-aware Dependabot or Renovate config. |
+| `/nyann:gen-devcontainer` | Generate profile-aware `.devcontainer/devcontainer.json` for Codespaces. |
+| `/nyann:explain-diff` | Translate a drift report into plain-English markdown. |
 | `/nyann:gh-protect [--check] [--profile <name>]` | Audit or apply GitHub protection rules. |
 | `/nyann:route-docs [--routing <spec>]` | Change doc storage routing + regenerate scaffold. |
 | `/nyann:optimize-claudemd [--force]` | Optimize CLAUDE.md based on usage data. |
@@ -197,7 +201,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:check-prereqs [--json]` | Survey hard + soft prereqs. |
 | `/nyann:diagnose [--json]` | Bundle a redacted support snapshot. |
 
-All 32 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
+All 35 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
 
 ## Profiles
 
@@ -234,14 +238,34 @@ A namespaced name like `our-team/frontend-baseline` bypasses user shadowing.
 Share conventions across a team by syncing profiles from a git repo:
 
 ```sh
-# Register a source
-bin/add-team-source.sh --name our-team --url https://github.com/our-org/nyann-profiles.git
+# Register a source — optionally pinned to a tag, SHA, or branch
+bin/add-team-source.sh --name our-team \
+  --url https://github.com/our-org/nyann-profiles.git \
+  --pin-strategy tag --pin-ref v1.0.0
 
 # Sync (shallow clone, respects sync_interval_hours)
 bin/sync-team-profiles.sh [--force]
+
+# When pinned: check what would change before accepting an update
+bin/sync-team-profiles.sh --check-updates --name our-team
+bin/sync-team-profiles.sh --accept-update --name our-team
 ```
 
-When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding.
+When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding. **SHA and tag pinning** (v1.11.0) keep the team source on a known-good revision; updates require explicit `--accept-update` and surface a changelog of what changed.
+
+### Profile composition (`extends`)
+
+Avoid copy-paste between similar profiles. A child profile can inherit from a parent via `"extends"`:
+
+```json
+{
+  "name": "my-react-vite",
+  "extends": "react-vite",
+  "branching": { "scopes": ["api", "web"] }
+}
+```
+
+Deep merge semantics: scalars and objects merge recursively (child wins), arrays replace entirely, `null` removes a parent's field. Max chain depth: 3. Circular references are rejected. Namespaced `team/name` form is supported for team-source parents.
 
 ## Project Memory
 
@@ -307,21 +331,21 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 ## Repository layout
 
 ```
-bin/                   # 75 shell scripts + 1 python helper (orchestrators + subsystems)
+bin/                   # 76 top-level shell scripts + 25 extracted modules + 1 python helper
 commands/              # 35 Claude Code slash-command registrations
 evals/                 # 24 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse block-main hook
-profiles/              # 28 starter profiles (+ _schema.json)
-schemas/               # 52 JSON Schemas for every exchanged shape
+profiles/              # 26 starter profiles (+ _schema.json)
+schemas/               # 53 JSON Schemas for every exchanged shape
 skills/                # 35 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs, husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 1250 bats tests + fixtures
+tests/                 # 1318 bats tests + fixtures
 ```
 
 ## Recent changes
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.10.0** adds 8 new starter profiles, dependency-updater and devcontainer generation, and a plain-English drift explainer.
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.11.0** ships profile composition (`extends`), monorepo workspace releases, PR risk scoring in `/nyann:ship`, team profile pinning (SHA + tag), and CODEOWNERS generation from git history. Plus an orchestrator refactor that splits the three biggest monoliths (release, gh-integration, detect-stack) into per-feature modules.
 
 ---
 

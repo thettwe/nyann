@@ -83,6 +83,16 @@ The remaining `bin/*.sh` scripts: `detect-stack.sh`,
 
 Focused utilities that emit/consume JSON schemas.
 
+**Module extraction (v1.11.0):** The three largest orchestrators are
+split into per-feature modules sourced by their parent:
+- `bin/release.sh` → `bin/release/{bump-manifests,ci-gate,collect-commits,detect-workspace-changes,github-release,push-release,release-workspace,render-changelog}.sh`
+- `bin/gh-integration.sh` → `bin/gh-integration/{apply-protection,audit-{branch-protection,codeowners,repo-settings,security,signing,tag-protection},_helpers}.sh`
+- `bin/detect-stack.sh` → `bin/detect-stack/{detect-{archetype,go-rust,hints,jsts,mobile-systems,python,v110-stacks},discover-workspaces,_detect-common}.sh`
+
+The parent script remains the public entry point. Modules are
+sourced (sharing scope) or executed (separate process) depending on
+whether they emit JSON or mutate parent state.
+
 **Boundary rule:** Subsystems do not call orchestrators. When a
 subsystem needs a drift report, it calls `compute-drift.sh`
 directly rather than going through `doctor.sh`.
