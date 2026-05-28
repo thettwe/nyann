@@ -28,7 +28,7 @@
 
 ## What makes it different
 
-- **Working hooks for 18 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
+- **Working hooks for 26 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
 - **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
 - **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
 - **Schema-validated contracts between every script.** All 53 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1318 bats tests** cover the surface.
