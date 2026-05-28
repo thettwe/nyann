@@ -139,6 +139,14 @@ action="preview"
 diff_summary="no change (preview only)"
 if $apply; then
   readme="README.md"
+  # Follow symlinks — see gen-readme-badges.sh for rationale.
+  if [[ -L "$readme" ]]; then
+    readme_target=$(readlink "$readme")
+    case "$readme_target" in
+      /*) readme="$readme_target" ;;
+      *)  readme="$(dirname "$readme")/$readme_target" ;;
+    esac
+  fi
   if [[ ! -f "$readme" ]]; then
     printf '%s\n' "$rendered" > "$readme"
     action="write"
@@ -159,6 +167,12 @@ if $apply; then
       index($0, me) { skip=0; next }
       !skip { print }
     ' "$readme" > "$tmp"
+    # Defensive: orphaned marker_start without marker_end would truncate
+    # README silently — refuse rather than commit a destructive write.
+    if ! grep -Fq "$marker_end" "$tmp"; then
+      rm -f "$tmp" "$body_tmp"
+      nyann::die "README.md has an orphaned marker_start without a matching marker_end; refusing to truncate. Repair the file manually then re-run --apply."
+    fi
     mv "$tmp" "$readme"
     rm -f "$body_tmp"
     action="write"

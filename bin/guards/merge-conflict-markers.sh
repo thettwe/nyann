@@ -5,7 +5,7 @@ target="${1-$PWD}"
 # only in added lines (prefix `+`) to avoid matching markers that already
 # existed verbatim (rare, but possible — markdown examples of conflicts).
 hits=$( cd "$target" && git diff --cached --no-color 2>/dev/null \
-  | grep -E '^\+(<<<<<<<|=======$|>>>>>>>)' \
+  | grep -E '^\+(<<<<<<<|=======|>>>>>>>)' \
   | wc -l | tr -d ' ' )
 if (( hits == 0 )); then
   jq -n --arg name "merge-conflict-markers" '{name:$name,pass:true,severity:"critical",message:"clean"}'

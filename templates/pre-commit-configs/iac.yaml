@@ -1,0 +1,56 @@
+# nyann template v1 — Terraform / IaC pre-commit.com config
+# Wires terraform fmt, validate, tflint, tfsec, and terraform-docs as
+# local hooks that delegate to the corresponding scripts under
+# templates/hooks/iac/. Each script soft-skips when its underlying tool
+# is missing, so a missing tflint binary downgrades to a warning rather
+# than blocking the commit. Merge-safe: install-hooks.sh merges by repo URL.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+
+      - id: terraform-fmt
+        name: terraform fmt -check -recursive
+        entry: .nyann/hooks/iac/terraform-fmt.sh
+        language: script
+        files: \.tf$
+        pass_filenames: false
+
+      - id: terraform-validate
+        name: terraform validate per module
+        entry: .nyann/hooks/iac/terraform-validate.sh
+        language: script
+        files: \.tf$
+        pass_filenames: false
+
+      - id: tflint
+        name: TFLint
+        entry: .nyann/hooks/iac/tflint.sh
+        language: script
+        files: \.tf$
+        pass_filenames: false
+
+      - id: tfsec
+        name: tfsec
+        entry: .nyann/hooks/iac/tfsec.sh
+        language: script
+        files: \.tf$
+        pass_filenames: false
+
+      - id: terraform-docs
+        name: terraform-docs (regenerate module READMEs)
+        entry: .nyann/hooks/iac/terraform-docs.sh
+        language: script
+        files: \.tf$
+        pass_filenames: false

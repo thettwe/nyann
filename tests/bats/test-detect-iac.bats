@@ -64,6 +64,14 @@ EOF
   echo "$out" | jq -e '.archetype == "infra"'
 }
 
+@test "Deep monorepo: infrastructure/modules/aws/networking/main.tf detected" {
+  mkdir -p "$REPO/infrastructure/modules/aws/networking"
+  echo 'resource "null_resource" "x" {}' > "$REPO/infrastructure/modules/aws/networking/main.tf"
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+  echo "$out" | jq -e '.framework == "terraform"'
+}
+
 @test "Empty repo: archetype unknown (not infra)" {
   out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
   archetype=$(echo "$out" | jq -r '.archetype')
@@ -107,4 +115,25 @@ EOF
   echo "$out" | grep -q "^runbook:"
   echo "$out" | grep -q "^deployment:"
   echo "$out" | grep -q "^adrs:"
+}
+
+@test "install-hooks --iac copies IaC wrapper scripts into .nyann/hooks/iac" {
+  cd "$REPO" && git init -q -b main
+  run bash "$REPO_ROOT/bin/install-hooks.sh" --target "$REPO" --iac --no-install-hook
+  [ "$status" -eq 0 ]
+  [ -x "$REPO/.nyann/hooks/iac/terraform-fmt.sh" ]
+  [ -x "$REPO/.nyann/hooks/iac/terraform-validate.sh" ]
+  [ -x "$REPO/.nyann/hooks/iac/tflint.sh" ]
+  [ -x "$REPO/.nyann/hooks/iac/tfsec.sh" ]
+  [ -x "$REPO/.nyann/hooks/iac/terraform-docs.sh" ]
+  [ -f "$REPO/.pre-commit-config.yaml" ]
+  grep -q "terraform-fmt" "$REPO/.pre-commit-config.yaml"
+}
+
+@test "install-hooks --iac is listed in the phase help and accepted in the no-phase warn" {
+  # No phase → warn includes --iac in the list.
+  cd "$REPO" && git init -q -b main
+  run bash "$REPO_ROOT/bin/install-hooks.sh" --target "$REPO"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q -- "--iac"
 }

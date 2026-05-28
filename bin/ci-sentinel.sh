@@ -64,6 +64,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$repo" ]] || nyann::die "--repo <owner/repo> is required"
+# Validate --pr immediately so we never feed a non-integer into
+# `--argjson pr "$pr_no"` later — that would make jq exit non-zero and
+# the `>` redirect would truncate the per-PR state file to empty,
+# destroying prior state.
+if [[ -n "$pr_filter" ]] && ! [[ "$pr_filter" =~ ^[0-9]+$ ]]; then
+  nyann::die "--pr must be a positive integer (got: $pr_filter)"
+fi
 # Touch interval / max_runtime / one_shot so shellcheck sees them consumed.
 # They are part of the public CLI contract; the daemonize wrapper (planned
 # post-v1.12.0) will read them — keeping them parsed today avoids a breaking

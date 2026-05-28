@@ -27,9 +27,20 @@ abs="$target/$file"
 file_dir=$(dirname "$file")
 [[ "$file_dir" == "." ]] && file_dir=""
 
+# Track fenced-code-block state so we don't flag illustrative path examples
+# inside ``` blocks (a common false-positive source — README tutorials
+# routinely show `[file](src/example.ts)` as a syntax demo, not a real ref).
+in_fence=0
 lineno=0
 while IFS= read -r line || [[ -n "$line" ]]; do
   lineno=$((lineno + 1))
+  case "$line" in
+    '```'*|'~~~'*)
+      in_fence=$((1 - in_fence))
+      continue
+      ;;
+  esac
+  (( in_fence )) && continue
   case "$line" in
     *'<!-- drift-ignore -->'*) continue ;;
     *'<!--'*'-->'*) continue ;;

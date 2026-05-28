@@ -40,7 +40,9 @@ has_make_target() {
   printf '%s\n' "$make_targets" | grep -Fqx "$1"
 }
 
-# Walk fenced code blocks. Track ```...``` state.
+# Walk every line of the doc — script invocations appear both in fenced
+# code blocks and in prose ("run `npm run build` to compile"). Track
+# fence state only so we can skip the fence delimiters themselves.
 in_fence=0
 lineno=0
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -50,9 +52,6 @@ while IFS= read -r line || [[ -n "$line" ]]; do
       in_fence=$((1 - in_fence))
       continue
       ;;
-  esac
-  (( in_fence )) || continue
-  case "$line" in
     *'<!-- drift-ignore -->'*) continue ;;
   esac
 

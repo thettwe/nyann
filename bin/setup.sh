@@ -367,9 +367,13 @@ if $check_only; then
     printf '  %-26s %s\n' "default_profile:" "$(jq -r '.default_profile // "auto-detect"' <<<"$existing")"
     printf '  %-26s %s\n' "branching_strategy:" "$(jq -r '.branching_strategy // "auto-detect"' <<<"$existing")"
     printf '  %-26s %s\n' "commit_format:" "$(jq -r '.commit_format // "conventional-commits"' <<<"$existing")"
-    printf '  %-26s %s\n' "gh_integration:" "$(jq -r '.gh_integration // true' <<<"$existing")"
+    # `// true` / `// false` are the wrong pattern for booleans — jq's `//`
+    # operator treats literal `false` as null-equivalent, so a stored
+    # `false` would be replaced by the fallback. Use explicit comparisons
+    # so the displayed value matches what's on disk.
+    printf '  %-26s %s\n' "gh_integration:" "$(jq -r 'if .gh_integration == false then "false" elif .gh_integration == true then "true" else "true" end' <<<"$existing")"
     printf '  %-26s %s\n' "documentation_storage:" "$(jq -r '.documentation_storage // "local"' <<<"$existing")"
-    printf '  %-26s %s\n' "auto_sync_team_profiles:" "$(jq -r '.auto_sync_team_profiles // false' <<<"$existing")"
+    printf '  %-26s %s\n' "auto_sync_team_profiles:" "$(jq -r 'if .auto_sync_team_profiles == true then "true" elif .auto_sync_team_profiles == false then "false" else "false" end' <<<"$existing")"
     printf '  %-26s %s\n' "setup_completed_at:" "$(jq -r '.setup_completed_at // "unknown"' <<<"$existing")"
     printf '\n  directories ok:  %s\n' "$dirs_ok"
   fi
@@ -401,8 +405,20 @@ fi
 # When --incremental + --fields are passed, we want to update ONLY the named
 # fields and preserve everything else from the existing preferences.json.
 # When the file already exists and the caller hasn't passed --incremental, the
-# usual setup re-run still overwrites — this matches v1.10.0 behavior.
+# usual setup re-run still overwrites — this matches v1.10.0 behavior. Warn
+# loudly when overwriting an older-schema file so a fresh run doesn't
+# silently revert booleans the user previously set to false (jq's // trap
+# means a CLI default re-applied as `gh_integration=true` would clobber a
+# stored `false` without trace).
 if [[ -f "$prefs_path" ]]; then
+  existing_schema=$(jq -r '.schemaVersion // 1' "$prefs_path" 2>/dev/null || echo 1)
+  if [[ -z "$incremental_fields" ]] && (( existing_schema < NYANN_PREFS_CURRENT_SCHEMA )); then
+    nyann::warn "preferences.json is schemaVersion ${existing_schema} (current: ${NYANN_PREFS_CURRENT_SCHEMA})."
+    nyann::warn "This run will OVERWRITE all fields with CLI defaults — fields you previously"
+    nyann::warn "set (e.g. gh_integration=false) revert unless you re-pass them. Prefer:"
+    nyann::warn "  bash $(basename "${BASH_SOURCE[0]}") --incremental --fields <new-fields>"
+    nyann::warn "or use /nyann:settings to migrate non-destructively."
+  fi
   if [[ -n "$incremental_fields" ]]; then
     # Pull each unset field from existing prefs.
     if ! $_set_default_profile; then

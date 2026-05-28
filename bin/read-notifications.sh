@@ -42,14 +42,31 @@ if [[ ! -f "$notif_file" ]]; then
   exit 0
 fi
 
-# Read all entries (NDJSON) into a JSON array.
-if [[ -s "$notif_file" ]]; then
-  jq -s '.' "$notif_file" 2>/dev/null || echo "[]"
-else
-  echo "[]"
+# --peek mode: read but do not truncate. No race concerns; the queue stays
+# intact so any concurrent sentinel append is preserved.
+if $peek; then
+  if [[ -s "$notif_file" ]]; then
+    jq -s '.' "$notif_file" 2>/dev/null || echo "[]"
+  else
+    echo "[]"
+  fi
+  exit 0
 fi
 
-# Truncate unless --peek.
-if ! $peek; then
-  : > "$notif_file"
+# Default mode: atomic read-and-truncate. Rename the queue to a sibling
+# `.reading` file FIRST so any sentinel append between read and truncate
+# lands in a freshly-created queue file (preserved for the next read)
+# rather than being silently dropped. mv is atomic on the same filesystem.
+reading_file="${notif_file}.reading.$$"
+if mv "$notif_file" "$reading_file" 2>/dev/null; then
+  if [[ -s "$reading_file" ]]; then
+    jq -s '.' "$reading_file" 2>/dev/null || echo "[]"
+  else
+    echo "[]"
+  fi
+  rm -f "$reading_file"
+else
+  # Concurrent reader took it first, or filesystem hiccup. Either way,
+  # nothing to deliver this call.
+  echo "[]"
 fi

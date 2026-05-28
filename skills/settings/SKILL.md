@@ -68,28 +68,84 @@ as a markdown table:
 Call `AskUserQuestion` with options listing each setting. Add a final
 "Done — no changes" option:
 
+AskUserQuestion caps the options array at 4 entries per question, so present
+the picker in two passes: first ask the user which group of settings to
+explore, then ask which specific setting in that group to change.
+
+Pass 1 — group picker:
+
 ```json
 {
   "questions": [
     {
-      "question": "Which setting would you like to change?",
-      "header": "Setting",
+      "question": "Which group of settings would you like to change?",
+      "header": "Group",
       "multiSelect": false,
       "options": [
-        { "label": "Default profile",          "description": "Stack-aware preference for which profile to apply" },
-        { "label": "Branching strategy",       "description": "github-flow | gitflow | trunk-based | auto-detect" },
-        { "label": "Commit format",            "description": "conventional-commits | custom" },
-        { "label": "GitHub CLI",               "description": "enabled | disabled (branch protection, PR helpers)" },
-        { "label": "Done — no changes",        "description": "Exit without writing" }
+        { "label": "Core (profile, branching, commits, GitHub CLI)", "description": "Day-to-day defaults" },
+        { "label": "Documentation + team sync",                       "description": "Docs storage, auto-sync of team profile sources" },
+        { "label": "Proactive features (triage, guards, notifications)", "description": "v1.12.0 awareness toggles" },
+        { "label": "Done — no changes",                                "description": "Exit without writing" }
       ]
     }
   ]
 }
 ```
 
+Pass 2 — based on the group, ask the specific setting:
+
+**Core group:**
+```json
+{
+  "questions": [{
+    "question": "Which core setting would you like to change?",
+    "header": "Setting",
+    "multiSelect": false,
+    "options": [
+      { "label": "Default profile",    "description": "Stack-aware preference for which profile to apply" },
+      { "label": "Branching strategy", "description": "github-flow | gitflow | trunk-based | auto-detect" },
+      { "label": "Commit format",      "description": "conventional-commits | custom" },
+      { "label": "GitHub CLI",         "description": "enabled | disabled (branch protection, PR helpers)" }
+    ]
+  }]
+}
+```
+
+**Documentation + team sync group:**
+```json
+{
+  "questions": [{
+    "question": "Which documentation / team-sync setting?",
+    "header": "Setting",
+    "multiSelect": false,
+    "options": [
+      { "label": "Documentation storage",   "description": "local | obsidian | notion" },
+      { "label": "Auto-sync team profiles", "description": "Auto-sync team profile sources during bootstrap" }
+    ]
+  }]
+}
+```
+
+**Proactive features group (v1.12.0):**
+```json
+{
+  "questions": [{
+    "question": "Which proactive-feature toggle?",
+    "header": "Setting",
+    "multiSelect": false,
+    "options": [
+      { "label": "Session triage",                "description": "Quiet drift check on first message each session" },
+      { "label": "Guard severity (default)",      "description": "advisory | confirm (P2 pre-action guards)" },
+      { "label": "CI sentinel notifications",     "description": "P3 sentinel state-change notifications" },
+      { "label": "Staleness alerts",              "description": "Documentation staleness alerts (P4)" }
+    ]
+  }]
+}
+```
+
 (If the user expressed interest in a specific setting in their initial
 message — e.g., "toggle triage" — go straight to that setting's value
-picker without showing this menu.)
+picker without showing the group menu.)
 
 ## Step 4: Ask for the new value
 

@@ -5,8 +5,11 @@ file="$1"
 
 emit() {
   local lineno="$1" name="$2"
+  # `-e` defeats grep-flag injection if the identifier ever starts with
+  # `-`. ERE metacharacters can't appear because the upstream regex
+  # restricts $name to `[A-Za-z_][A-Za-z0-9_]*`.
   local total
-  total=$(grep -nE "\\b${name}\\b" "$file" 2>/dev/null \
+  total=$(grep -nE -e "\\b${name}\\b" "$file" 2>/dev/null \
     | awk -F: -v ln="$lineno" '$1 != ln {n++} END {print n+0}')
   if [[ "$total" -eq 0 ]]; then
     printf '{"file":"%s","line":%d,"kind":"unused-import","name":"%s","confidence":"high","rule":"python"}\n' \

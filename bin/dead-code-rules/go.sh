@@ -5,10 +5,11 @@ file="$1"
 
 emit() {
   local lineno="$1" name="$2"
-  # Go usage convention: <ident>.<Member> or <ident>{ for type literals,
-  # but the latter is rare for stdlib packages. Match `<name>.`.
+  # `-e` defeats grep-flag injection. Go usage convention: <ident>.<Member>;
+  # the trailing `\\.` is the literal dot. Identifier comes from a parser
+  # that already restricts to `[A-Za-z_][A-Za-z0-9_]*`.
   local total
-  total=$(grep -nE "\\b${name}\\." "$file" 2>/dev/null \
+  total=$(grep -nE -e "\\b${name}\\." "$file" 2>/dev/null \
     | awk -F: -v ln="$lineno" '$1 != ln {n++} END {print n+0}')
   if [[ "$total" -eq 0 ]]; then
     printf '{"file":"%s","line":%d,"kind":"unused-import","name":"%s","confidence":"high","rule":"go"}\n' \

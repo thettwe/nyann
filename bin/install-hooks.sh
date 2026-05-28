@@ -18,6 +18,10 @@
 #             Requires python3; emits a skipped record otherwise.
 #   --go      pre-commit.com + dnephin/pre-commit-golang + golangci-lint.
 #   --rust    pre-commit.com + doublify/pre-commit-rust (fmt + clippy).
+#   --iac     pre-commit.com + Terraform hooks (fmt/validate/tflint/tfsec/
+#             terraform-docs). Copies the soft-skipping wrapper scripts
+#             into .nyann/hooks/iac/ inside the target repo so they
+#             work without nyann itself being on PATH.
 #   --pre-push   native .git/hooks/pre-push wired up from
 #                profile.hooks.pre_push[]. Caller passes --pre-push-hooks
 #                <csv> + --pre-push-test-cmd <cmd>; supported well-known
@@ -51,6 +55,7 @@ pre_push_test_cmd=""
 install_python=false
 install_go=false
 install_rust=false
+install_iac=false
 no_install_hook=false
 workspace_configs=""
 commit_scopes_file=""
@@ -67,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --python)          install_python=true; shift ;;
     --go)              install_go=true; shift ;;
     --rust)            install_rust=true; shift ;;
+    --iac)             install_iac=true; shift ;;
     --pre-push)        install_pre_push=true; shift ;;
     --pre-push-hooks)  pre_push_hooks="${2:-}"; shift 2 ;;
     --pre-push-hooks=*) pre_push_hooks="${1#--pre-push-hooks=}"; shift ;;
@@ -94,8 +100,8 @@ done
 [[ -n "$target" ]] || nyann::die "--target is required"
 [[ -d "$target/.git" ]] || nyann::die "$target is not a git repo (.git missing)"
 
-if ! $install_core && ! $install_jsts && ! $install_python && ! $install_go && ! $install_rust && ! $install_pre_push; then
-  nyann::warn "no install phase selected (--core | --jsts | --python | --go | --rust | --pre-push) — nothing to do"
+if ! $install_core && ! $install_jsts && ! $install_python && ! $install_go && ! $install_rust && ! $install_iac && ! $install_pre_push; then
+  nyann::warn "no install phase selected (--core | --jsts | --python | --go | --rust | --iac | --pre-push) — nothing to do"
   exit 0
 fi
 
@@ -537,6 +543,39 @@ install_rust_phase() {
   install_precommit_from_template "$precommit_template_root/rust.yaml" "rust-hooks"
 }
 
+# --- IaC phase (pre-commit.com + Terraform fmt/validate/tflint/tfsec/docs) ---
+#
+# Unlike --go/--rust which lean on third-party pre-commit hook repos, the IaC
+# hooks are local-language scripts that each soft-skip when their tool isn't
+# installed (so a repo without tflint installed still gets fmt + validate
+# running). The wrapper scripts ship in nyann's templates tree; we copy them
+# into .nyann/hooks/iac/ inside the target repo so the pre-commit config
+# can reference them with a stable relative path that survives nyann being
+# unavailable on the user's PATH later.
+
+install_iac_phase() {
+  local src="${_script_dir}/../templates/hooks/iac"
+  local dst="$target/.nyann/hooks/iac"
+  if [[ ! -d "$src" ]]; then
+    nyann::warn "iac phase skipped: template dir missing ($src)"
+    emit_skipped iac-hooks "template dir missing"
+    return 0
+  fi
+  if ! nyann::safe_mkdir_under_target "$target" ".nyann/hooks/iac" >/dev/null; then
+    nyann::warn "iac phase skipped: cannot create .nyann/hooks/iac"
+    emit_skipped iac-hooks "mkdir refused"
+    return 0
+  fi
+  local f
+  for f in terraform-fmt.sh terraform-validate.sh tflint.sh tfsec.sh terraform-docs.sh; do
+    if [[ -f "$src/$f" ]]; then
+      cp "$src/$f" "$dst/$f"
+      chmod +x "$dst/$f" 2>/dev/null || true
+    fi
+  done
+  install_precommit_from_template "$precommit_template_root/iac.yaml" "iac-hooks"
+}
+
 # --- shared pre-commit.com install helper ------------------------------------
 # Writes (or merges into) target/.pre-commit-config.yaml from the given
 # template file. Merge logic is identical to install_python_phase — key by
@@ -756,6 +795,7 @@ if $install_jsts;     then install_jsts_phase;     fi
 if $install_python;   then install_python_phase;   fi
 if $install_go;       then install_go_phase;       fi
 if $install_rust;     then install_rust_phase;     fi
+if $install_iac;      then install_iac_phase;      fi
 if $install_pre_push; then install_pre_push_phase; fi
 
 exit 0

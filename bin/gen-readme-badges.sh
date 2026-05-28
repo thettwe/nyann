@@ -166,6 +166,16 @@ diff_summary="no change (preview only)"
 
 if $apply; then
   readme="README.md"
+  # Follow a README symlink to its concrete target so we don't sever the
+  # link (common in monorepos where README.md → docs/README.md). Without
+  # this, `mv tmp README.md` replaces the symlink with the temp file.
+  if [[ -L "$readme" ]]; then
+    readme_target=$(readlink "$readme")
+    case "$readme_target" in
+      /*) readme="$readme_target" ;;
+      *)  readme="$(dirname "$readme")/$readme_target" ;;
+    esac
+  fi
   if [[ ! -f "$readme" ]]; then
     printf '%s\n' "$rendered" > "$readme"
     action="write"
@@ -188,6 +198,14 @@ if $apply; then
         index($0, me) { skip=0; next }
         !skip { print }
       ' "$readme" > "$tmp"
+      # Defensive: if README had an orphaned marker_start (no matching
+      # marker_end from a prior partial write), the awk pass above would
+      # silently swallow everything after marker_start. Verify the output
+      # still contains marker_end before committing the write.
+      if ! grep -Fq "$marker_end" "$tmp"; then
+        rm -f "$tmp" "$body_tmp"
+        nyann::die "README.md has an orphaned marker_start without a matching marker_end; refusing to truncate. Repair the file manually then re-run --apply."
+      fi
       mv "$tmp" "$readme"
       rm -f "$body_tmp"
       action="write"

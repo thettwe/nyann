@@ -9,9 +9,12 @@ file="$1"
 
 emit() {
   local lineno="$1" name="$2"
-  # Count refs to name outside the declaring line.
+  # The upstream regex restricts $name to `[A-Za-z_$][A-Za-z0-9_$]*`, so
+  # ERE metacharacters can't appear here. We do still pass the pattern
+  # via `-e` so a hypothetical identifier starting with `-` (or a future
+  # parser relaxation) can't be misread as a grep flag.
   local total
-  total=$(grep -nE "\\b${name}\\b" "$file" 2>/dev/null \
+  total=$(grep -nE -e "\\b${name}\\b" "$file" 2>/dev/null \
     | awk -F: -v ln="$lineno" '$1 != ln {n++} END {print n+0}')
   if [[ "$total" -eq 0 ]]; then
     printf '{"file":"%s","line":%d,"kind":"unused-import","name":"%s","confidence":"high","rule":"js"}\n' \

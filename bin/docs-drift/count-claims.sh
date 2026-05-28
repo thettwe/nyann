@@ -61,6 +61,16 @@ while (( i < n_tracked )); do
   i=$((i + 1))
   [[ -n "$keyword" && -n "$src" && -n "$glob" ]] || continue
 
+  # ERE-escape the keyword before interpolating into the match pattern.
+  # BSD sed rejects `[][...]` bracket classes, so escape one metachar at a
+  # time via bash parameter substitution. This keeps the count_claims
+  # detector honest when a profile specifies a keyword like `tests.*` or
+  # `(integration)` (which would otherwise over-match arbitrary text).
+  keyword_escaped="$keyword"
+  for _m in '\' '.' '^' '$' '*' '+' '?' '|' '(' ')' '[' ']' '{' '}'; do
+    keyword_escaped="${keyword_escaped//"$_m"/\\$_m}"
+  done
+
   actual=$(count_actual "$src" "$glob" "$extract")
   actual=${actual//[^0-9]/}
   actual=${actual:-0}
@@ -104,6 +114,6 @@ while (( i < n_tracked )); do
             --arg expected "$actual $keyword" \
             --arg hint "update the count or wrap with <!-- drift-ignore -->" \
             '{kind:$kind, file:$file, line:$line, severity:$severity, message:$message, current:$current, expected:$expected, fix_hint:$hint}'
-    done < <( printf '%s' "$line" | grep -oE "[0-9][0-9,]* +${keyword}\b" )
+    done < <( printf '%s' "$line" | grep -oE "[0-9][0-9,]* +${keyword_escaped}\b" )
   done < "$abs"
 done

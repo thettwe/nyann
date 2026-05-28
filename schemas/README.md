@@ -85,8 +85,8 @@ identifier consumers can pin against.
 | `team-profile-changelog.schema.json` | `bin/sync-team-profiles.sh --check-updates` | `skills/sync-team-profiles/SKILL.md` |
 | `commit-hygiene.schema.json` | `bin/commit-hygiene.sh` | `skills/commit/SKILL.md` |
 | `dead-code-scan.schema.json` | `bin/dead-code-scan.sh` | `bin/commit-hygiene.sh`, `bin/pre-action-guard.sh` |
-| `docs-drift-report.schema.json` | `bin/docs-drift-scan.sh` | `bin/doctor.sh --check docs-drift`, `bin/retrofit.sh`, `bin/release.sh` |
-| `docs-staleness.schema.json` | `bin/docs-staleness.sh` | `bin/doctor.sh --check docs-staleness`, `bin/session-triage.sh` |
+| `docs-drift-report.schema.json` | `bin/docs-drift-scan.sh` | `skills/doctor/SKILL.md` (advisory section in the planned doctor integration), `bin/retrofit.sh --scope docs-drift` (planned auto-fix path) |
+| `docs-staleness.schema.json` | `bin/docs-staleness.sh` | `bin/session-triage.sh` (folds into the session-start summary), `skills/doctor/SKILL.md` (planned doctor integration) |
 | `guard-result.schema.json` | `bin/pre-action-guard.sh` | `skills/commit/SKILL.md`, `skills/pr/SKILL.md`, `skills/release/SKILL.md`, `skills/ship/SKILL.md` |
 | `notification.schema.json` | `bin/ci-sentinel.sh` | `bin/read-notifications.sh`, `bin/session-triage.sh` |
 | `readme-badge-block.schema.json` | `bin/gen-readme-badges.sh`, `bin/gen-readme-stack-icons.sh` | `bin/scaffold-docs.sh`, `bin/retrofit.sh` |

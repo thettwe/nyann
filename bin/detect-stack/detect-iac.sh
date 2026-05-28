@@ -18,14 +18,23 @@ nyann::detect_iac() {
   IS_INFRA=0
   IAC_FRAMEWORK=""
 
-  # Terraform: *.tf at root or under modules/, stacks/, environments/.
+  # Terraform: *.tf at root or under conventional IaC directories. We
+  # check both immediate-children layouts (`modules/<name>/main.tf`) and
+  # the common nested-under-a-top-level-dir layout
+  # (`infrastructure/modules/<name>/main.tf`,
+  # `terraform/environments/<env>/main.tf`).
   if find "$target" -maxdepth 1 -name '*.tf' 2>/dev/null | head -1 | grep -q .; then
     IS_INFRA=1
     IAC_FRAMEWORK="terraform"
     return 0
   fi
-  for d in modules stacks environments envs; do
-    if [[ -d "$target/$d" ]] && find "$target/$d" -maxdepth 3 -name '*.tf' 2>/dev/null | head -1 | grep -q .; then
+  for d in modules stacks environments envs infrastructure terraform iac infra deploy; do
+    [[ -d "$target/$d" ]] || continue
+    # -maxdepth 5 catches both `infrastructure/main.tf` and
+    # `infrastructure/modules/aws/networking/main.tf`. Going deeper costs
+    # little because the directory list is short and find prunes hidden
+    # dirs we don't care about (.git etc.) once they're skipped.
+    if find "$target/$d" -maxdepth 5 -name '*.tf' -not -path '*/.terraform/*' 2>/dev/null | head -1 | grep -q .; then
       IS_INFRA=1
       IAC_FRAMEWORK="terraform"
       return 0
