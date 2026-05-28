@@ -72,6 +72,24 @@ All profiles also include `block-main` (prevent direct commits to main) and `git
 
 Don't see your stack? You can [create a custom profile](#customizing-profiles) or [learn one from an existing repo](#customizing-profiles).
 
+## Archetypes
+
+Orthogonal to the **stack** (language + framework), nyann classifies every project into one of **6 archetypes** that drive archetype-aware doc scaffolding. The same TypeScript stack can be a `web-app`, `library`, `cli-tool`, or `plugin` depending on what the repo *does* — and gets a different set of docs accordingly.
+
+| Archetype | Detected from | Scaffolds |
+|---|---|---|
+| `api-service` | OpenAPI / proto specs, or server frameworks (FastAPI, NestJS, Django, Rails, Spring Boot, Phoenix, Laravel, Gin, Echo, ASP.NET, …) without a frontend | `architecture.md`, `api-reference.md`, `runbook.md`, `deployment.md`, `decisions/`, `glossary.md` |
+| `web-app` | Frontend frameworks (Next.js, Nuxt, SvelteKit, Astro, React, Vue, Remix) | `architecture.md`, `runbook.md`, `deployment.md`, `decisions/`, `glossary.md` |
+| `mobile-app` | iOS (xcodeproj/Podfile), Android (AndroidManifest.xml), Flutter (pubspec.yaml + flutter dep), React Native (react-native/expo in package.json) | `architecture.md`, `runbook.md`, `deployment.md`, `decisions/`, `glossary.md` |
+| `cli-tool` | `package.json` with `bin`, `pyproject.toml` with `[project.scripts]`, Cargo `[[bin]]`, Go `cmd/*/main.go` | `architecture.md`, `runbook.md`, `decisions/`, `glossary.md` |
+| `library` | Published-package signals without an entry-point binary (`main`/`module`/`exports` in `package.json`, Cargo `[lib]`, Swift `Package.swift`) | `architecture.md`, `api-reference.md`, `decisions/`, `glossary.md` |
+| `plugin` | `.claude-plugin/plugin.json`, `engines.vscode` in `package.json`, browser-extension `manifest.json` with `manifest_version` | `architecture.md`, `decisions/`, `glossary.md` |
+| _fallback_ | `unknown` — when none of the above match | `architecture.md`, `decisions/` (pre-v1.6.0 default) |
+
+Detection runs in priority order: `plugin` → `mobile-app` → frontend frameworks defer artifact-based `api-service` until `web-app` is checked → `api-service` (server frameworks) → `cli-tool` → `library`. This ordering means a full-stack repo with Next.js + an OpenAPI spec for backend route handlers classifies as `web-app` (frontend is the user-visible primary surface), not `api-service`.
+
+Override detection by setting `"archetype"` in your profile, or pass `--archetype <name>` to `/nyann:bootstrap` / `/nyann:route-docs`. Archetype-aware scaffolding is opt-in via `documentation.use_archetype_scaffolds: true` in the profile.
+
 ## Quickstart
 
 **1. Install nyann as a Claude Code plugin.**
