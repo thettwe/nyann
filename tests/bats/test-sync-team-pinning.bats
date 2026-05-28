@@ -11,11 +11,11 @@ setup() {
   # Create a bare remote repo with two commits and a tag
   export REMOTE="$TMP/remote-$$-$BATS_TEST_NUMBER"
   mkdir -p "$REMOTE"
-  git init -q --bare "$REMOTE"
+  git init -q -b main --bare "$REMOTE"
 
   local work="$TMP/work-$$-$BATS_TEST_NUMBER"
   mkdir -p "$work/profiles"
-  git -C "$work" init -q
+  git -C "$work" init -q -b main
   git -C "$work" config user.email "test@test"
   git -C "$work" config user.name "test"
   git -C "$work" remote add origin "$REMOTE"

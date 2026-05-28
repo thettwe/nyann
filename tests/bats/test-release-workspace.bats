@@ -11,7 +11,7 @@ setup() {
 make_monorepo() {
   local d="$TMP/mono-$$-$BATS_TEST_NUMBER-$RANDOM"
   mkdir -p "$d/packages/core" "$d/packages/cli"
-  git -C "$d" init -q
+  git -C "$d" init -q -b main
   git -C "$d" config user.email "test@test"
   git -C "$d" config user.name "test"
 

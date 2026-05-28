@@ -15,7 +15,7 @@ setup() {
 make_repo() {
   local d="$TMP/repo-$$-$RANDOM"
   mkdir -p "$d" && cd "$d"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   git commit --allow-empty -qm "feat: initial feature"
@@ -52,7 +52,7 @@ make_repo() {
 @test "collect-commits: detects breaking change" {
   repo="$TMP/repo-break-$$"
   mkdir -p "$repo" && cd "$repo"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   git commit --allow-empty -qm "feat!: breaking thing"
@@ -64,7 +64,7 @@ make_repo() {
 @test "collect-commits: sanitises tabs and newlines in subject" {
   repo="$TMP/repo-tab-$$"
   mkdir -p "$repo" && cd "$repo"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   printf 'feat: with\ttab' | git commit --allow-empty -qm "$(cat)"
@@ -136,7 +136,7 @@ make_repo() {
 @test "bump-manifests compute: emits plan for json-version-key" {
   repo="$TMP/repo-bump-$$"
   mkdir -p "$repo" && cd "$repo"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   echo '{"version":"0.1.0"}' > package.json
@@ -157,7 +157,7 @@ JSON
 @test "bump-manifests compute: unchanged when already at target version" {
   repo="$TMP/repo-unch-$$"
   mkdir -p "$repo" && cd "$repo"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   echo '{"version":"1.0.0"}' > package.json
@@ -179,7 +179,7 @@ JSON
 @test "bump-manifests apply: writes version to file" {
   repo="$TMP/repo-apply-$$"
   mkdir -p "$repo" && cd "$repo"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   echo '{"version":"0.1.0"}' > package.json
@@ -200,7 +200,7 @@ JSON
 @test "bump-manifests apply: TOCTOU digest mismatch dies" {
   repo="$TMP/repo-toctou-$$"
   mkdir -p "$repo" && cd "$repo"
-  git init -q
+  git init -q -b main
   git config user.email "test@test"
   git config user.name "test"
   echo '{"version":"0.1.0"}' > package.json

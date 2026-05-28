@@ -9,7 +9,7 @@ setup() {
 make_repo_with_branch() {
   local d="$TMP/repo-$$-$BATS_TEST_NUMBER-$RANDOM"
   mkdir -p "$d/src" "$d/tests"
-  git -C "$d" init -q
+  git -C "$d" init -q -b main
   git -C "$d" config user.email "test@test"
   git -C "$d" config user.name "test"
   echo 'main' > "$d/src/app.ts"
