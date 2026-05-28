@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Dead code scan (P6).
+# bin/dead-code-scan.sh — per-stack unused-import detection on the
+# staged diff (JS/TS, Python, Go, Rust).
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

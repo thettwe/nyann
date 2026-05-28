@@ -378,26 +378,26 @@ nyann::is_excluded() {
 # shellcheck disable=SC2034
 readonly NYANN_CURRENT_SCHEMA=1
 
-# --- Preferences schema version (v1.12.0) -------------------------------------
-# Current preferences.json schemaVersion. v1 was the v1.10.0 baseline.
-# v2 adds git_identity, session_triage, guard_default_severity, notifications.
+# --- Preferences schema version ----------------------------------------------
+# Current preferences.json schemaVersion. v2 carries git_identity,
+# session_triage, guard_default_severity, and notifications.{sentinel,
+# staleness_alerts}; v1 omits those four blocks.
 # shellcheck disable=SC2034
 readonly NYANN_PREFS_CURRENT_SCHEMA=2
 
 # nyann::require_setup [skill_name]
-# Setup gate (S0). Returns 0 if preferences.json exists at $NYANN_USER_ROOT
-# (default: ~/.claude/nyann). Returns 2 if missing — caller is expected to
-# either auto-launch the setup skill inline or emit a clear "run /nyann:setup"
-# message. Honors CI/non-interactive envs by treating preferences.json as
-# present-on-demand (we write defaults silently rather than block).
+# Returns 0 if preferences.json exists at $NYANN_USER_ROOT (default:
+# ~/.claude/nyann). Returns 2 if missing — caller is expected to either
+# auto-launch the setup skill inline or emit a clear "run /nyann:setup"
+# hint. Honors CI / NYANN_NONINTERACTIVE by synthesizing a defaults-only
+# preferences.json rather than blocking, so headless flows don't deadlock.
 #
 # Why a gate rather than an enforcer:
 # - Bash scripts can't run the AskUserQuestion picker themselves; only the
 #   surrounding skill (the LLM-driven flow) can. So this helper exits with
 #   status 2 + a clear stderr hint, leaving the skill to re-enter setup.
 # - In CI / NYANN_NONINTERACTIVE=true, we synthesize a defaults-only
-#   preferences.json so downstream scripts don't break — same behavior the
-#   spec calls for under "CI / headless environments."
+#   preferences.json so downstream scripts don't break.
 nyann::require_setup() {
   local skill="${1-}"
   local root="${NYANN_USER_ROOT:-${HOME}/.claude/nyann}"
@@ -578,9 +578,10 @@ nyann::archetype_scaffold_map() {
         'glossary:docs/glossary.md'
       ;;
     infra)
-      # v1.12.0 (I1) — IaC monorepo. The 'modules' scaffold type is new
-      # for this archetype: it produces docs/modules/README.md as a
-      # per-module index template, materialized by scaffold-docs.sh.
+      # IaC monorepo (Terraform / CDK / Pulumi / Helm / Kustomize). The
+      # 'modules' scaffold type is new for this archetype: it produces
+      # docs/modules/README.md as a per-module index template, materialized
+      # by scaffold-docs.sh.
       printf '%s\n' \
         'architecture:docs/architecture.md' \
         'runbook:docs/runbook.md' \

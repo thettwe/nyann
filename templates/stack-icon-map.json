@@ -1,5 +1,5 @@
 {
-  "$comment": "v1.12.0 (C3) — map detected stack signals to skillicons.dev slugs. Order in the value array is preserved when composing the icon URL. Add new slugs sparingly; the URL has a practical cap of ~15 icons before it wraps badly.",
+  "$comment": "Map detected stack signals to skillicons.dev slugs. Order in the value array is preserved when composing the icon URL. Add new slugs sparingly; the URL has a practical cap of ~15 icons before it wraps badly.",
   "languages": {
     "typescript": ["ts"],
     "javascript": ["js"],

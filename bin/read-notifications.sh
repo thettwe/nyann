@@ -7,7 +7,7 @@
 # Default: reads all unread notifications, emits a JSON array, then
 # truncates the file. With --peek, prints without truncating.
 #
-# Designed to be called by the session-start hook (P1) so users see PR
+# Designed to be called by the session-start triage hook so users see PR
 # state changes from prior sessions when they reopen Claude Code.
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

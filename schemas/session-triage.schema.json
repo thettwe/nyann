@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nyann.dev/schemas/session-triage/v1.json",
   "title": "SessionTriageOutput",
-  "description": "Output shape for session-triage notifications. The current implementation emits a single human-readable line via session-check.sh; the schema is reserved for the structured JSON variant emitted with --json (planned post-v1.12.0).",
+  "description": "Output shape for session-triage notifications. The current implementation emits a single human-readable line via session-check.sh; the schema is reserved for the planned structured JSON variant emitted with --json.",
   "type": "object",
   "additionalProperties": false,
   "required": ["fingerprint", "drift_count", "categories"],

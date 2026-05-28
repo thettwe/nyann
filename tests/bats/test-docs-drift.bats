@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Docs-drift (P7).
+# bin/docs-drift-scan.sh + the 4 detectors (version-refs, file-refs,
+# script-refs, count-claims).
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

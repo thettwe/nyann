@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# README stack-icons (C3).
+# bin/gen-readme-stack-icons.sh — skillicons.dev tech-stack block generator.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

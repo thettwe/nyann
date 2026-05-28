@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Pre-action guards (P2).
+# bin/pre-action-guard.sh + bin/guards/*.sh — per-flow precondition checks.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

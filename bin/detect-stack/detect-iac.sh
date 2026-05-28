@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# detect-stack/detect-iac.sh — IaC detection module sourced by detect-stack.sh
-# (v1.12.0 / I1, minimal). Sets the following globals on hit:
+# detect-stack/detect-iac.sh — IaC detection module sourced by detect-stack.sh.
+# Sets the following globals on hit:
 #   IS_INFRA=1
 #   IAC_FRAMEWORK=<terraform|cdk|pulumi|helm|kustomize>
 #

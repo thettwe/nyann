@@ -32,11 +32,11 @@ nyann::require_cmd jq
 
 repo=""
 pr_filter=""
-# shellcheck disable=SC2034  # reserved for a future daemonized poll loop; currently one-shot only.
+# shellcheck disable=SC2034  # reserved for the future daemonized poll loop; currently one-shot only.
 interval=120
-# shellcheck disable=SC2034  # reserved for daemonized mode (planned post-v1.12.0).
+# shellcheck disable=SC2034  # reserved for the future daemonized poll loop.
 max_runtime=14400
-# shellcheck disable=SC2034  # always-true sentinel for the spec's one-shot contract; reserved for the daemonize toggle.
+# shellcheck disable=SC2034  # always-true sentinel for one-shot mode; reserved for the daemonize toggle.
 one_shot=true
 state_dir="${HOME}/.claude/nyann/cache"
 notif_dir="${HOME}/.claude/nyann/notifications"
@@ -72,9 +72,9 @@ if [[ -n "$pr_filter" ]] && ! [[ "$pr_filter" =~ ^[0-9]+$ ]]; then
   nyann::die "--pr must be a positive integer (got: $pr_filter)"
 fi
 # Touch interval / max_runtime / one_shot so shellcheck sees them consumed.
-# They are part of the public CLI contract; the daemonize wrapper (planned
-# post-v1.12.0) will read them — keeping them parsed today avoids a breaking
-# CLI change later.
+# They are part of the public CLI contract; the future daemonize wrapper
+# will read them — keeping them parsed today avoids a breaking CLI change
+# later.
 : "$interval" "$max_runtime" "$one_shot"
 mkdir -p "$state_dir" "$notif_dir" 2>/dev/null || true
 

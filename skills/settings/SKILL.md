@@ -84,7 +84,7 @@ Pass 1 — group picker:
       "options": [
         { "label": "Core (profile, branching, commits, GitHub CLI)", "description": "Day-to-day defaults" },
         { "label": "Documentation + team sync",                       "description": "Docs storage, auto-sync of team profile sources" },
-        { "label": "Proactive features (triage, guards, notifications)", "description": "v1.12.0 awareness toggles" },
+        { "label": "Proactive features (triage, guards, notifications)", "description": "Awareness + monitoring toggles" },
         { "label": "Done — no changes",                                "description": "Exit without writing" }
       ]
     }
@@ -126,7 +126,7 @@ Pass 2 — based on the group, ask the specific setting:
 }
 ```
 
-**Proactive features group (v1.12.0):**
+**Proactive features group:**
 ```json
 {
   "questions": [{
@@ -135,9 +135,9 @@ Pass 2 — based on the group, ask the specific setting:
     "multiSelect": false,
     "options": [
       { "label": "Session triage",                "description": "Quiet drift check on first message each session" },
-      { "label": "Guard severity (default)",      "description": "advisory | confirm (P2 pre-action guards)" },
-      { "label": "CI sentinel notifications",     "description": "P3 sentinel state-change notifications" },
-      { "label": "Staleness alerts",              "description": "Documentation staleness alerts (P4)" }
+      { "label": "Guard severity (default)",      "description": "advisory | confirm — pre-action guard severity floor" },
+      { "label": "CI sentinel notifications",     "description": "Sentinel state-change notifications" },
+      { "label": "Staleness alerts",              "description": "Documentation staleness alerts" }
     ]
   }]
 }

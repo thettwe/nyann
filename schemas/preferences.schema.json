@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nyann.dev/schemas/preferences/v2.json",
   "title": "NyannPreferences",
-  "description": "~/.claude/nyann/preferences.json — per-user nyann defaults collected during setup. schemaVersion: 1 (v1.10.0 baseline) or 2 (v1.12.0 with proactive-awareness fields).",
+  "description": "~/.claude/nyann/preferences.json — per-user nyann defaults collected during setup. schemaVersion 1 covers the core preferences; schemaVersion 2 adds git_identity, session_triage, guard_default_severity, and notifications.{sentinel, staleness_alerts}.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion"],
@@ -53,13 +53,13 @@
     },
     "session_triage": {
       "type": "boolean",
-      "description": "Run lightweight drift check at session start (P1). Added in schemaVersion 2.",
+      "description": "Run lightweight drift check at session start. Added in schemaVersion 2.",
       "default": true
     },
     "guard_default_severity": {
       "type": "string",
       "enum": ["advisory", "confirm"],
-      "description": "Default severity floor for pre-action guards (P2). 'advisory' warns + continues; 'confirm' prompts. Added in schemaVersion 2.",
+      "description": "Default severity floor for pre-action guards. 'advisory' warns + continues; 'confirm' prompts. Added in schemaVersion 2.",
       "default": "advisory"
     },
     "notifications": {
@@ -67,8 +67,8 @@
       "description": "Per-channel notification toggles. Added in schemaVersion 2.",
       "additionalProperties": false,
       "properties": {
-        "sentinel":          { "type": "boolean", "default": true,  "description": "CI sentinel (P3) state-change notifications." },
-        "staleness_alerts":  { "type": "boolean", "default": true,  "description": "Documentation staleness notifications (P4)." }
+        "sentinel":          { "type": "boolean", "default": true,  "description": "CI sentinel state-change notifications." },
+        "staleness_alerts":  { "type": "boolean", "default": true,  "description": "Documentation staleness notifications." }
       }
     },
     "setup_completed_at": {

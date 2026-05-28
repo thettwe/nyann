@@ -198,7 +198,7 @@ if [[ -s "$artifacts_tmp" ]]; then
   debug_artifacts=$(jq -s '.' < "$artifacts_tmp")
 fi
 
-# --- 4. Dead code (forward from P6) ------------------------------------------
+# --- 4. Dead code (delegated to bin/dead-code-scan.sh) -----------------------
 dead_code='[]'
 if [[ -x "${_script_dir}/dead-code-scan.sh" || -f "${_script_dir}/dead-code-scan.sh" ]]; then
   # If profile has conventions.dead_code_scan == false, skip.

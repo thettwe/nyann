@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Setup gate (S0) — nyann::require_setup behavior + setup v2 schema fields.
+# nyann::require_setup behavior + setup.sh writes the v2 schema fields.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

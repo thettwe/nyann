@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Docs staleness (P4).
+# bin/docs-staleness.sh — flag docs whose correlated sources have churned
+# since the doc was last touched.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

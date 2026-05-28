@@ -44,7 +44,7 @@ gh_integration=true
 documentation_storage="local"
 auto_sync_team_profiles=false
 
-# v1.12.0 (S0) — new v2 fields.
+# Schema-v2 fields (git identity + proactive-feature toggles).
 git_identity_name=""
 git_identity_email=""
 git_identity_confirmed=false
@@ -404,12 +404,11 @@ fi
 # --- Merge with existing preferences (incremental upgrade) -------------------
 # When --incremental + --fields are passed, we want to update ONLY the named
 # fields and preserve everything else from the existing preferences.json.
-# When the file already exists and the caller hasn't passed --incremental, the
-# usual setup re-run still overwrites — this matches v1.10.0 behavior. Warn
-# loudly when overwriting an older-schema file so a fresh run doesn't
-# silently revert booleans the user previously set to false (jq's // trap
-# means a CLI default re-applied as `gh_integration=true` would clobber a
-# stored `false` without trace).
+# Without --incremental, a re-run overwrites every field with CLI defaults
+# (a fresh-setup semantic). Warn loudly when overwriting an older-schema
+# file so a fresh run doesn't silently revert booleans the user previously
+# set to false (jq's // trap means a CLI default re-applied as
+# `gh_integration=true` would clobber a stored `false` without trace).
 if [[ -f "$prefs_path" ]]; then
   existing_schema=$(jq -r '.schemaVersion // 1' "$prefs_path" 2>/dev/null || echo 1)
   if [[ -z "$incremental_fields" ]] && (( existing_schema < NYANN_PREFS_CURRENT_SCHEMA )); then

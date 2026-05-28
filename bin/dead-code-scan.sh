@@ -10,8 +10,9 @@
 # JSON on stdout.
 #
 # Only high-confidence findings are surfaced unless --include-medium is
-# passed (P6 spec: high-confidence-only by default to keep false-positive
-# rate low).
+# passed. Single-file heuristics can't see cross-file usage, so anything
+# below "high" is suppressed by default to keep the false-positive rate
+# tolerable for commit-time use.
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./_lib.sh

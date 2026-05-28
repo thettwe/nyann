@@ -652,10 +652,10 @@ if [[ -n "$stack_path" && -f "$stack_path" ]]; then
     hcl)                   hook_phases+=(--iac) ;;
   esac
 fi
-# v1.12.0 (I1): also enable the IaC phase when the profile's archetype is
-# `infra` or its framework is `terraform`. Catches cases where the primary
-# language is something other than hcl (e.g., a CDK repo whose primary
-# language is typescript) but the repo is still IaC.
+# Also enable the IaC phase when the profile's archetype is `infra` or
+# its framework is `terraform`. Catches cases where the primary language
+# is something other than hcl (e.g., a CDK repo whose primary language
+# is typescript) but the repo is still IaC.
 if [[ -f "$profile_path" ]]; then
   profile_archetype=$(jq -r '.archetype // ""' "$profile_path")
   profile_framework=$(jq -r '.stack.framework // ""' "$profile_path")

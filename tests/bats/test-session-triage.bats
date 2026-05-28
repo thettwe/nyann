@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Session triage (P1) — wrapper + fingerprint dedup in session-check.
+# bin/session-triage.sh wrapper + fingerprint dedup in session-check.sh.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

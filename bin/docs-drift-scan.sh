@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docs-drift-scan.sh — orchestrate P7 doc-drift detection across the four
+# docs-drift-scan.sh — orchestrate doc-drift detection across the four
 # detectors (version-refs, file-refs, script-refs, count-claims).
 #
 # Usage:

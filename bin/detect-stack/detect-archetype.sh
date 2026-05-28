@@ -61,10 +61,11 @@ if [[ -f "${path}/.claude-plugin/plugin.json" ]] || \
   archetype="plugin"
 fi
 
-# 1b. infra — IaC monorepo signals (v1.12.0 / I1)
-#     Slotted right after plugin so a Terraform repo with no [[bin]] doesn't
-#     fall through to library/cli-tool. Frontend-tie-break (step 4) still
-#     wins when a repo legitimately mixes Terraform with a web app.
+# 1b. infra — IaC monorepo signals (Terraform / CDK / Pulumi / Helm /
+#     Kustomize). Slotted right after plugin so a Terraform repo with no
+#     [[bin]] doesn't fall through to library/cli-tool. The frontend
+#     tie-break in step 4 still wins when a repo legitimately mixes
+#     Terraform with a web app.
 if [[ "$archetype" == "unknown" ]]; then
   # shellcheck source=./detect-iac.sh
   source "${_detect_dir}/detect-iac.sh"

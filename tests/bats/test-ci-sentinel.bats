@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# CI sentinel (P3) — focuses on the non-network parts: notification queue
+# CI sentinel — focuses on the non-network parts: notification queue
 # handling, --stop semantics, schema validation. Real gh polling is mocked.
 
 setup() {

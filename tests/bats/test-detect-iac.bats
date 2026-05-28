@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# IaC detection (I1).
+# bin/detect-stack/detect-iac.sh + terraform-monorepo profile + IaC
+# install-hooks phase.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

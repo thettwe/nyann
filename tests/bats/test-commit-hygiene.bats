@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Commit hygiene (P5).
+# bin/commit-hygiene.sh — scope suggestion, incomplete-staging detection,
+# debug-artifact scan, dead-code fold-in.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

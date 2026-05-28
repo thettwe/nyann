@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# README badges (C3).
+# bin/gen-readme-badges.sh — shields.io badge block generator.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"

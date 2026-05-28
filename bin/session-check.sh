@@ -50,8 +50,8 @@ done
 # matching the SKILL.md callers; reject anything else loudly so a typo
 # in a skill (e.g. --flow=commits) surfaces immediately rather than
 # silently degrading to no-suffix output.
-# session-start (v1.12.0/P1) is dedup'd via fingerprint cache rather than
-# treated as a flow noun.
+# session-start is dedup'd via fingerprint cache rather than treated as a
+# flow noun.
 case "$flow" in
   ""|commit|release|pr|ship|session-start) ;;
   *)
@@ -181,10 +181,10 @@ need_cleanup_nudge=0
 # Nothing to surface → exit silently.
 (( drift_total == 0 && need_cleanup_nudge == 0 )) && exit 0
 
-# Fingerprint dedup (P1 — session-start). Suppress repeat output when
-# the drift state hasn't changed since the last session-start check.
-# Other flows (commit/pr/release/ship) bypass this — they need the
-# warning every time because they're about to mutate.
+# Fingerprint dedup for session-start: suppress repeat output when the
+# drift state hasn't changed since the last session-start check. Other
+# flows (commit/pr/release/ship) bypass this — they need the warning
+# every time because they're about to mutate.
 if [[ "$flow" == "session-start" ]]; then
   fp_dir="${NYANN_USER_ROOT:-${HOME}/.claude/nyann}/cache"
   mkdir -p "$fp_dir" 2>/dev/null || true
