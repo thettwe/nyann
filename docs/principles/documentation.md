@@ -198,6 +198,22 @@ Gaps closed in v1.7.0:
   Serves property 1 (AI-retrieval-first) — finally puts content in
   the file we already shipped a template for.
 
+Gaps closed in v1.9.0:
+
+- **Archetype-specific drift checks** — `bin/compute-drift.sh` now
+  emits `misplaced[]` for files that live outside their archetype's
+  expected location, and `doctor` surfaces "missing for archetype"
+  warnings. The CLI-variant `--help` matching and API-reference
+  endpoint validation are still future work but the framework is
+  in place.
+
+Gaps closed in v1.11.0:
+
+- **Documentation correlations via profile composition** —
+  `extends` lets profiles inherit a shared documentation policy
+  (correlations, staleness thresholds) without duplicating it in
+  every child profile. Serves property 3 (drift-aware).
+
 ## Adding a new doc template
 
 Before any new template ships, answer:
@@ -221,19 +237,23 @@ required to pass the four-question test retroactively.
 
 ## Open questions
 
-- **Archetype-specific drift checks.** API services should validate
+- **Deeper archetype-specific validation.** v1.9.0 added structural
+  drift checks (misplaced files, missing files for archetype), but
+  the content-level checks remain open: API services should validate
   "every endpoint appears in `api-reference.md`"; CLIs should match
-  documented commands against `--help`. The CLI variant was scoped
-  for v1.8.0 but deferred so the headline reversibility work could
-  ship cleanly. Now targeting v1.10+ for both archetypes.
+  documented commands against `--help`. Targeting v1.12+ as part of
+  P4 (documentation staleness detector).
 - **MCP-side templates.** Obsidian and Notion users get the same
-  Markdown today. Notion-block-formatted variants remain a v1.10+
-  question.
+  Markdown today. Notion-block-formatted variants remain open.
 - **Glossary depth — comments + private types.** v1.7.0 only seeds
   exported / public types. A future iteration could surface JSDoc /
   docstring comments next to each entry, and optionally include
   internal types behind a profile flag for repos that document
   internals as part of their AI retrieval surface.
+- **Public-doc drift detection.** Counts and feature claims in
+  README/CONTRIBUTING/architecture docs are tracked manually today.
+  Targeting v1.12+ as P7 — a docs-drift scanner that catches stale
+  numbers and missing v1.X feature mentions before they ship.
 
 ## Versioning these principles
 

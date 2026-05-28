@@ -14,7 +14,7 @@ brew install bats-core shellcheck jq uv   # macOS
 
 # Run the full check suite:
 ./tests/lint.sh        # shellcheck + SKILL.md length
-bats tests/bats/        # full bats suite (1044 tests as of v1.8.0)
+bats tests/bats/        # full bats suite (1318 tests as of v1.11.0)
 ```
 
 A change is ready to land when both pass and the `## [Unreleased]` section of `CHANGELOG.md` describes the user-visible effect. (After v1.0.0 ships, contributors add a fresh `## [Unreleased]` section above the `## [1.0.0]` entry; the release ritual in `docs/RELEASING.md` handles the version-bump rename.)
