@@ -72,6 +72,24 @@ teardown() { rm -rf "$TMP"; }
   [ "$sha1" = "$sha2" ]
 }
 
+@test "--apply refuses to truncate README with orphaned marker_start" {
+  echo "MIT License" > "$REPO/LICENSE"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+
+<!-- nyann:badges:start -->
+(orphaned — no matching end marker because a prior --apply crashed)
+
+## Important content below that must survive
+This paragraph must not be lost.
+EOF
+  run bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "orphaned marker_start"
+  # Original content preserved.
+  grep -q "Important content below that must survive" "$REPO/README.md"
+}
+
 @test "Output validates against readme-badge-block schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

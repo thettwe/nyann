@@ -46,6 +46,23 @@ surface the line to the user verbatim. Do not block the flow.
 - Verify there are commits ahead of the base. If `ahead == 0`, tell
   the user there's nothing to PR and suggest they commit first.
 
+### Pre-action guards
+
+```
+bash bin/pre-action-guard.sh --flow pr --target <cwd> [--profile <resolved-profile.json>]
+```
+
+| Exit | Meaning | Action |
+|---|---|---|
+| 0 | Pass (or advisory warnings) | Surface advisory `message` lines, continue |
+| 3 | Critical guard failed | Refuse to open the PR unless the user passes `--skip-guards`. Re-ask via AskUserQuestion. |
+| 4 | Confirm-severity guard failed | AskUserQuestion: "Proceed despite the warnings?" — explicit confirm required. |
+
+Built-in PR guards include `branch-pushed` (advisory if upstream missing
+or ahead/behind) and `wip-commits` (advisory if the commit range still
+contains WIP/fixup commits). Profiles can promote either to `confirm` or
+`critical` via `guards.pr` in the profile.
+
 ## 2. Decide base branch
 
 `bin/pr.sh` resolves base in this order: `--base` arg > upstream

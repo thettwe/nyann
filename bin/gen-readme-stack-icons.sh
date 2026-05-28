@@ -152,6 +152,13 @@ if $apply; then
     action="write"
     diff_summary="created README.md with stack-icon block"
   elif grep -Fq "$marker_start" "$readme"; then
+    # Defensive: refuse to rewrite when the SOURCE README has an
+    # orphaned marker_start without a matching marker_end. Must check
+    # the source — the awk pass injects a new body that always contains
+    # marker_end, so checking the output would never catch the orphan.
+    if ! grep -Fq "$marker_end" "$readme"; then
+      nyann::die "README.md has an orphaned marker_start without a matching marker_end; refusing to truncate. Repair the file manually then re-run --apply."
+    fi
     # BSD awk rejects multi-line -v vars; spool body to file and load via getline.
     body_tmp=$(mktemp -t nyann-body.XXXXXX)
     printf '%s' "$rendered" > "$body_tmp"
@@ -167,12 +174,6 @@ if $apply; then
       index($0, me) { skip=0; next }
       !skip { print }
     ' "$readme" > "$tmp"
-    # Defensive: orphaned marker_start without marker_end would truncate
-    # README silently — refuse rather than commit a destructive write.
-    if ! grep -Fq "$marker_end" "$tmp"; then
-      rm -f "$tmp" "$body_tmp"
-      nyann::die "README.md has an orphaned marker_start without a matching marker_end; refusing to truncate. Repair the file manually then re-run --apply."
-    fi
     mv "$tmp" "$readme"
     rm -f "$body_tmp"
     action="write"

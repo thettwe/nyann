@@ -30,6 +30,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/session-triage.sh",
+            "timeout": 2000
+          }
+        ]
+      }
     ]
   }
 }

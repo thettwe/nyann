@@ -110,6 +110,37 @@ EOF
   echo "$out" | grep -q "tflint not installed"
 }
 
+@test "terraform-docs hook does not auto-stage READMEs of un-staged modules" {
+  cd "$REPO" && git init -q -b main && git config user.email t@t && git config user.name t
+  mkdir -p modules/staged modules/untouched
+  echo 'resource "null_resource" "s" {}' > modules/staged/main.tf
+  echo 'resource "null_resource" "u" {}' > modules/untouched/main.tf
+  echo "# staged module" > modules/staged/README.md
+  echo "# untouched module" > modules/untouched/README.md
+  git add modules/staged/main.tf modules/staged/README.md \
+          modules/untouched/main.tf modules/untouched/README.md
+  git -c core.hooksPath=/dev/null commit -q -m "feat: initial"
+
+  # Modify both READMEs; stage only the staged-module's .tf change.
+  printf '\nadded\n' >> modules/staged/README.md
+  printf '\nadded\n' >> modules/untouched/README.md
+  printf '\n# new\n' >> modules/staged/main.tf
+  git add modules/staged/main.tf
+
+  # Run the hook with no terraform-docs binary. It should soft-skip the
+  # regeneration AND must not stage modules/untouched/README.md.
+  PATH=/usr/bin:/bin bash "$REPO_ROOT/templates/hooks/iac/terraform-docs.sh" \
+    >/dev/null 2>&1 || true
+
+  staged_now=$( git diff --cached --name-only | sort | tr '\n' ' ' )
+  case "$staged_now" in
+    *"modules/untouched/README.md"*)
+      echo "untouched README was auto-staged: $staged_now" >&2
+      false
+      ;;
+  esac
+}
+
 @test "infra archetype scaffold map emits IaC-appropriate doc types" {
   out=$( bash -c "source '$REPO_ROOT/bin/_lib.sh'; nyann::archetype_scaffold_map infra" )
   echo "$out" | grep -q "^architecture:"

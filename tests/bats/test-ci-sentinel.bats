@@ -29,6 +29,17 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -ne 0 ]
 }
 
+@test "--pr rejects a non-integer value" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo o/r --pr abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "must be a positive integer"
+}
+
+@test "--pr accepts a positive integer (soft-skips when gh missing)" {
+  run bash -c "PATH=/usr/bin:/bin bash '$REPO_ROOT/bin/ci-sentinel.sh' --repo o/r --pr 42 --state-dir '$STATE_DIR' --notif-dir '$NOTIF_DIR'"
+  [ "$status" -eq 0 ]
+}
+
 @test "read-notifications returns [] when queue file missing" {
   out=$(bash "$REPO_ROOT/bin/read-notifications.sh" --repo o/r --notif-dir "$NOTIF_DIR")
   echo "$out" | jq -e '. == []'

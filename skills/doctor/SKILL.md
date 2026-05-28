@@ -82,6 +82,17 @@ mean?", explain in terms of the repo, not nyann internals:
   scanning). Soft-skips when `gh` is missing or unauthenticated.
   Driven by `bin/gh-integration.sh --check` under the hood. Critical
   drift here bumps the exit code to 5; warn drift bumps it to 4.
+- **DOC STALENESS:** doc files under `docs/` whose correlated source
+  paths have changed substantially since the doc itself was last
+  touched. Heuristic-based (`bin/docs-staleness.sh`); thresholds
+  configurable via the profile (`documentation.staleness_threshold_*`).
+  Informational — never affects exit code.
+- **PUBLIC-DOC DRIFT:** README/CONTRIBUTING/SECURITY/docs/*.md scanned
+  for version-ref drift (semver older than latest tag), broken
+  markdown link targets, missing `npm run` / `make` script references,
+  and count-claim drift (opt-in per profile). Driven by
+  `bin/docs-drift-scan.sh`. Critical/high findings escalate the exit
+  code (mirrors GitHub protection); medium/low are advisory.
 
 The protection block respects nyann's gh-best-effort invariant — it
 never prompts for credentials and never blocks the audit. When `gh`

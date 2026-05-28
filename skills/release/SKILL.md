@@ -86,6 +86,25 @@ declares.
   the common case, but patch releases from `release/*` or
   `hotfix/*` are legitimate).
 
+### Pre-action guards
+
+```
+bash bin/pre-action-guard.sh --flow release --target <cwd> [--profile <resolved-profile.json>]
+```
+
+The built-in `clean-tree` guard catches a dirty working tree before
+`release.sh` would (with a more actionable message). Profiles may add
+flow-specific guards via `guards.release` — surface those too.
+
+| Exit | Meaning | Action |
+|---|---|---|
+| 0 | Pass | Continue |
+| 3 | Critical guard failed | Refuse to release. Relay the guard's `message` verbatim — the user fixes the underlying issue. `--skip-guards` is available but should be rare for a release. |
+| 4 | Confirm-severity guard failed | AskUserQuestion: "Proceed with the release?" — explicit confirm. |
+
+Skip this step entirely on `--dry-run` (the user is previewing, not
+mutating).
+
 ## 4. Dry-run first if uncertain
 
 When the user says "what would a release look like" or the commit

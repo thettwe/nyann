@@ -44,6 +44,46 @@ If `on_main: true`, warn the user that the block-main hook will reject
 the commit. Suggest they create a feature branch via the `new-branch`
 skill before continuing.
 
+## 1.5. Pre-action guards + commit hygiene
+
+Run **both** of these before generating the message — they inform scope
+choice and prevent obvious mistakes from reaching the commit message
+step:
+
+```
+bash bin/pre-action-guard.sh --flow commit --target <cwd> [--profile <resolved-profile.json>]
+bash bin/commit-hygiene.sh --target <cwd> [--profile <resolved-profile.json>]
+```
+
+### Guard handling (exit code)
+
+| Exit | Meaning | Action |
+|---|---|---|
+| 0 | All guards passed (or only advisory warnings) | Surface any advisory `message` lines, continue |
+| 3 | One or more critical guards failed | Surface the failing guard messages. Refuse to proceed unless the user passes `--skip-guards` explicitly (re-ask via AskUserQuestion). |
+| 4 | One or more `confirm`-severity guards failed | Surface the failures. Call AskUserQuestion: "Proceed despite the warnings?" Only continue on explicit confirm. |
+
+Don't silently pass critical failures. The `merge-conflict-markers`
+guard catching `<<<<<<<` in the staged diff is exactly the case where
+"warn and continue" would let a broken merge into a commit.
+
+### Hygiene findings
+
+`commit-hygiene.sh` emits `{scope_suggestion, incomplete_staging,
+debug_artifacts, dead_code, summary}`. Surface them inline:
+
+- `scope_suggestion.primary` (when non-null) — pre-fill the CC scope in
+  §3 with this value unless the user objects.
+- `incomplete_staging[]` — surface each entry as a short warning
+  ("`package.json` staged but lockfile is modified-but-unstaged").
+  Don't block; the user may genuinely intend a partial commit.
+- `debug_artifacts[]` — show file:line:match. Ask the user via
+  AskUserQuestion whether to abort + clean up, or continue.
+- `dead_code[]` — show file:line:name. Same prompt as debug artifacts.
+
+If `summary.warnings == 0`, skip the hygiene surface entirely — quiet
+when there's nothing to say.
+
 ## 2. Pick a convention
 
 Read `context.convention`:

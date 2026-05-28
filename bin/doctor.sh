@@ -138,6 +138,32 @@ fi
 sb_merged=$(jq -r '.summary.merged_count // 0' <<<"$stale_branches_json")
 sb_stale=$(jq -r '.summary.stale_count // 0' <<<"$stale_branches_json")
 
+# --- Documentation staleness probe (read-only) ------------------------------
+# Soft signal: which docs have drifted from their correlated sources.
+# Skipped (empty {}) when no docs/ directory exists or when the helper
+# fails for any reason — never blocks the audit.
+docs_staleness_json=$("${_script_dir}/docs-staleness.sh" \
+  --target "$target" --profile "$tmp_profile" 2>/dev/null || echo '{}')
+if [[ -z "$docs_staleness_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$docs_staleness_json" 2>/dev/null || echo "")" != "object" ]]; then
+  docs_staleness_json='{}'
+fi
+ds_stale=$(jq -r '.summary.stale_count // 0' <<<"$docs_staleness_json")
+
+# --- Public-doc drift probe (read-only) -------------------------------------
+# version-refs, file-refs, script-refs, count-claims findings in
+# README/CONTRIBUTING/SECURITY/docs/*.md. Soft signal: surfaced in the
+# drift section but never blocks the audit.
+docs_drift_json=$("${_script_dir}/docs-drift-scan.sh" \
+  --target "$target" --profile "$tmp_profile" 2>/dev/null || echo '{}')
+if [[ -z "$docs_drift_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$docs_drift_json" 2>/dev/null || echo "")" != "object" ]]; then
+  docs_drift_json='{}'
+fi
+dd_total=$(jq -r '.summary.total // 0' <<<"$docs_drift_json")
+dd_critical=$(jq -r '.summary.by_severity.critical // 0' <<<"$docs_drift_json")
+dd_high=$(jq -r '.summary.by_severity.high // 0' <<<"$docs_drift_json")
+
 # --- Compute drift ONCE -------------------------------------------------------
 # Previously text mode ran retrofit.sh twice (once --json, once --report-only).
 # Now compute-drift.sh runs once; JSON mode wraps via retrofit.sh, text mode
@@ -159,7 +185,9 @@ if $json_out; then
     --argjson hs "$score_json" \
     --argjson pa "$protection_audit_json" \
     --argjson sb "$stale_branches_json" \
-    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb }'
+    --argjson ds "$docs_staleness_json" \
+    --argjson dd "$docs_drift_json" \
+    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd }'
 else
   # Single compute-drift call replaces two retrofit.sh calls.
   report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile" --scope "$scope") \
@@ -440,6 +468,38 @@ if ! $json_out; then
     if (( sb_merged > 0 )); then
       printf '  ⚠ run /nyann:cleanup-branches to prune the merged set\n'
     fi
+  fi
+  # Documentation staleness — informational; surfaces the doc files
+  # whose correlated sources have churned since the doc was last
+  # touched, so the user knows where to start when refreshing docs.
+  if (( ds_stale > 0 )); then
+    printf '\nDOC STALENESS: %s file(s) where correlated sources have churned\n' "$ds_stale"
+    jq -r '.findings[] | "  ⚠ " + .doc + " — " + .reason' <<<"$docs_staleness_json" 2>/dev/null | head -5
+  fi
+  # Public-doc drift — version refs older than the latest tag, broken
+  # markdown links, missing npm/make script targets, count-claim drift.
+  # critical/high findings escalate exit code (mirrors gh-protection
+  # behavior); medium/low are informational only.
+  if (( dd_total > 0 )); then
+    printf '\nPUBLIC-DOC DRIFT: %s finding(s) (%s critical, %s high)\n' \
+      "$dd_total" "$dd_critical" "$dd_high"
+    jq -r '.findings[] | "  " + (if .severity == "critical" or .severity == "high" then "✗" else "⚠" end) + " " + .file + (if .line then ":\(.line)" else "" end) + " — " + .message' \
+      <<<"$docs_drift_json" 2>/dev/null | head -10
+    if (( dd_critical > 0 )) && (( retro_rc < 5 )); then
+      retro_rc=5
+    elif (( dd_high > 0 )) && (( retro_rc < 4 )); then
+      retro_rc=4
+    fi
+  fi
+fi
+
+# Apply doc-drift exit-code escalation in JSON mode too (text mode does
+# it inline above). The text-mode block is gated on `! $json_out`.
+if $json_out; then
+  if (( dd_critical > 0 )) && (( retro_rc < 5 )); then
+    retro_rc=5
+  elif (( dd_high > 0 )) && (( retro_rc < 4 )); then
+    retro_rc=4
   fi
 fi
 
