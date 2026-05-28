@@ -1,3 +1,51 @@
+## [1.11.0] — 2026-05-28
+
+### Features
+
+- **Profile composition (`extends`)** — profiles can inherit from a parent via `"extends": "node-api"` with deep merge semantics. Arrays replace; objects merge recursively; max chain depth 3; circular detection. Validates merged result against schema. New `bin/merge-profiles.sh` helper, `_meta.extends_chain[]` surfaces resolution path. (fb200b8)
+- **Monorepo workspace release** — `release.sh` gains `--workspace <path>` and `--all-workspaces` for per-workspace versioning, scoped tags (`core@2.1.0`), and scoped CHANGELOG sections. `--batch-commit` mode groups all workspace releases into a single commit (with tags pointing to that commit). New scripts under `bin/release/`: `release-workspace.sh`, `detect-workspace-changes.sh`. (c735c25)
+- **PR risk score in `/nyann:ship`** — composite score from churn (40%), test gap (40%), and health delta (20%). Surfaces a `low|medium|high` level with actionable recommendations before the PR is created. New `bin/pr-risk-score.sh` + schema. (0f4c874)
+- **CODEOWNERS generation extended to single-repo profiles** — generation no longer requires a workspaces array. New `bin/derive-codeowners.sh` suggests owners from git history (commit authors over a configurable threshold) when no explicit `code_owners` are declared. (3580f91)
+- **Team profile pinning (SHA + tag)** — `nyann:add-team-source` accepts `pin_strategy: sha|tag|branch`. Pinned sources require explicit `--accept-update` to advance; auto-sync respects pins. New `--check-updates` mode reports changelog between pinned and HEAD. (b94e151)
+
+### Refactors
+
+- **Orchestrator extraction** — three monoliths split into sourced modules under per-feature directories:
+  - `bin/release.sh` (1,059 lines) → `bin/release/{bump-manifests,ci-gate,collect-commits,detect-workspace-changes,github-release,push-release,release-workspace,render-changelog}.sh` (a3eeaa2)
+  - `bin/gh-integration.sh` (885 lines) → `bin/gh-integration/{apply-protection,audit-branch-protection,audit-codeowners,audit-repo-settings,audit-security,audit-signing,audit-tag-protection,_helpers}.sh` (7fe5ea6)
+  - `bin/detect-stack.sh` (1,497 lines) → `bin/detect-stack/{detect-archetype,detect-go-rust,detect-hints,detect-jsts,detect-mobile-systems,detect-python,detect-v110-stacks,discover-workspaces,_detect-common}.sh` (16f173e)
+
+### Fixes
+
+- **Security hardening** — 13 fixes from multi-agent adversarial review:
+  - `$target` variable was clobbered by sourced `audit-tag-protection.sh` (renamed to `rs_target`), causing wrong audit output when tag rulesets existed (97a7fad)
+  - `script` bump format now requires explicit `--allow-scripts` to execute (prevents arbitrary command execution from compromised profiles) (97a7fad)
+  - Code-owner downgrade check no longer noops when both remote and profile want code-owner reviews (97a7fad)
+  - Workspace tags now created **after** batch commit so they point to the commit containing changelogs (97a7fad)
+  - Empty `ws_result` from failed workspace release no longer crashes `jq` (97a7fad)
+  - `git://` protocol rejected from `nyann::valid_git_url` (MITM risk on team profile sync) (97a7fad)
+  - `git add -A` in batch workspace release replaced with targeted `git add` of CHANGELOG files only (97a7fad)
+  - Workspace release path now propagates non-zero exit when any workspace fails (97a7fad)
+- **Tests** — fix git identity and default branch for CI portability (`git init -b main` + `git config user.email/name` in temp repos) (b3679ad, 92187e1)
+- **Lint** — add shellcheck SC2034 directives for variables consumed by sourced modules (31c310f)
+- **Round 2 security pass** — additional hardening from a second adversarial review (bcbac3e)
+- **`detect-workspace-changes.sh`** — fix SC2106 (continue inside subshell) (6024847)
+
+### Schema additions
+
+- `profiles/_schema.json` — `extends` field; namespaced `team/name` extends format supported
+- `schemas/release-result.schema.json` — new `WorkspaceRelease` variant for monorepo output
+- `schemas/workspace-release-result.schema.json` — `oneOf` with success and error variants
+- `schemas/pr-risk-score.schema.json` — new
+- `schemas/team-profile-changelog.schema.json` — new
+
+### Stats
+
+- Files changed: 47 · Lines: +4801 −2626
+- New starter profiles: 0 (focus was on infrastructure)
+- New schemas: 5
+- New test files: 7 (~180 new cases)
+
 ## [1.10.0] — 2026-05-28
 
 ### Added
