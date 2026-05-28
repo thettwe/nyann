@@ -227,6 +227,7 @@ confidence=$(awk -v m="$signal_manifest" -v c="$signal_claudemd" -v d="$signal_d
      printf "%.2f", s;
    }')
 
+archetype="unknown"
 # shellcheck source=detect-stack/detect-archetype.sh
 source "${_detect_dir}/detect-archetype.sh"
 

@@ -23,9 +23,11 @@ nyann::require_cmd jq
 
 target="$PWD"
 base="main"
+# shellcheck disable=SC2034
 profile_path=""
 health_file=""
 
+# shellcheck disable=SC2034
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)       target="${2:-}"; shift 2 ;;
@@ -53,6 +55,7 @@ _add_rec() {
 # --- churn score (40%) --------------------------------------------------------
 # lines changed × files changed × hotspot factor
 
+# shellcheck disable=SC2034
 diff_stat=$(git -C "$target" diff --stat "${base}...HEAD" 2>/dev/null || true)
 files_changed=$(git -C "$target" diff --name-only "${base}...HEAD" 2>/dev/null | wc -l | tr -d ' ')
 lines_changed=$(git -C "$target" diff --shortstat "${base}...HEAD" 2>/dev/null | \

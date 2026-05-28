@@ -127,24 +127,35 @@ trap 'rm -f "$tmp_profile" "$load_err" "$apply_err"' EXIT
   cat "$load_err" >&2; rm -f "$tmp_profile"; exit 2
 }
 
+# Profile fields — consumed by sourced modules in gh-integration/.
+# shellcheck disable=SC2034
 strategy=$(jq -r '.branching.strategy' "$tmp_profile")
 # .github.enable_branch_protection: explicit false wins. //true only fires on
 # null/missing — `false // true` would incorrectly coerce.
 enable=$(jq -r 'if .github.enable_branch_protection == false then "false" else "true" end' "$tmp_profile")
+# shellcheck disable=SC2034
 required_reviews=$(jq -r '.github.require_pr_reviews // 1' "$tmp_profile")
+# shellcheck disable=SC2034
 required_checks_csv=$(jq -r '.github.require_status_checks // [] | join(",")' "$tmp_profile")
+# shellcheck disable=SC2034
 require_code_owner_reviews=$(jq -r '.github.require_code_owner_reviews // false' "$tmp_profile")
-# shellcheck disable=SC2034 # consumed by the tag-protection section in --check.
+# shellcheck disable=SC2034
 tag_protection_pattern=$(jq -r '.github.tag_protection_pattern // ""' "$tmp_profile")
+# shellcheck disable=SC2034
 require_signed_commits=$(jq -r '.github.require_signed_commits // false' "$tmp_profile")
+# shellcheck disable=SC2034
 require_signed_tags=$(jq -r '.github.require_signed_tags // false' "$tmp_profile")
 # Repo-settings audit fields (repo-config). `null` = profile silent
 # on that button; the audit treats it as "no opinion" and emits no drift.
+# shellcheck disable=SC2034
 allow_squash_merge_expected=$(jq -r 'if .github.allow_squash_merge == null then "null" else (.github.allow_squash_merge|tostring) end' "$tmp_profile")
+# shellcheck disable=SC2034
 allow_rebase_merge_expected=$(jq -r 'if .github.allow_rebase_merge == null then "null" else (.github.allow_rebase_merge|tostring) end' "$tmp_profile")
+# shellcheck disable=SC2034
 allow_merge_commit_expected=$(jq -r 'if .github.allow_merge_commit == null then "null" else (.github.allow_merge_commit|tostring) end' "$tmp_profile")
+# shellcheck disable=SC2034
 delete_branch_on_merge_expected=$(jq -r 'if .github.delete_branch_on_merge == null then "null" else (.github.delete_branch_on_merge|tostring) end' "$tmp_profile")
-# Default-branch expectation is the first entry in branching.base_branches.
+# shellcheck disable=SC2034
 default_branch_expected=$(jq -r '.branching.base_branches[0] // "main"' "$tmp_profile")
 rm -f "$tmp_profile"
 
@@ -203,9 +214,13 @@ source "${_gh_dir}/_helpers.sh"
 # --- --check (read-only audit) ------------------------------------------------
 
 if $check_only; then
+  # shellcheck disable=SC2034
   branches_arr='[]'
+  # shellcheck disable=SC2034
   total_drift=0
+  # shellcheck disable=SC2034
   total_critical=0
+  # shellcheck disable=SC2034
   total_warn=0
 
   # shellcheck source=gh-integration/audit-branch-protection.sh
