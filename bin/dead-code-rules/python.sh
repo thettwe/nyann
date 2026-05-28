@@ -12,8 +12,11 @@ emit() {
   total=$(grep -nE -e "\\b${name}\\b" "$file" 2>/dev/null \
     | awk -F: -v ln="$lineno" '$1 != ln {n++} END {print n+0}')
   if [[ "$total" -eq 0 ]]; then
-    printf '{"file":"%s","line":%d,"kind":"unused-import","name":"%s","confidence":"high","rule":"python"}\n' \
-      "$file" "$lineno" "$name"
+    jq -nc \
+      --arg file "$file" \
+      --argjson line "$lineno" \
+      --arg name "$name" \
+      '{file:$file, line:$line, kind:"unused-import", name:$name, confidence:"high", rule:"python"}'
   fi
 }
 
@@ -31,6 +34,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   (( in_doc )) && continue
 
   trimmed="${line#"${line%%[![:space:]]*}"}"
+  # Strip trailing inline comment (`# noqa`, `# type: ignore`, etc.) so
+  # the import regex's end-of-line anchor still matches. Without this,
+  # `import os  # noqa` was silently skipped.
+  if [[ "$trimmed" == *"#"* ]]; then
+    trimmed="${trimmed%%#*}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  fi
   case "$trimmed" in
     import\ *|from\ *) ;;
     *) continue ;;

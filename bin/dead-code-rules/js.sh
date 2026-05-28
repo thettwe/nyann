@@ -17,8 +17,14 @@ emit() {
   total=$(grep -nE -e "\\b${name}\\b" "$file" 2>/dev/null \
     | awk -F: -v ln="$lineno" '$1 != ln {n++} END {print n+0}')
   if [[ "$total" -eq 0 ]]; then
-    printf '{"file":"%s","line":%d,"kind":"unused-import","name":"%s","confidence":"high","rule":"js"}\n' \
-      "$file" "$lineno" "$name"
+    # Use jq -n --arg / --argjson so filenames containing `"` or `\\`
+    # produce well-formed JSON. Raw printf would break downstream
+    # `jq -s` aggregation on such paths.
+    jq -nc \
+      --arg file "$file" \
+      --argjson line "$lineno" \
+      --arg name "$name" \
+      '{file:$file, line:$line, kind:"unused-import", name:$name, confidence:"high", rule:"js"}'
   fi
 }
 
@@ -32,6 +38,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     *) continue ;;
   esac
 
+  # Strip optional TypeScript `type` / `typeof` modifier so the regex
+  # captures the actual identifier rather than the keyword. Without this,
+  # `import type Foo from "x"` would match Foo... but `type` would be
+  # captured as the identifier and Foo's usage would be missed entirely.
+  if [[ "$trimmed" =~ ^import[[:space:]]+(type|typeof)[[:space:]]+(.+)$ ]]; then
+    trimmed="import ${BASH_REMATCH[2]}"
+  fi
   # Default import: `import Foo from "x"` (no braces, no *)
   if [[ "$trimmed" =~ ^import[[:space:]]+([A-Za-z_$][A-Za-z0-9_$]*)[[:space:]]+from ]]; then
     emit "$lineno" "${BASH_REMATCH[1]}"
@@ -42,7 +55,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     emit "$lineno" "${BASH_REMATCH[1]}"
     continue
   fi
-  # Named imports: `import { A, B as C } from "x"`
+  # Named imports: `import { A, B as C } from "x"` (also `import type { ... }`
+  # after the modifier strip above).
   if [[ "$trimmed" =~ ^import[[:space:]]+\{([^}]+)\}[[:space:]]+from ]]; then
     body="${BASH_REMATCH[1]}"
     # Split on commas.

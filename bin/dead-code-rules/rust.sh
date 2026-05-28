@@ -11,8 +11,11 @@ emit() {
   total=$(grep -nE -e "\\b${name}\\b" "$file" 2>/dev/null \
     | awk -F: -v ln="$lineno" '$1 != ln {n++} END {print n+0}')
   if [[ "$total" -eq 0 ]]; then
-    printf '{"file":"%s","line":%d,"kind":"unused-import","name":"%s","confidence":"high","rule":"rust"}\n' \
-      "$file" "$lineno" "$name"
+    jq -nc \
+      --arg file "$file" \
+      --argjson line "$lineno" \
+      --arg name "$name" \
+      '{file:$file, line:$line, kind:"unused-import", name:$name, confidence:"high", rule:"rust"}'
   fi
 }
 

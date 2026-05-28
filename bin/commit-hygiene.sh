@@ -175,8 +175,17 @@ while IFS= read -r f; do
         body=${dline#+}
         if printf '%s' "$body" | grep -qE -- "$patterns"; then
           match=$(printf '%s' "$body" | grep -oE -- "$patterns" | head -1)
-          esc=$(printf '%s' "$match" | jq -Rs '.')
-          printf '{"file":"%s","line":%d,"pattern":"","match":%s}\n' "$f" "$line" "$esc" >> "$artifacts_tmp"
+          # Build the finding via `jq -n --arg` so filenames containing
+          # double-quotes or backslashes produce well-formed JSON. Raw
+          # printf would corrupt the per-line NDJSON and the subsequent
+          # `jq -s` aggregation would error on the whole batch.
+          jq -nc \
+            --arg file "$f" \
+            --argjson line "$line" \
+            --arg pat "" \
+            --arg match "$match" \
+            '{file:$file, line:$line, pattern:$pat, match:$match}' \
+            >> "$artifacts_tmp"
         fi
         ;;
       '-'*) continue ;;

@@ -77,28 +77,33 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { emit_empty; exit 0; }
 [[ -d docs ]] || { emit_empty; exit 0; }
 
 # Resolve correlated source globs for a given doc path. Pure heuristic.
+# Emit ONE path per line so callers can read into a bash array safely —
+# this preserves paths containing spaces (e.g. `src/auth dir/`). The
+# prior space-separated format relied on word-splitting and broke on
+# any path with whitespace.
 correlated_sources() {
   local doc="$1"
   case "$doc" in
     docs/api-reference.md)
-      echo "src/api src/routes src/handlers src/controllers"
+      printf '%s\n' src/api src/routes src/handlers src/controllers
       ;;
     docs/architecture.md)
-      echo "src bin lib"
+      printf '%s\n' src bin lib
       ;;
     docs/runbook.md)
-      echo "scripts ops infrastructure infra"
+      printf '%s\n' scripts ops infrastructure infra
       ;;
     docs/deployment.md)
-      echo ".github/workflows deploy infrastructure infra"
+      printf '%s\n' .github/workflows deploy infrastructure infra
       ;;
     docs/*.md)
       # topic-named docs → src/<topic>/** + src/<topic>.ext
       topic=$(basename "$doc" .md)
-      echo "src/${topic} src/${topic}.ts src/${topic}.js src/${topic}.py src/${topic}.go src/${topic}.rs"
+      printf '%s\n' "src/${topic}" "src/${topic}.ts" "src/${topic}.js" \
+                    "src/${topic}.py" "src/${topic}.go" "src/${topic}.rs"
       ;;
     *)
-      echo ""
+      :
       ;;
   esac
 }
@@ -117,29 +122,27 @@ while IFS= read -r doc; do
   [[ "$doc_last_ts" -gt 0 ]] || continue
   doc_age_days=$(( (now_ts - doc_last_ts) / day_secs ))
 
-  # Correlated source list — expand globs against the filesystem.
-  src_globs=$(correlated_sources "$doc")
-  [[ -z "$src_globs" ]] && continue
-
-  expanded=""
-  for g in $src_globs; do
+  # Correlated source list — one path per line; read into a bash array so
+  # paths with spaces survive intact through git log and jq construction.
+  declare -a expanded=()
+  while IFS= read -r g; do
+    [[ -z "$g" ]] && continue
     if [[ -d "$g" || -f "$g" ]]; then
-      expanded+="$g "
+      expanded+=("$g")
     fi
-  done
-  [[ -z "$expanded" ]] && continue
+  done < <( correlated_sources "$doc" )
+  (( ${#expanded[@]} == 0 )) && continue
 
   # Count commits touching correlated sources SINCE the doc was last touched.
-  # `git log --since <unix-ts>` is non-portable; use --since="@<ts>" or compare.
-  changes_since=0
-  # shellcheck disable=SC2086
-  changes_since=$( git log --since="@$doc_last_ts" --pretty=format:%H -- $expanded 2>/dev/null | grep -c '.' || true )
+  # `git log --since <unix-ts>` is non-portable; use --since="@<ts>".
+  changes_since=$( git log --since="@$doc_last_ts" --pretty=format:%H -- "${expanded[@]}" 2>/dev/null | grep -c '.' || true )
   changes_since=${changes_since:-0}
 
-  # Stale if commits >= threshold AND doc was touched at least once before.
+  # Build the correlated_sources_sample JSON array from the bash array.
+  sample=$(printf '%s\n' "${expanded[@]}" | jq -R . | jq -s '.')
+
   if (( changes_since >= threshold_commits )); then
     reason="$changes_since commits on correlated sources since doc last updated $doc_age_days days ago"
-    sample=$(echo "$expanded" | tr ' ' '\n' | jq -R . | jq -s 'map(select(length > 0))')
     findings=$(jq --arg doc "$doc" \
                    --argjson age "$doc_age_days" \
                    --argjson n "$changes_since" \
@@ -154,7 +157,6 @@ while IFS= read -r doc; do
   # correlated source changed in that window.
   if (( doc_age_days >= threshold_days )) && (( changes_since >= 1 )); then
     reason="doc untouched for $doc_age_days days while correlated sources changed $changes_since time(s)"
-    sample=$(echo "$expanded" | tr ' ' '\n' | jq -R . | jq -s 'map(select(length > 0))')
     findings=$(jq --arg doc "$doc" \
                    --argjson age "$doc_age_days" \
                    --argjson n "$changes_since" \
