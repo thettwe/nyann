@@ -119,6 +119,23 @@
       }
     },
     {
+      "title": "WorkspaceRelease",
+      "description": "Emitted when --workspace or --all-workspaces is used (monorepo workspace release).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "strategy", "version", "workspaces"],
+      "properties": {
+        "status": { "const": "released" },
+        "strategy": { "type": "string", "enum": ["conventional-changelog", "manual", "changesets", "release-please"] },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?$" },
+        "workspaces": {
+          "type": "array",
+          "items": { "$ref": "workspace-release-result.schema.json" }
+        },
+        "dry_run": { "type": "boolean" }
+      }
+    },
+    {
       "title": "ReleaseSkipped",
       "description": "Emitted when --strategy is 'changesets' or 'release-please' (nyann doesn't duplicate those tools).",
       "type": "object",

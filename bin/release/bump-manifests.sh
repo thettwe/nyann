@@ -35,6 +35,7 @@ version=""
 profile_path=""
 dry_run=false
 plan_file=""
+allow_scripts=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --profile)     profile_path="${2:-}"; shift 2 ;;
     --profile=*)   profile_path="${1#--profile=}"; shift ;;
     --dry-run)     dry_run=true; shift ;;
+    --allow-scripts) allow_scripts=true; shift ;;
     --plan-file)   plan_file="${2:-}"; shift 2 ;;
     --plan-file=*) plan_file="${1#--plan-file=}"; shift ;;
     -h|--help)     sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -194,6 +196,9 @@ _compute() {
       script)
         command=$(jq -r '.command // empty' <<<"$entry")
         [[ -n "$command" ]] || nyann::die "release.bump_files[$i]: script requires .command"
+        if ! $allow_scripts; then
+          nyann::die "release.bump_files[$i]: script format requires --allow-scripts (executes arbitrary shell commands from profile)"
+        fi
         if ! $dry_run; then
           nyann::warn "release.bump_files[$i]: script format will execute shell command: $command"
         fi
@@ -271,6 +276,9 @@ _apply() {
         mv "$tmp" "$full"
         ;;
       script)
+        if ! $allow_scripts; then
+          nyann::die "bump-manifests apply: script format requires --allow-scripts"
+        fi
         if ! ( cd "$target" && NEW_VERSION="$version" bash -c "$payload" ); then
           nyann::die "bump-manifests: script command failed for $path: $payload"
         fi

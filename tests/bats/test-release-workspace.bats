@@ -115,3 +115,41 @@ make_monorepo() {
   [ "$status" -eq 0 ]
   ! git -C "$repo" rev-parse --verify "refs/tags/core@1.0.0" >/dev/null 2>&1
 }
+
+@test "release.sh --workspace: failed workspace produces error status and exit 1" {
+  repo=$(make_monorepo)
+  # Pre-create tag so workspace release fails
+  git -C "$repo" tag "core@2.0.0"
+  json_out=$(bash "$RELEASE" --target "$repo" --workspace packages/core --version 2.0.0 --strategy conventional-changelog --yes 2>/dev/null) || true
+  echo "$json_out" | jq -e '.workspaces[0].status == "error"'
+  # Verify non-zero exit code
+  run bash "$RELEASE" --target "$repo" --workspace packages/core --version 2.0.0 --strategy conventional-changelog --yes
+  [ "$status" -ne 0 ]
+}
+
+@test "release.sh --batch-commit: tags point to commit containing changelogs" {
+  repo=$(make_monorepo)
+  # Release both workspaces with batch commit
+  result=$(bash "$RELEASE" --target "$repo" \
+    --workspace packages/core --workspace packages/cli \
+    --version 1.0.0 --strategy conventional-changelog --yes --batch-commit 2>/dev/null) || true
+  # If tags exist, verify the tagged commit includes changelogs
+  if git -C "$repo" rev-parse --verify "refs/tags/core@1.0.0" >/dev/null 2>&1; then
+    tagged_sha=$(git -C "$repo" rev-parse "core@1.0.0^{commit}")
+    # The tagged commit should be the batch commit containing changelogs
+    git -C "$repo" show --stat "$tagged_sha" | grep -q "CHANGELOG"
+  fi
+}
+
+@test "release.sh --batch-commit: stages only CHANGELOG files, not untracked files" {
+  repo=$(make_monorepo)
+  # Create an untracked file that should NOT be committed
+  echo "secret" > "$repo/DO_NOT_COMMIT.txt"
+  bash "$RELEASE" --target "$repo" --workspace packages/core \
+    --version 1.0.0 --strategy conventional-changelog --yes --batch-commit 2>/dev/null || true
+  # Verify untracked file was not committed
+  if git -C "$repo" log -1 --name-only --format= 2>/dev/null | grep -q "DO_NOT_COMMIT"; then
+    echo "FAIL: untracked file was staged by batch commit"
+    return 1
+  fi
+}

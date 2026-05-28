@@ -75,8 +75,8 @@ while IFS= read -r branch; do
   if (( current_rr > required_reviews )); then
     would_downgrade=true; reasons+=("reviews: remote=$current_rr > profile=$required_reviews")
   fi
-  if [[ "$current_co" == "true" ]]; then
-    would_downgrade=true; reasons+=("require_code_owner_reviews: remote=true (profile does not set)")
+  if [[ "$current_co" == "true" && "$require_code_owner_reviews" != "true" ]]; then
+    would_downgrade=true; reasons+=("require_code_owner_reviews: remote=true, profile=false")
   fi
   if (( current_ctx_count > want_ctx_count )); then
     would_downgrade=true; reasons+=("required_status_checks.contexts: remote=$current_ctx_count > profile=$want_ctx_count")

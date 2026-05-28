@@ -35,8 +35,8 @@
 
 ### Deferred
 
-- **Orchestrator extraction** — `release.sh` (1,059 lines), `gh-integration.sh` (885 lines), `detect-stack.sh` (1,496 lines) remain monolithic. Deferred again from v1.9.0; tracked for v1.11+.
-- **Profile composition / `extends`** — deferred to v1.11.0 (spec: `docs/roadmap/v1.11.0-spec.md`).
+- **Orchestrator extraction** — `release.sh` (1,059 lines), `gh-integration.sh` (885 lines), `detect-stack.sh` (1,496 lines) remain monolithic. Deferred again from v1.9.0; scheduled for v1.11.0 as feature X1 (spec: `docs/roadmap/v1.11.0-spec.md`).
+- **Profile composition / `extends`** — deferred to v1.11.0 as feature A1 (spec: `docs/roadmap/v1.11.0-spec.md`).
 
 ## [1.9.0] — 2026-05-16
 

@@ -33,8 +33,8 @@
       while IFS= read -r rid; do
         [[ -z "$rid" || "$rid" == "null" ]] && continue
         detail=$("$gh_bin" api --method GET "/repos/${owner}/${repo}/rulesets/${rid}" 2>/dev/null || echo '{}')
-        target=$(jq -r '.target // ""' <<<"$detail")
-        [[ "$target" != "tag" ]] && continue
+        rs_target=$(jq -r '.target // ""' <<<"$detail")
+        [[ "$rs_target" != "tag" ]] && continue
         # Check that ref_name.include covers the expected pattern.
         # GitHub stores patterns with `refs/tags/` prefix; profile
         # declares the bare pattern (e.g. `v*`). Match either form.

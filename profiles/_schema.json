@@ -50,9 +50,9 @@
     },
     "extends": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,62}$",
-      "$comment": "v1.11.0 — optional parent profile name to inherit from. Child fields overlay parent via deep merge; arrays replace (not concatenate). Max chain depth: 3. Workspace inline profiles cannot use extends.",
-      "description": "Name of a parent profile to inherit from. Resolution follows the same user > team > starter chain as load-profile.sh."
+      "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$",
+      "$comment": "v1.11.0 — optional parent profile name to inherit from. Child fields overlay parent via deep merge; arrays replace (not concatenate). Max chain depth: 3. Workspace inline profiles cannot use extends. Supports namespaced team/name format.",
+      "description": "Name of a parent profile to inherit from. Resolution follows the same user > team > starter chain as load-profile.sh. May use namespace/name for team profiles."
     },
     "description": { "type": "string" },
     "schemaVersion": {

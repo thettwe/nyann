@@ -63,6 +63,7 @@ allow_no_pr=false
 allow_no_checks=false
 gh_bin="gh"
 bump_manifests=false
+allow_scripts=false
 gh_release=false
 profile_path=""
 workspace_path=""
@@ -96,6 +97,7 @@ while [[ $# -gt 0 ]]; do
     --gh)             gh_bin="${2:-}"; shift 2 ;;
     --gh=*)           gh_bin="${1#--gh=}"; shift ;;
     --bump-manifests) bump_manifests=true; shift ;;
+    --allow-scripts)  allow_scripts=true; shift ;;
     --gh-release)     gh_release=true; shift ;;
     --profile)        profile_path="${2:-}"; shift 2 ;;
     --profile=*)      profile_path="${1#--profile=}"; shift ;;
@@ -189,35 +191,57 @@ if [[ -n "$workspace_path" ]] || $all_workspaces; then
     ws_args+=(--yes)
   fi
 
+  pending_tags=()
+  released_workspaces=()
+
   while IFS= read -r ws; do
     [[ -z "$ws" ]] && continue
     [[ -d "$target/$ws" ]] || { nyann::warn "workspace not found: $ws"; continue; }
 
     ws_result=$("${_release_dir}/release-workspace.sh" "${ws_args[@]}" --workspace "$ws") || true
+    if [[ -z "$ws_result" ]] || ! jq -e . <<<"$ws_result" >/dev/null 2>&1; then
+      ws_result=$(jq -n --arg ws "$ws" '{workspace:$ws, status:"error"}')
+    fi
     ws_results=$(jq --argjson r "$ws_result" '. + [$r]' <<<"$ws_results")
 
     ws_status=$(jq -r '.status' <<<"$ws_result" 2>/dev/null || echo "error")
     ws_tag=$(jq -r '.tag' <<<"$ws_result" 2>/dev/null || echo "")
 
     if [[ "$ws_status" == "released" && -n "$ws_tag" ]] && ! $dry_run; then
-      nyann::resolve_identity "$target"
-      git -C "$target" \
-        -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
-        tag -a -m "release $ws_tag" -- "$ws_tag"
-      nyann::log "tagged: $ws_tag"
+      released_workspaces+=("$ws")
+      if $batch_commit; then
+        pending_tags+=("$ws_tag")
+      else
+        nyann::resolve_identity "$target"
+        git -C "$target" \
+          -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
+          tag -a -m "release $ws_tag" -- "$ws_tag"
+        nyann::log "tagged: $ws_tag"
+      fi
     fi
   done <<<"$ws_list"
 
-  if $batch_commit && ! $dry_run; then
-    changed=$(git -C "$target" status --porcelain 2>/dev/null | grep -v '^$' || true)
+  if $batch_commit && ! $dry_run && (( ${#released_workspaces[@]} > 0 )); then
+    nyann::resolve_identity "$target"
+    for ws in "${released_workspaces[@]}"; do
+      ws_changelog="$target/$ws/CHANGELOG.md"
+      [[ -f "$ws_changelog" ]] && git -C "$target" add -- "$ws/CHANGELOG.md"
+    done
+    changed=$(git -C "$target" diff --cached --name-only 2>/dev/null || true)
     if [[ -n "$changed" ]]; then
-      nyann::resolve_identity "$target"
-      git -C "$target" add -A
       git -C "$target" \
         -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
         commit -q -m "chore(release): workspace releases for v${version}" >/dev/null
     fi
+    for ws_tag in "${pending_tags[@]}"; do
+      git -C "$target" \
+        -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
+        tag -a -m "release $ws_tag" -- "$ws_tag"
+      nyann::log "tagged: $ws_tag"
+    done
   fi
+
+  ws_error_count=$(jq '[.[] | select(.status == "error")] | length' <<<"$ws_results")
 
   jq -n \
     --arg status "released" \
@@ -227,6 +251,10 @@ if [[ -n "$workspace_path" ]] || $all_workspaces; then
     --argjson dry_run "$($dry_run && echo true || echo false)" \
     '{status:$status, strategy:$strategy, version:$version, workspaces:$workspaces}
      + (if $dry_run then {dry_run:true} else {} end)'
+
+  if (( ws_error_count > 0 )); then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -342,6 +370,9 @@ if $bump_manifests; then
   if $dry_run; then
     bump_args+=(--dry-run)
   fi
+  if $allow_scripts; then
+    bump_args+=(--allow-scripts)
+  fi
   bump_result=$("${_release_dir}/bump-manifests.sh" "${bump_args[@]}") || exit $?
   bumped_files_json=$(jq '.bumped_files' <<<"$bump_result")
 
@@ -450,9 +481,10 @@ case "$strategy" in
 
       # Apply manifest bumps via module
       if [[ -n "$_bump_plan_file" ]]; then
-        "${_release_dir}/bump-manifests.sh" --mode apply \
-          --target "$target" --version "$version" \
-          --plan-file "$_bump_plan_file" >/dev/null
+        bump_apply_args=(--mode apply --target "$target" --version "$version"
+          --plan-file "$_bump_plan_file")
+        $allow_scripts && bump_apply_args+=(--allow-scripts)
+        "${_release_dir}/bump-manifests.sh" "${bump_apply_args[@]}" >/dev/null
       fi
 
       # Release commit

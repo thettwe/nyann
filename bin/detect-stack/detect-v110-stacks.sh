@@ -116,7 +116,7 @@ detect_shell() {
     -path "$path/build"         -prune -o \
     -type f -name '*.sh' -print 2>/dev/null | wc -l | tr -d ' ')
 
-  (( sh_count >= 3 )) || return 0
+  (( sh_count >= 3 )) || return 1
 
   if [[ "$primary_language" == "unknown" ]]; then
     primary_language="shell"

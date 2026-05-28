@@ -173,7 +173,7 @@ if [[ "$source_label" == "user" ]]; then
       [[ -d "$srcdir" ]] || continue
       for cand in "$srcdir/profiles/${name}.json" "$srcdir/${name}.json"; do
         if [[ -f "$cand" ]]; then
-          shadowed_team_csv="${shadowed_team_csv:+${shadowed_team_csv}\t}${cand}"
+          shadowed_team_csv="${shadowed_team_csv:+${shadowed_team_csv}	}${cand}"
           nyann::log "user profile shadows team profile at ${cand}"
         fi
       done
