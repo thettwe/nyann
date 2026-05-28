@@ -212,7 +212,8 @@ nyann::valid_git_url() {
   [[ -n "$u" ]] || return 1
   [[ "$u" != -* ]] || return 1
   case "$u" in
-    https://*|ssh://*|git://*|git@*|file://*) return 0 ;;
+    https://*|ssh://*|git@*|file://*) return 0 ;;
+    git://*) nyann::warn "git:// protocol is unauthenticated and unencrypted — use https:// or ssh://"; return 1 ;;
     *) return 1 ;;
   esac
 }

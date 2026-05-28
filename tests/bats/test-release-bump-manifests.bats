@@ -134,7 +134,7 @@ TOML
   echo "0.1.0" > "$repo/VERSION"
   prof=$(make_profile "script-prof" '[{"path":"VERSION","format":"script","command":"echo \"$NEW_VERSION\" > VERSION"}]')
 
-  bash "$RELEASE" --target "$repo" --version 3.0.0 --profile "$prof" --bump-manifests --yes >/dev/null
+  bash "$RELEASE" --target "$repo" --version 3.0.0 --profile "$prof" --bump-manifests --allow-scripts --yes >/dev/null
   [ "$(cat "$repo/VERSION")" = "3.0.0" ]
 }
 
@@ -143,7 +143,7 @@ TOML
   echo "0.1.0" > "$repo/VERSION"
   prof=$(make_profile "fail-script" '[{"path":"VERSION","format":"script","command":"false"}]')
 
-  run bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "$prof" --bump-manifests --yes
+  run bash "$RELEASE" --target "$repo" --version 1.0.0 --profile "$prof" --bump-manifests --allow-scripts --yes
   [ "$status" -ne 0 ]
   echo "$output" | grep -F -e "VERSION"
 }

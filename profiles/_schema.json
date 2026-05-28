@@ -29,6 +29,17 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Paths to team profiles shadowed by this user profile."
+        },
+        "extends_chain": {
+          "type": "array",
+          "items": { "type": "string" },
+          "$comment": "v1.11.0 — ordered list of profile names from child to root when extends was used.",
+          "description": "Profile name chain from child to root ancestor, e.g. [\"my-react\", \"react-vite\", \"node-api\"]."
+        },
+        "extends_resolved": {
+          "type": "boolean",
+          "$comment": "v1.11.0 — true when extends was present and successfully resolved.",
+          "description": "True when the profile used extends and the chain was resolved."
         }
       }
     },
@@ -36,6 +47,12 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "Lowercase-kebab profile identifier."
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$",
+      "$comment": "v1.11.0 — optional parent profile name to inherit from. Child fields overlay parent via deep merge; arrays replace (not concatenate). Max chain depth: 3. Workspace inline profiles cannot use extends. Supports namespaced team/name format.",
+      "description": "Name of a parent profile to inherit from. Resolution follows the same user > team > starter chain as load-profile.sh. May use namespace/name for team profiles."
     },
     "description": { "type": "string" },
     "schemaVersion": {
@@ -218,6 +235,28 @@
           "type": "string",
           "enum": ["squash", "rebase", "merge"],
           "description": "Merge strategy `bin/pr.sh --auto-merge` uses when calling `gh pr merge --auto`. Default `squash` when unset. The repo must allow the chosen strategy via .github.allow_*_merge for auto-merge to succeed; the audit catches that mismatch in the repo_settings section."
+        },
+        "codeowners": {
+          "$comment": "v1.11.0 — explicit path → owner mappings for CODEOWNERS generation. Applies to both monorepo and single-repo profiles. Listed last in generated CODEOWNERS so they take precedence (GitHub uses last-match-wins).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pattern", "owners"],
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "CODEOWNERS glob pattern (e.g. '/src/api/' or '*.proto')."
+              },
+              "owners": {
+                "type": "array",
+                "items": { "type": "string", "pattern": "^@[a-zA-Z0-9_/-]+$" },
+                "minItems": 1,
+                "description": "GitHub handles or team slugs (e.g. '@alice', '@org/team-name')."
+              }
+            }
+          }
         }
       }
     },

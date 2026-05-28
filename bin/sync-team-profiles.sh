@@ -33,15 +33,20 @@ nyann::require_cmd git
 user_root="${HOME}/.claude/nyann"
 force=false
 only_name=""
+check_updates=false
+accept_update=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --user-root)   user_root="${2:-}"; shift 2 ;;
-    --user-root=*) user_root="${1#--user-root=}"; shift ;;
-    --force)       force=true; shift ;;
-    --name)        only_name="${2:-}"; shift 2 ;;
-    --name=*)      only_name="${1#--name=}"; shift ;;
-    -h|--help)     sed -n '3,16p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --user-root)       user_root="${2:-}"; shift 2 ;;
+    --user-root=*)     user_root="${1#--user-root=}"; shift ;;
+    --force)           force=true; shift ;;
+    --name)            only_name="${2:-}"; shift 2 ;;
+    --name=*)          only_name="${1#--name=}"; shift ;;
+    --check-updates)   check_updates=true; shift ;;
+    --accept-update)   accept_update="${2:-}"; shift 2 ;;
+    --accept-update=*) accept_update="${1#--accept-update=}"; shift ;;
+    -h|--help)         sed -n '3,16p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
@@ -54,6 +59,7 @@ synced_json='[]'
 skipped_json='[]'
 registered_json='[]'
 invalid_json='[]'
+updates_available_json='[]'
 
 # Shared per-iteration error buffer. Created once, truncated before each
 # git fetch/clone so stale output from a prior source never leaks into
@@ -88,7 +94,9 @@ trap _sync_cleanup EXIT
 # against allowlist regexes in the loop body — none of them can contain
 # tabs or newlines that would break TSV parsing.
 cache_root="$user_root/cache"
-while IFS=$'\t' read -r name url ref interval last; do
+while IFS=$'\t' read -r name url ref interval last pin_strategy pin; do
+  pin_strategy="${pin_strategy:-branch}"
+  pin="${pin:-}"
   [[ -z "$name" ]] && continue
 
   # Re-validate `name` on read. add-team-source.sh already enforces the
@@ -133,6 +141,64 @@ while IFS=$'\t' read -r name url ref interval last; do
     continue
   fi
   next_due=$(( last + interval * 3600 ))
+
+  # --accept-update: advance the pin for this source to FETCH_HEAD
+  if [[ -n "$accept_update" && "$accept_update" == "$name" && "$pin_strategy" != "branch" ]]; then
+    if [[ -d "$cache_dir/.git" ]]; then
+      git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
+                -c protocol.file.allow=user \
+                -c core.hooksPath=/dev/null -c submodule.recurse=false)
+      git "${git_safe[@]}" -C "$cache_dir" fetch --depth=1 --no-recurse-submodules origin -- "$ref" >/dev/null 2>&1 || true
+      new_sha=$(git -C "$cache_dir" rev-parse FETCH_HEAD 2>/dev/null || true)
+      if [[ -n "$new_sha" ]]; then
+        git "${git_safe[@]}" -C "$cache_dir" reset --hard FETCH_HEAD >/dev/null 2>&1
+        # Update pin in config
+        lockdir="${config}.lockdir"
+        nyann::lock "$lockdir" 10
+        _held_lockdir="$lockdir"
+        tmp_cfg=$(mktemp "${config}.XXXXXX")
+        jq --arg n "$name" --arg sha "$new_sha" --argjson now "$now" '
+          .team_profile_sources = (.team_profile_sources | map(
+            if .name == $n then . + {pin: $sha, last_synced_at: $now} else . end
+          ))
+        ' "$config" > "$tmp_cfg"
+        mv "$tmp_cfg" "$config"
+        chmod 0600 "$config" 2>/dev/null || true
+        nyann::unlock "$lockdir"
+        _held_lockdir=""
+        synced_json=$(jq --arg n "$name" --arg sha "$new_sha" '. + [{name:$n, action:"pin-advanced", new_pin:$sha}]' <<<"$synced_json")
+        nyann::log "sync-team-profiles: $name — pin advanced to $new_sha"
+      fi
+    fi
+    continue
+  fi
+
+  # --check-updates: report available updates for pinned sources, skip sync
+  if $check_updates && [[ "$pin_strategy" != "branch" ]] && [[ -d "$cache_dir/.git" ]]; then
+    git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
+              -c protocol.file.allow=user \
+              -c core.hooksPath=/dev/null -c submodule.recurse=false)
+    git "${git_safe[@]}" -C "$cache_dir" fetch --depth=50 --no-recurse-submodules origin -- "$ref" >/dev/null 2>&1 || true
+    current_sha=$(git -C "$cache_dir" rev-parse HEAD 2>/dev/null || true)
+    latest_sha=$(git -C "$cache_dir" rev-parse FETCH_HEAD 2>/dev/null || true)
+    if [[ -n "$current_sha" && -n "$latest_sha" && "$current_sha" != "$latest_sha" ]]; then
+      commits_behind=$(git -C "$cache_dir" rev-list --count "${current_sha}..FETCH_HEAD" 2>/dev/null || echo 0)
+      changed_profiles=$(git -C "$cache_dir" diff --name-only "${current_sha}..FETCH_HEAD" -- 'profiles/*.json' '*.json' 2>/dev/null | \
+        grep -v '_schema' | sort | jq -R . | jq -s . 2>/dev/null || echo '[]')
+      commit_log=$(git -C "$cache_dir" log --oneline "${current_sha}..FETCH_HEAD" 2>/dev/null | head -20 | \
+        jq -R 'split(" ") | {sha: .[0], subject: (.[1:] | join(" "))}' | jq -s . 2>/dev/null || echo '[]')
+      updates_available_json=$(jq \
+        --arg src "$name" \
+        --arg pinned "$current_sha" \
+        --arg latest "$latest_sha" \
+        --argjson behind "$commits_behind" \
+        --argjson profiles "$changed_profiles" \
+        --argjson log "$commit_log" \
+        '. + [{source_name:$src, pinned_at:$pinned, latest:$latest, commits_behind:$behind, changed_profiles:$profiles, commit_log:$log}]' \
+        <<<"$updates_available_json")
+    fi
+    continue
+  fi
 
   should_sync=false
   if $force; then
@@ -184,11 +250,13 @@ while IFS=$'\t' read -r name url ref interval last; do
     git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
               -c protocol.file.allow=user \
               -c core.hooksPath=/dev/null -c submodule.recurse=false)
+    # SHA-pinned sources need deeper fetches to find the pinned commit.
+    fetch_depth="--depth=1"
+    if [[ "$pin_strategy" == "sha" && -n "$pin" ]]; then
+      fetch_depth="--unshallow"
+    fi
     nyann::log "sync-team-profiles: $name (fetching $ref from $(nyann::redact_url "$url"))..."
-    # Tee stderr to user terminal AND captured file: a multi-source
-    # sync where each fetch is silent for 10s-2min looks dead. The
-    # captured bytes still feed the redact-on-failure path.
-    if ! git "${git_safe[@]}" -C "$resolved_cache" fetch --depth=1 --no-recurse-submodules origin -- "$ref" \
+    if ! git "${git_safe[@]}" -C "$resolved_cache" fetch $fetch_depth --no-recurse-submodules origin -- "$ref" \
          >/dev/null 2> >(tee "$sync_err" >&2); then
       wait   # let tee flush before we read $sync_err
       # Redact creds from any URL that may appear in stderr.
@@ -196,7 +264,52 @@ while IFS=$'\t' read -r name url ref interval last; do
       invalid_json=$(jq --arg n "$name" --arg err "$err_msg" '. + [{name:$n, kind:"fetch-failed", error:$err}]' <<<"$invalid_json")
       continue
     fi
-    git "${git_safe[@]}" -C "$resolved_cache" reset --hard FETCH_HEAD >/dev/null 2>&1
+    case "$pin_strategy" in
+      branch)
+        git "${git_safe[@]}" -C "$resolved_cache" reset --hard FETCH_HEAD >/dev/null 2>&1
+        ;;
+      tag)
+        git "${git_safe[@]}" -C "$resolved_cache" fetch --tags --depth=1 origin >/dev/null 2>&1 || true
+        if git "${git_safe[@]}" -C "$resolved_cache" rev-parse --verify "refs/tags/$ref" >/dev/null 2>&1; then
+          git "${git_safe[@]}" -C "$resolved_cache" checkout "refs/tags/$ref" >/dev/null 2>&1
+        else
+          nyann::warn "sync-team-profiles: $name — tag '$ref' not found on remote; staying at current checkout"
+        fi
+        ;;
+      sha)
+        if [[ -n "$pin" ]]; then
+          if git "${git_safe[@]}" -C "$resolved_cache" cat-file -t "$pin" >/dev/null 2>&1; then
+            git "${git_safe[@]}" -C "$resolved_cache" checkout "$pin" >/dev/null 2>&1
+          else
+            nyann::warn "sync-team-profiles: $name — pinned SHA '$pin' not found after fetch; staying at current checkout"
+          fi
+        else
+          git "${git_safe[@]}" -C "$resolved_cache" reset --hard FETCH_HEAD >/dev/null 2>&1
+        fi
+        ;;
+    esac
+
+    # Check for available updates (pinned sources only)
+    if [[ "$pin_strategy" != "branch" ]] && [[ -d "$cache_dir/.git" ]]; then
+      current_sha=$(git -C "$cache_dir" rev-parse HEAD 2>/dev/null || true)
+      latest_sha=$(git -C "$cache_dir" rev-parse FETCH_HEAD 2>/dev/null || true)
+      if [[ -n "$current_sha" && -n "$latest_sha" && "$current_sha" != "$latest_sha" ]]; then
+        commits_behind=$(git -C "$cache_dir" rev-list --count "${current_sha}..FETCH_HEAD" 2>/dev/null || echo 0)
+        changed_profiles=$(git -C "$cache_dir" diff --name-only "${current_sha}..FETCH_HEAD" -- 'profiles/*.json' '*.json' 2>/dev/null | \
+          grep -v '_schema' | sort | jq -R . | jq -s . 2>/dev/null || echo '[]')
+        commit_log=$(git -C "$cache_dir" log --oneline "${current_sha}..FETCH_HEAD" 2>/dev/null | head -20 | \
+          jq -R 'split(" ") | {sha: .[0], subject: (.[1:] | join(" "))}' | jq -s . 2>/dev/null || echo '[]')
+        updates_available_json=$(jq \
+          --arg src "$name" \
+          --arg pinned "$current_sha" \
+          --arg latest "$latest_sha" \
+          --argjson behind "$commits_behind" \
+          --argjson profiles "$changed_profiles" \
+          --argjson log "$commit_log" \
+          '. + [{source_name:$src, pinned_at:$pinned, latest:$latest, commits_behind:$behind, changed_profiles:$profiles, commit_log:$log}]' \
+          <<<"$updates_available_json")
+      fi
+    fi
   else
     # Fresh clone: resolution against cache_root (parent exists) is
     # what matters — the target dir doesn't exist yet. Use the
@@ -205,14 +318,31 @@ while IFS=$'\t' read -r name url ref interval last; do
     git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
               -c protocol.file.allow=user \
               -c core.hooksPath=/dev/null -c submodule.recurse=false)
+    clone_depth="--depth=1"
+    if [[ "$pin_strategy" == "sha" && -n "$pin" ]]; then
+      clone_depth=""
+    fi
     nyann::log "sync-team-profiles: $name (cloning $ref from $(nyann::redact_url "$url"))..."
-    if ! git "${git_safe[@]}" clone --depth=1 --no-recurse-submodules --branch "$ref" -- "$url" "$cache_dir" \
+    if ! git "${git_safe[@]}" clone $clone_depth --no-recurse-submodules --branch "$ref" -- "$url" "$cache_dir" \
          >/dev/null 2> >(tee "$sync_err" >&2); then
       wait   # let tee flush before we read $sync_err
       err_msg=$(nyann::redact_url "$(head -c 500 "$sync_err" | tr '\n' ' ')")
       invalid_json=$(jq --arg n "$name" --arg err "$err_msg" '. + [{name:$n, kind:"clone-failed", error:$err}]' <<<"$invalid_json")
       continue
     fi
+    # After clone, apply pin strategy checkout (with safe git config)
+    case "$pin_strategy" in
+      tag)
+        if git "${git_safe[@]}" -C "$cache_dir" rev-parse --verify "refs/tags/$ref" >/dev/null 2>&1; then
+          git "${git_safe[@]}" -C "$cache_dir" checkout "refs/tags/$ref" >/dev/null 2>&1
+        fi
+        ;;
+      sha)
+        if [[ -n "$pin" ]] && git "${git_safe[@]}" -C "$cache_dir" cat-file -t "$pin" >/dev/null 2>&1; then
+          git "${git_safe[@]}" -C "$cache_dir" checkout "$pin" >/dev/null 2>&1
+        fi
+        ;;
+    esac
   fi
 
   synced_json=$(jq --arg n "$name" --argjson now "$now" '. + [{name:$n, synced_at:$now}]' <<<"$synced_json")
@@ -252,7 +382,7 @@ while IFS=$'\t' read -r name url ref interval last; do
   shopt -u nullglob
 done < <(jq -r '
   (.team_profile_sources // [])[]
-  | [.name, .url, (.ref // "main"), (.sync_interval_hours // 24), (.last_synced_at // 0)]
+  | [.name, .url, (.ref // "main"), (.sync_interval_hours // 24), (.last_synced_at // 0), (.pin_strategy // "branch"), (.pin // "")]
   | @tsv
 ' "$config")
 
@@ -261,4 +391,6 @@ jq -n \
   --argjson skipped "$skipped_json" \
   --argjson registered "$registered_json" \
   --argjson invalid "$invalid_json" \
-  '{synced:$synced, skipped:$skipped, registered:$registered, invalid:$invalid}'
+  --argjson updates "$updates_available_json" \
+  '{synced:$synced, skipped:$skipped, registered:$registered, invalid:$invalid}
+   + (if ($updates | length) > 0 then {updates_available: $updates} else {} end)'

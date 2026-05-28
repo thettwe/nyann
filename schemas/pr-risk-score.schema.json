@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/pr-risk-score/v1.json",
+  "title": "PRRiskScore",
+  "description": "Risk score for a PR, computed by bin/pr-risk-score.sh.",
+  "$comment": "v1.11.0 — PR risk scoring for /nyann:ship.",
+  "type": "object",
+  "required": ["score", "level", "breakdown", "recommendations"],
+  "additionalProperties": false,
+  "properties": {
+    "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "breakdown": {
+      "type": "object",
+      "required": ["churn", "test_gap", "health_delta"],
+      "properties": {
+        "churn": {
+          "type": "object",
+          "properties": {
+            "score":         { "type": "integer" },
+            "weight":        { "type": "number" },
+            "files_changed": { "type": "integer" },
+            "lines_changed": { "type": "integer" },
+            "hotspot_files": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "test_gap": {
+          "type": "object",
+          "properties": {
+            "score":            { "type": "integer" },
+            "weight":           { "type": "number" },
+            "untested_changes": { "type": "array", "items": { "type": "string" } },
+            "test_changes":     { "type": "integer" },
+            "source_changes":   { "type": "integer" }
+          }
+        },
+        "health_delta": {
+          "type": "object",
+          "properties": {
+            "score":    { "type": "integer" },
+            "weight":   { "type": "number" },
+            "current":  { "type": "integer" },
+            "previous": { "type": "integer" },
+            "delta":    { "type": "integer" }
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
