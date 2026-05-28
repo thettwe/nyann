@@ -11,6 +11,8 @@ make_repo() {
   local d="$TMP/repo-$$-$BATS_TEST_NUMBER-$RANDOM"
   mkdir -p "$d/src" "$d/tests" "$d/.github"
   git -C "$d" init -q
+  git -C "$d" config user.email "test@test"
+  git -C "$d" config user.name "test"
   echo "code" > "$d/src/main.ts"
   echo "test" > "$d/tests/main.test.ts"
   git -C "$d" add .
@@ -109,6 +111,8 @@ JSON
   d="$TMP/empty-$$"
   mkdir -p "$d"
   git -C "$d" init -q
+  git -C "$d" config user.email "test@test"
+  git -C "$d" config user.name "test"
   git -C "$d" commit --allow-empty -qm "init"
   run bash "$DERIVE" --target "$d"
   [ "$status" -eq 0 ]

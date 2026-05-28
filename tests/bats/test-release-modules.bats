@@ -16,6 +16,8 @@ make_repo() {
   local d="$TMP/repo-$$-$RANDOM"
   mkdir -p "$d" && cd "$d"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   git commit --allow-empty -qm "feat: initial feature"
   git commit --allow-empty -qm "fix(core): a bug fix"
   git commit --allow-empty -qm "chore: something"
@@ -51,6 +53,8 @@ make_repo() {
   repo="$TMP/repo-break-$$"
   mkdir -p "$repo" && cd "$repo"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   git commit --allow-empty -qm "feat!: breaking thing"
   run bash "$COLLECT" --target "$repo" --log-range HEAD
   [ "$status" -eq 0 ]
@@ -61,6 +65,8 @@ make_repo() {
   repo="$TMP/repo-tab-$$"
   mkdir -p "$repo" && cd "$repo"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   printf 'feat: with\ttab' | git commit --allow-empty -qm "$(cat)"
   run bash "$COLLECT" --target "$repo" --log-range HEAD
   [ "$status" -eq 0 ]
@@ -131,6 +137,8 @@ make_repo() {
   repo="$TMP/repo-bump-$$"
   mkdir -p "$repo" && cd "$repo"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   echo '{"version":"0.1.0"}' > package.json
   git add . && git commit -qm "init"
   prof="$TMP/prof-$$.json"
@@ -150,6 +158,8 @@ JSON
   repo="$TMP/repo-unch-$$"
   mkdir -p "$repo" && cd "$repo"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   echo '{"version":"1.0.0"}' > package.json
   git add . && git commit -qm "init"
   prof="$TMP/prof-unch-$$.json"
@@ -170,6 +180,8 @@ JSON
   repo="$TMP/repo-apply-$$"
   mkdir -p "$repo" && cd "$repo"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   echo '{"version":"0.1.0"}' > package.json
   git add . && git commit -qm "init"
 
@@ -189,6 +201,8 @@ JSON
   repo="$TMP/repo-toctou-$$"
   mkdir -p "$repo" && cd "$repo"
   git init -q
+  git config user.email "test@test"
+  git config user.name "test"
   echo '{"version":"0.1.0"}' > package.json
   git add . && git commit -qm "init"
 

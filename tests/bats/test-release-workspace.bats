@@ -12,6 +12,8 @@ make_monorepo() {
   local d="$TMP/mono-$$-$BATS_TEST_NUMBER-$RANDOM"
   mkdir -p "$d/packages/core" "$d/packages/cli"
   git -C "$d" init -q
+  git -C "$d" config user.email "test@test"
+  git -C "$d" config user.name "test"
 
   echo '{"name":"core","version":"0.1.0"}' > "$d/packages/core/package.json"
   echo 'console.log("core")' > "$d/packages/core/index.ts"

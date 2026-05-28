@@ -16,6 +16,8 @@ setup() {
   local work="$TMP/work-$$-$BATS_TEST_NUMBER"
   mkdir -p "$work/profiles"
   git -C "$work" init -q
+  git -C "$work" config user.email "test@test"
+  git -C "$work" config user.name "test"
   git -C "$work" remote add origin "$REMOTE"
   cat > "$work/profiles/test-prof.json" <<'JSON'
 {"name":"test-prof","schemaVersion":1,"stack":{"primary_language":"typescript"},"branching":{"strategy":"github-flow","base_branches":["main"]},"hooks":{"pre_commit":[]},"extras":{},"conventions":{},"documentation":{}}
