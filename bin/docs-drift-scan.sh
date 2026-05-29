@@ -126,7 +126,13 @@ for f in "${scanned[@]}"; do
         bash "$script" --target "$target" --file "$f" --latest-tag "$latest_tag" >> "$findings_tmp" 2>/dev/null || true
         ;;
       count-claims)
-        [[ -n "$profile_file" ]] && bash "$script" --target "$target" --file "$f" --profile "$profile_file" >> "$findings_tmp" 2>/dev/null || true
+        # count-claims needs a profile (it reads tracked_counts). Skip the
+        # detector entirely when none was passed. Written as an explicit
+        # `if` rather than `A && B || true` so the intent is unambiguous
+        # (and SC2015-clean across shellcheck versions).
+        if [[ -n "$profile_file" ]]; then
+          bash "$script" --target "$target" --file "$f" --profile "$profile_file" >> "$findings_tmp" 2>/dev/null || true
+        fi
         ;;
       *)
         bash "$script" --target "$target" --file "$f" >> "$findings_tmp" 2>/dev/null || true
