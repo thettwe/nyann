@@ -13,9 +13,29 @@ setup() {
 
 teardown() { rm -rf "$TMP"; }
 
+# Build a PATH dir that mirrors every tool on the current PATH EXCEPT gh, so
+# "gh is missing" can be simulated even on runners that ship gh in /usr/bin
+# alongside coreutils (where `PATH=/usr/bin:/bin` would NOT hide it).
+nogh_path() {
+  local dir="$TMP/nogh" d exe b
+  mkdir -p "$dir"
+  local IFS=:
+  for d in $PATH; do
+    [ -d "$d" ] || continue
+    for exe in "$d"/*; do
+      [ -x "$exe" ] || continue
+      b="$(basename "$exe")"
+      [ "$b" = gh ] && continue
+      [ -e "$dir/$b" ] || ln -s "$exe" "$dir/$b" 2>/dev/null || true
+    done
+  done
+  printf '%s' "$dir"
+}
+
 @test "soft-skips with helpful message when gh is missing" {
-  # Run with PATH stripped of gh.
-  out=$( PATH=/usr/bin:/bin bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo o/r --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" 2>&1 || true )
+  # Run with a PATH that genuinely lacks gh (robust on GitHub runners).
+  ngh="$(nogh_path)"
+  out=$( PATH="$ngh" bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo o/r --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" 2>&1 || true )
   echo "$out" | grep -q "gh CLI not installed"
 }
 
@@ -36,7 +56,8 @@ teardown() { rm -rf "$TMP"; }
 }
 
 @test "--pr accepts a positive integer (soft-skips when gh missing)" {
-  run bash -c "PATH=/usr/bin:/bin bash '$REPO_ROOT/bin/ci-sentinel.sh' --repo o/r --pr 42 --state-dir '$STATE_DIR' --notif-dir '$NOTIF_DIR'"
+  ngh="$(nogh_path)"
+  run bash -c "PATH='$ngh' bash '$REPO_ROOT/bin/ci-sentinel.sh' --repo o/r --pr 42 --state-dir '$STATE_DIR' --notif-dir '$NOTIF_DIR'"
   [ "$status" -eq 0 ]
 }
 

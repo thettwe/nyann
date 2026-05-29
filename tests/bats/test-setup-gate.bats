@@ -13,7 +13,11 @@ setup() {
 teardown() { rm -rf "$TMP"; }
 
 @test "require_setup returns 2 when preferences.json is missing" {
-  run bash -c "source '$REPO_ROOT/bin/_lib.sh'; NYANN_USER_ROOT='$USER_ROOT' nyann::require_setup test-skill"
+  # Neutralize CI/non-interactive markers: under those, require_setup
+  # intentionally synthesizes a defaults file (rc 0). GitHub Actions sets
+  # CI=true globally, so without this unset the assertion can never hold
+  # on CI even though the local-developer path returns 2 correctly.
+  run bash -c "unset CI NYANN_NONINTERACTIVE; source '$REPO_ROOT/bin/_lib.sh'; NYANN_USER_ROOT='$USER_ROOT' nyann::require_setup test-skill"
   [ "$status" -eq 2 ]
   echo "$output" | grep -q "nyann setup required"
 }
