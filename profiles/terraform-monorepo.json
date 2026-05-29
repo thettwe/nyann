@@ -49,6 +49,11 @@
       "docs"
     ]
   },
+  "guards": {
+    "commit": [
+      { "name": "wip-commits", "severity": "confirm" }
+    ]
+  },
   "documentation": {
     "use_archetype_scaffolds": true,
     "scaffold_types": [
@@ -64,6 +69,24 @@
     "claude_md_mode": "router",
     "claude_md_size_budget_kb": 3,
     "staleness_days": null,
+    "staleness_threshold_commits": 5,
+    "staleness_threshold_days": 30,
+    "drift_check": {
+      "enabled": true,
+      "scanned_files": ["README.md"],
+      "version_refs": { "enabled": true },
+      "file_refs": { "enabled": true },
+      "script_refs": { "enabled": true }
+    },
+    "readme_badges": {
+      "enabled": true,
+      "license": true,
+      "ci": true,
+      "release": true
+    },
+    "readme_stack_icons": {
+      "enabled": true
+    },
     "enable_drift_checks": {
       "broken_internal_links": true,
       "broken_mcp_links": true,

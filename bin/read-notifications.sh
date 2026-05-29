@@ -34,7 +34,7 @@ done
 
 [[ -n "$repo" ]] || nyann::die "--repo <owner/repo> is required"
 
-repo_hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
+repo_hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
 notif_file="$notif_dir/${repo_hash}.jsonl"
 
 if [[ ! -f "$notif_file" ]]; then

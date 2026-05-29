@@ -87,6 +87,16 @@ if [[ -n "$override_severities" ]]; then
   done <<< "$override_severities"
 fi
 
+# Numeric rank for severity comparison (higher = more severe).
+severity_rank() {
+  case "$1" in
+    critical) echo 3 ;;
+    confirm)  echo 2 ;;
+    advisory) echo 1 ;;
+    *)        echo 0 ;;
+  esac
+}
+
 resolve_promoted_severity() {
   local target_name="$1" entry n s
   # Guard against unbound-array dereference under `set -u` when no
@@ -126,13 +136,19 @@ for g in "${effective_guards[@]}"; do
       > "$tmp/${idx}.json"
   fi
   # Apply profile-promoted severity (advisory → confirm → critical; never
-  # demote). Profiles can promote built-in advisories to confirm/critical.
+  # demote). Profiles can promote built-in advisories to confirm/critical,
+  # but must never weaken a built-in critical/confirm — a misconfigured
+  # profile shouldn't be able to silently disarm a hard block. Rank the
+  # built-in vs requested severity and only write when strictly higher.
   promoted=$(resolve_promoted_severity "$g")
   if [[ -n "$promoted" ]]; then
+    builtin_sev=$(jq -r '.severity // "advisory"' "$tmp/${idx}.json" 2>/dev/null || echo advisory)
     case "$promoted" in
       advisory|confirm|critical)
-        jq --arg s "$promoted" '.severity = $s' "$tmp/${idx}.json" > "$tmp/${idx}.json.tmp" \
-          && mv "$tmp/${idx}.json.tmp" "$tmp/${idx}.json"
+        if (( $(severity_rank "$promoted") > $(severity_rank "$builtin_sev") )); then
+          jq --arg s "$promoted" '.severity = $s' "$tmp/${idx}.json" > "$tmp/${idx}.json.tmp" \
+            && mv "$tmp/${idx}.json.tmp" "$tmp/${idx}.json"
+        fi
         ;;
     esac
   fi

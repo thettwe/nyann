@@ -182,7 +182,7 @@ while IFS= read -r f; do
           jq -nc \
             --arg file "$f" \
             --argjson line "$line" \
-            --arg pat "" \
+            --arg pat "$patterns" \
             --arg match "$match" \
             '{file:$file, line:$line, pattern:$pat, match:$match}' \
             >> "$artifacts_tmp"

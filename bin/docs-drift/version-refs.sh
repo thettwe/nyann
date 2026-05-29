@@ -32,8 +32,13 @@ if [[ -z "$latest_tag" ]]; then
   latest_tag=$( cd "$target" && git describe --tags --abbrev=0 2>/dev/null || echo "" )
 fi
 [[ -n "$latest_tag" ]] || exit 0
-# Strip leading v if present for comparison.
+# Strip leading v and any pre-release/build suffix (e.g. v1.2.0-rc1 → 1.2.0)
+# before comparison. Doc refs use the GA form `vX.Y.Z`; without stripping the
+# suffix, the digit-only parse turns `0-rc1` into `01` and wrongly reports the
+# GA release as older than its own release candidate.
 latest_clean="${latest_tag#v}"
+latest_clean="${latest_clean%%-*}"
+latest_clean="${latest_clean%%+*}"
 
 semver_lt() {
   # Returns 0 if $1 < $2 (numeric semver comparison).
@@ -52,9 +57,20 @@ semver_lt() {
 }
 
 # Walk lines containing semver, ignore lines containing drift-ignore marker.
+# Track fenced code blocks: example commands routinely pin to arbitrary
+# versions (`--pin-ref v1.0.0`) that are illustrative, not stale claims —
+# flagging them is pure noise (mirrors file-refs.sh fence handling).
+in_fence=0
 lineno=0
 while IFS= read -r line || [[ -n "$line" ]]; do
   lineno=$((lineno + 1))
+  case "$line" in
+    '```'*|'~~~'*)
+      in_fence=$((1 - in_fence))
+      continue
+      ;;
+  esac
+  (( in_fence )) && continue
   case "$line" in
     *'<!-- drift-ignore -->'*) continue ;;
   esac
@@ -65,6 +81,12 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   # Find v\d+\.\d+\.\d+ occurrences in the line.
   while read -r match; do
     [[ -z "$match" ]] && continue
+    # Skip explicitly historical references: `pre-v1.6.0`, `post-v2.0.0`,
+    # `since v1.0.0` — these intentionally name an older version and are
+    # not drift. Look at how the match appears in the surrounding line.
+    case "$line" in
+      *"pre-${match}"*|*"post-${match}"*|*"since ${match}"*|*"before ${match}"*|*"prior to ${match}"*) continue ;;
+    esac
     cur="${match#v}"
     if semver_lt "$cur" "$latest_clean"; then
       msg="version ref ${match} is older than latest tag ${latest_tag}"

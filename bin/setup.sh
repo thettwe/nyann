@@ -480,6 +480,15 @@ fi
 
 timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# setup_completed_at records first-time setup. On an incremental upgrade
+# (--fields) preserve the original timestamp rather than stamping "now" —
+# downstream tenure logic must see when the user actually onboarded.
+setup_completed_at="$timestamp"
+if [[ -n "$incremental_fields" && -f "$prefs_path" ]]; then
+  existing_completed_at=$(jq -r '.setup_completed_at // empty' "$prefs_path" 2>/dev/null || true)
+  [[ -n "$existing_completed_at" ]] && setup_completed_at="$existing_completed_at"
+fi
+
 prefs_tmp=$(mktemp -t nyann-prefs.XXXXXX)
 trap 'rm -f "$prefs_tmp"' EXIT
 
@@ -498,7 +507,7 @@ jq -n \
   --arg guard_default_severity "$guard_default_severity" \
   --argjson notifications_sentinel "$notifications_sentinel" \
   --argjson notifications_staleness_alerts "$notifications_staleness_alerts" \
-  --arg setup_completed_at "$timestamp" \
+  --arg setup_completed_at "$setup_completed_at" \
   '{
     schemaVersion: $schema_version,
     default_profile: $default_profile,

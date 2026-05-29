@@ -118,9 +118,9 @@ merged_threshold="${NYANN_MERGED_BRANCH_THRESHOLD:-3}"
 n_merged=0
 
 head_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
-refs_hash=$(git for-each-ref --format='%(refname)%(objectname)' refs/heads/ 2>/dev/null | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
+refs_hash=$(git for-each-ref --format='%(refname)%(objectname)' refs/heads/ 2>/dev/null | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
 cache_dir="${TMPDIR:-/tmp}/nyann-session-cache"
-_dir_hash=$(printf '%s' "$(pwd)" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
+_dir_hash=$(printf '%s' "$(pwd)" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
 cache_ttl=60
 # When either hash failed (no md5sum/md5/cksum on PATH, or git refs read
 # failed), disable caching entirely. The previous fallback file name
@@ -188,13 +188,13 @@ need_cleanup_nudge=0
 if [[ "$flow" == "session-start" ]]; then
   fp_dir="${NYANN_USER_ROOT:-${HOME}/.claude/nyann}/cache"
   mkdir -p "$fp_dir" 2>/dev/null || true
-  repo_hash=$(printf '%s' "$(pwd)" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
+  repo_hash=$(printf '%s' "$(pwd)" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
   if [[ -n "$repo_hash" ]]; then
     fp_file="$fp_dir/$repo_hash.session-check"
     new_fp=$(printf '%s|%s|%s|%s|%s|%s\n' \
       "$n_missing" "$n_misconf" "$n_broken" "$claude_status" "$n_merged" "$profile" \
       | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) \
-      | cut -c1-32)
+      | tr -dc '0-9a-f' | cut -c1-32)
     if [[ -f "$fp_file" ]]; then
       old_fp=$(head -c 64 "$fp_file" 2>/dev/null | tr -d '\r\n')
       if [[ "$old_fp" == "$new_fp" ]]; then

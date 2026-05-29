@@ -44,6 +44,22 @@ EOF
   [ "$count" -eq 0 ]
 }
 
+@test "version-ref: GA ref not flagged when latest tag is a pre-release" {
+  # latest tag v1.2.0-rc1 must not make a doc ref to the GA v1.2.0 look stale.
+  # The pre-release suffix is stripped before the numeric semver compare.
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+Latest release: v1.2.0
+EOF
+  ( cd "$REPO" \
+      && git add README.md \
+      && git commit -q -m "docs: readme" \
+      && git tag v1.2.0-rc1 )
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors version-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "version-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
 @test "version-ref: CHANGELOG.md exempted by default" {
   cat > "$REPO/CHANGELOG.md" <<'EOF'
 ## [1.0.0]
@@ -73,6 +89,43 @@ See [docs](docs/here.md).
 EOF
   out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors file-refs --files README.md)
   count=$(echo "$out" | jq '[.findings[] | select(.kind == "file-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "file-ref: parenthesised prose (not a markdown link) not flagged" {
+  # `Android (AndroidManifest.xml)` is prose, not a [text](link). Only real
+  # markdown links (anchored on `](`) should be checked.
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+Detects iOS, Android (AndroidManifest.xml), Flutter (pubspec.yaml here).
+Tag pinning (v1.11.0) keeps sources stable.
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors file-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "file-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "version-ref: refs inside fenced code blocks not flagged" {
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+```sh
+nyann add-source --pin-ref v1.0.0
+```
+EOF
+  ( cd "$REPO" && git add README.md && git commit -q -m "x" && git tag v1.2.0 )
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors version-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "version-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "version-ref: explicitly historical refs (pre-vX.Y.Z) not flagged" {
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+This was the default behaviour pre-v1.0.0 and changed since v1.1.0.
+EOF
+  ( cd "$REPO" && git add README.md && git commit -q -m "x" && git tag v1.2.0 )
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors version-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "version-ref")] | length')
   [ "$count" -eq 0 ]
 }
 

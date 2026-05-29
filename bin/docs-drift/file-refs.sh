@@ -50,8 +50,12 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   # if available (GNU) else fall back to grep -oE and post-process.
   while read -r raw; do
     [[ -z "$raw" ]] && continue
-    # raw looks like `(path)` — strip parens.
-    path="${raw#(}"
+    # raw looks like `](path)` — strip everything up to and including the
+    # opening paren, then the trailing paren. Anchoring on the `](` prefix
+    # (not a bare `(`) is what distinguishes a real markdown link from
+    # incidental parenthesised prose like `Android (AndroidManifest.xml)`
+    # or a version annotation like `pinning (v1.11.0)`.
+    path="${raw#*(}"
     path="${path%)}"
     # Strip optional title `path "title"`.
     path="${path%% *}"
@@ -80,5 +84,5 @@ while IFS= read -r line || [[ -n "$line" ]]; do
             --arg hint "either create ${path}, fix the link, or wrap the line with <!-- drift-ignore -->" \
             '{kind:$kind, file:$file, line:$line, severity:$severity, message:$message, current:$current, fix_hint:$hint}'
     fi
-  done < <( printf '%s' "$line" | grep -oE '\([^)[:space:]]+\.[A-Za-z0-9_/-]+\)' )
+  done < <( printf '%s' "$line" | grep -oE '\]\([^)[:space:]]+\.[A-Za-z0-9_/-]+\)' )
 done < "$abs"

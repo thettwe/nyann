@@ -475,6 +475,9 @@ if ! $json_out; then
   if (( ds_stale > 0 )); then
     printf '\nDOC STALENESS: %s file(s) where correlated sources have churned\n' "$ds_stale"
     jq -r '.findings[] | "  ⚠ " + .doc + " — " + .reason' <<<"$docs_staleness_json" 2>/dev/null | head -5
+    if (( ds_stale > 5 )); then
+      printf '  … and %s more (re-run with --json for the full list)\n' "$(( ds_stale - 5 ))"
+    fi
   fi
   # Public-doc drift — version refs older than the latest tag, broken
   # markdown links, missing npm/make script targets, count-claim drift.
@@ -485,6 +488,9 @@ if ! $json_out; then
       "$dd_total" "$dd_critical" "$dd_high"
     jq -r '.findings[] | "  " + (if .severity == "critical" or .severity == "high" then "✗" else "⚠" end) + " " + .file + (if .line then ":\(.line)" else "" end) + " — " + .message' \
       <<<"$docs_drift_json" 2>/dev/null | head -10
+    if (( dd_total > 10 )); then
+      printf '  … and %s more (re-run with --json for the full list)\n' "$(( dd_total - 10 ))"
+    fi
     if (( dd_critical > 0 )) && (( retro_rc < 5 )); then
       retro_rc=5
     elif (( dd_high > 0 )) && (( retro_rc < 4 )); then

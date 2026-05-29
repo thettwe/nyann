@@ -103,6 +103,19 @@ EOF
   echo "$output" | jq -e '.guards[] | select(.name == "wip-commits") | .severity == "critical"'
 }
 
+@test "profile cannot demote a built-in critical guard" {
+  # staged-files-exist is built-in critical. A profile that tries to weaken
+  # it to advisory must be ignored — a misconfigured profile should never be
+  # able to silently disarm a hard block.
+  profile="$TMP/profile.json"
+  jq -n '{guards: {commit: [{name: "staged-files-exist", severity: "advisory"}]}}' > "$profile"
+  # Nothing staged → guard fails. With the demotion guard, severity stays
+  # critical and the flow blocks (exit 3) rather than passing as advisory.
+  run bash "$REPO_ROOT/bin/pre-action-guard.sh" --flow commit --target "$REPO" --profile "$profile"
+  [ "$status" -eq 3 ]
+  echo "$output" | jq -e '.guards[] | select(.name == "staged-files-exist") | .severity == "critical"'
+}
+
 @test "guard-result JSON validates against schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

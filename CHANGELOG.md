@@ -30,7 +30,7 @@ nyann shifts from purely reactive (nothing fires unless a skill is triggered) to
 - Starter profiles: 26 → 27 (added `terraform-monorepo`)
 - Schemas: 53 → 62
 - New test files: 12 (test-setup-gate, test-settings, test-session-triage, test-pre-action-guards, test-dead-code-scan, test-commit-hygiene, test-docs-staleness, test-docs-drift, test-gen-readme-badges, test-gen-readme-stack-icons, test-detect-iac, test-ci-sentinel)
-- Test count: 1431 → 1442 (regression coverage for the IaC install phase, deep monorepo Terraform layout detection, gen-readme orphaned-marker refusal, terraform-docs partial-staging restriction, ci-sentinel --pr integer validation, TypeScript type-only imports, Python imports with trailing comments)
+- Test count: 1431 → 1449 (regression coverage for the IaC install phase, deep monorepo Terraform layout detection, gen-readme orphaned-marker refusal, terraform-docs partial-staging restriction, ci-sentinel --pr integer validation, TypeScript type-only imports, Python imports with trailing comments; plus pre-action guard demotion-refusal, pre-release semver comparison, Helm corroboration, and docs-drift false-positive suppression for parenthesised prose / fenced code / historical version refs)
 
 ### Deferred to v1.13.0
 

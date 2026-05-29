@@ -602,6 +602,14 @@ install_precommit_from_template() {
   elif [[ ! -f "$dst" ]]; then
     cp "$tmpl" "$dst"
     nyann::log "wrote $dst"
+  else
+    # python3 missing AND a config already exists: we cannot merge, and we
+    # must not silently report success. Warn, record the skip, and bail so
+    # the caller doesn't `pre-commit install` an unmerged config.
+    nyann::warn "python3 not available; cannot merge nyann hooks into existing $dst"
+    nyann::warn "install python3 and re-run, or merge ${tmpl} into $dst manually"
+    emit_skipped "$stage" "python3 missing; existing .pre-commit-config.yaml left unmerged"
+    return 0
   fi
 
   if $no_install_hook; then

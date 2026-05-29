@@ -55,10 +55,12 @@ triage=$(jq -r 'if .session_triage == false then "false" else "true" end' "$pref
 # but no hard cap).
 cmd=(bash "${_script_dir}/session-check.sh" --user-root "$user_root" --flow=session-start)
 
+# --kill-after escalates to SIGKILL 3s after the SIGTERM if a stuck git/jq
+# grandchild ignores the term signal — otherwise it could linger as a zombie.
 if command -v timeout >/dev/null 2>&1; then
-  ( cd "$target" && timeout 2s "${cmd[@]}" 2>/dev/null )
+  ( cd "$target" && timeout --kill-after=3s 2s "${cmd[@]}" 2>/dev/null )
 elif command -v gtimeout >/dev/null 2>&1; then
-  ( cd "$target" && gtimeout 2s "${cmd[@]}" 2>/dev/null )
+  ( cd "$target" && gtimeout --kill-after=3s 2s "${cmd[@]}" 2>/dev/null )
 else
   ( cd "$target" && "${cmd[@]}" 2>/dev/null )
 fi

@@ -78,15 +78,23 @@ fi
 : "$interval" "$max_runtime" "$one_shot"
 mkdir -p "$state_dir" "$notif_dir" 2>/dev/null || true
 
-repo_hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | cut -c1-12)
+repo_hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
 pid_file="$state_dir/${repo_hash}.sentinel.pid"
 
 if $stop_mode; then
   if [[ -f "$pid_file" ]]; then
     pid=$(cat "$pid_file" 2>/dev/null || true)
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-      echo "[nyann sentinel] stopped pid $pid"
+      # Guard against PID reuse: a crashed sentinel can leave a stale pid
+      # file whose number the OS later recycled for an unrelated process.
+      # Only kill if the live process actually looks like a sentinel.
+      proc_cmd=$(ps -p "$pid" -o command= 2>/dev/null || ps -p "$pid" -o comm= 2>/dev/null || true)
+      if [[ "$proc_cmd" == *ci-sentinel* ]]; then
+        kill "$pid" 2>/dev/null || true
+        echo "[nyann sentinel] stopped pid $pid"
+      else
+        echo "[nyann sentinel] pid $pid is not a sentinel (stale pid file) — not killing" >&2
+      fi
     fi
     rm -f "$pid_file"
   fi
@@ -155,13 +163,20 @@ poll_pr() {
     prev_review=$(jq -r '.review_status // ""' "$state_file" 2>/dev/null)
   fi
 
-  if [[ "$prev_checks" != "$checks_status" && -n "$prev_checks" ]]; then
+  # Fire on any state change, INCLUDING first contact (prev_checks empty).
+  # A PR that is already failing / already approved when the sentinel first
+  # runs is exactly the state the user wants surfaced — suppressing the first
+  # poll left such PRs silent forever (the `merged` branch below already
+  # fires on first contact; this keeps checks/review consistent with it).
+  # Repeat polls with the same state are still suppressed by `prev != cur`.
+  if [[ "$prev_checks" != "$checks_status" ]]; then
+    local checks_from="${prev_checks:-pending}"
     case "$checks_status" in
-      failure) append_notification "$pr_no" "critical" "PR #${pr_no}: CI failed" "$(jq -n --argjson pr "$pr_no" '{pr:$pr, transition: "checks: pending → failure"}')" ;;
-      success) append_notification "$pr_no" "info"     "PR #${pr_no}: all checks passed — ready to merge" "$(jq -n --argjson pr "$pr_no" '{pr:$pr, transition: "checks: pending → success"}')" ;;
+      failure) append_notification "$pr_no" "critical" "PR #${pr_no}: CI failed" "$(jq -n --argjson pr "$pr_no" --arg from "$checks_from" '{pr:$pr, transition: "checks: \($from) → failure"}')" ;;
+      success) append_notification "$pr_no" "info"     "PR #${pr_no}: all checks passed — ready to merge" "$(jq -n --argjson pr "$pr_no" --arg from "$checks_from" '{pr:$pr, transition: "checks: \($from) → success"}')" ;;
     esac
   fi
-  if [[ "$prev_review" != "$review_status" && -n "$prev_review" ]]; then
+  if [[ "$prev_review" != "$review_status" ]]; then
     case "$review_status" in
       changes-requested) append_notification "$pr_no" "warning" "PR #${pr_no}: reviewer requested changes" "$(jq -n --argjson pr "$pr_no" '{pr:$pr, transition: "review: → changes-requested"}')" ;;
       approved)          append_notification "$pr_no" "info"    "PR #${pr_no}: approved" "$(jq -n --argjson pr "$pr_no" '{pr:$pr, transition: "review: → approved"}')" ;;

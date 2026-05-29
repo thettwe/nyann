@@ -46,14 +46,36 @@ EOF
   echo "$out" | jq -e '.archetype == "infra"'
 }
 
-@test "Chart.yaml present → archetype infra" {
+@test "Chart.yaml + templates/ present → archetype infra" {
+  cat > "$REPO/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: my-chart
+version: 0.1.0
+EOF
+  mkdir -p "$REPO/templates"
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+}
+
+@test "Chart.yaml + values.yaml present → archetype infra" {
+  cat > "$REPO/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: my-chart
+version: 0.1.0
+EOF
+  echo 'replicaCount: 1' > "$REPO/values.yaml"
+  out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
+  echo "$out" | jq -e '.archetype == "infra"'
+}
+
+@test "bare Chart.yaml (no values/templates) → NOT classified as helm infra" {
   cat > "$REPO/Chart.yaml" <<'EOF'
 apiVersion: v2
 name: my-chart
 version: 0.1.0
 EOF
   out=$(bash "$REPO_ROOT/bin/detect-stack.sh" --path "$REPO")
-  echo "$out" | jq -e '.archetype == "infra"'
+  echo "$out" | jq -e '.archetype != "infra"'
 }
 
 @test "kustomization.yaml present → archetype infra" {

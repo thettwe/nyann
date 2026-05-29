@@ -55,8 +55,11 @@ nyann::detect_iac() {
     return 0
   fi
 
-  # Helm chart.
-  if [[ -f "$target/Chart.yaml" ]]; then
+  # Helm chart. Require corroboration (values.yaml or templates/) — a bare
+  # Chart.yaml at the root is ambiguous (CD tools and packaging metadata also
+  # use that name) and would misclassify an app repo as infra.
+  if [[ -f "$target/Chart.yaml" ]] \
+     && { [[ -f "$target/values.yaml" ]] || [[ -f "$target/values.yml" ]] || [[ -d "$target/templates" ]]; }; then
     IS_INFRA=1
     IAC_FRAMEWORK="helm"
     return 0
