@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/notification/v1.json",
+  "title": "Notification",
+  "description": "One notification entry. Appended as NDJSON to ~/.claude/nyann/notifications/<repo-hash>.jsonl.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["timestamp", "source", "severity", "message"],
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "source":    { "type": "string", "enum": ["sentinel", "staleness", "doc-drift", "session"] },
+    "severity":  { "type": "string", "enum": ["info", "warning", "critical"] },
+    "message":   { "type": "string" },
+    "context": {
+      "type": "object",
+      "description": "Source-specific structured context.",
+      "additionalProperties": true
+    }
+  }
+}

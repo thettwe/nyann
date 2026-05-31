@@ -4,6 +4,11 @@
 # Runs shellcheck over every bin/*.sh and template hook that's actually a
 # shell script. Also asserts every skills/<skill>/SKILL.md body ≤ 500 lines.
 # Exits non-zero on any finding.
+#
+# Shellcheck version: CI pins shellcheck to v0.11.0 (see the "Install pinned
+# shellcheck" step in .github/workflows/ci.yml). Run the same version locally
+# for parity — a different shellcheck can flag (or stop flagging) rules and
+# make a green local run fail CI. Bump both places together, deliberately.
 
 set -o errexit
 set -o nounset

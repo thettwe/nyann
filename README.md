@@ -219,8 +219,10 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:sync-team-profiles [--force]` | Sync team profiles from remote. |
 | `/nyann:check-prereqs [--json]` | Survey hard + soft prereqs. |
 | `/nyann:diagnose [--json]` | Bundle a redacted support snapshot. |
+| `/nyann:settings [<key> <value>]` | Interactive preferences menu (or direct `<key> <value>` shortcut). |
+| `/nyann:watch [--pr <n>] [--stop]` | One-shot CI sentinel poll — queues state-transition notifications. |
 
-All 35 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
+All 37 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
 
 ## Profiles
 
@@ -350,21 +352,30 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 ## Repository layout
 
 ```
-bin/                   # 76 top-level shell scripts + 25 extracted modules + 1 python helper
-commands/              # 35 Claude Code slash-command registrations
+bin/                   # 87 top-level shell scripts + 39 extracted modules + 1 python helper
+commands/              # 37 Claude Code slash-command registrations
 evals/                 # 24 skill-level trigger + output-quality specs
-hooks/                 # Claude Code PreToolUse block-main hook
-profiles/              # 26 starter profiles (+ _schema.json)
-schemas/               # 53 JSON Schemas for every exchanged shape
-skills/                # 35 skills (SKILL.md, optionally with references/ and scripts/)
-templates/             # gitignore, pre-commit configs, husky, docs, CI, memory
+hooks/                 # Claude Code PreToolUse + UserPromptSubmit hooks
+profiles/              # 27 starter profiles (+ _schema.json)
+schemas/               # 62 JSON Schemas for every exchanged shape
+skills/                # 37 skills (SKILL.md, optionally with references/ and scripts/)
+templates/             # gitignore, pre-commit configs (incl. iac), husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 1318 bats tests + fixtures
+tests/                 # 1438 bats tests + fixtures
 ```
 
 ## Recent changes
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.11.0** ships profile composition (`extends`), monorepo workspace releases, PR risk scoring in `/nyann:ship`, team profile pinning (SHA + tag), and CODEOWNERS generation from git history. Plus an orchestrator refactor that splits the three biggest monoliths (release, gh-integration, detect-stack) into per-feature modules.
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.12.0** — *Proactive Awareness*. nyann shifts from purely reactive to proactively surfacing drift, validating preconditions, and watching CI state — quiet unless something actually changed. Highlights:
+
+- **Mandatory setup gate** with new `/nyann:settings` interactive menu (per-user preferences schema bumps to v2).
+- **Session-start triage** UserPromptSubmit hook with fingerprint-based dedup — silent unless drift state changed.
+- **Pre-action guards** (`commit` / `pr` / `release` / `ship`) — built-in checks for staged-files, merge-conflict markers, branch-pushed, WIP commits, clean-tree, with profile-promoted severity.
+- **Proactive commit hygiene** — scope suggestion, incomplete-staging detection, debug-artifact + dead-code scan folded into `/nyann:commit`.
+- **Public-doc governance** — version-ref, file-ref, script-ref, count-claim drift detectors fold into `/nyann:doctor`.
+- **README SVG toolkit** — shields.io badge + skillicons.dev tech-stack generators with marker-bracketed idempotent rewrites.
+- **CI sentinel** — `/nyann:watch` polls open PRs and queues state-transition notifications surfaced by the session-start hook.
+- **IaC minimal** — `infra` archetype + `terraform-monorepo` starter profile + 5 IaC hook templates (fmt / validate / tflint / tfsec / terraform-docs) with `install-hooks --iac` phase.
 
 ---
 

@@ -31,13 +31,51 @@ jobs:
       # by a compromised maintainer (cf. tj-actions/changed-files 2025).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install shellcheck + bats (ubuntu)
+      # Pin shellcheck to an exact release rather than trusting whatever the
+      # runner image ships. The pre-installed version drifts between image
+      # refreshes, and a newer/older shellcheck can flag (or stop flagging)
+      # rules that `tests/lint.sh` passes locally — a green local run then
+      # fails CI for reasons unrelated to the change. Installing a pinned
+      # binary and prepending it to PATH makes the lint gate reproducible
+      # and identical to the version maintainers run locally.
+      - name: Install pinned shellcheck
+        shell: bash
+        env:
+          # Keep in sync with the version maintainers run locally (see
+          # tests/lint.sh header). Bump deliberately, not implicitly.
+          SHELLCHECK_VERSION: v0.11.0
+        run: |
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux)  os=linux ;;
+            Darwin) os=darwin ;;
+            *) echo "unsupported OS: $(uname -s)"; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            x86_64|amd64)  arch=x86_64 ;;
+            arm64|aarch64) arch=aarch64 ;;
+            *) echo "unsupported arch: $(uname -m)"; exit 1 ;;
+          esac
+          asset="shellcheck-${SHELLCHECK_VERSION}.${os}.${arch}.tar.gz"
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/${asset}"
+          dest="$HOME/.shellcheck-bin"
+          mkdir -p "$dest"
+          curl -fsSL "$url" -o /tmp/shellcheck.tar.gz
+          tar -xzf /tmp/shellcheck.tar.gz -C /tmp
+          install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "$dest/shellcheck"
+          # Prepend to PATH for all subsequent steps so it wins over any
+          # shellcheck baked into the runner image.
+          echo "$dest" >> "$GITHUB_PATH"
+          "$dest/shellcheck" --version
+
+      - name: Install bats + jq (ubuntu)
         if: runner.os == 'Linux'
         run: |
           # Only install what's actually missing — GitHub-hosted runners
           # already have jq, and a repeat apt pulls-in an update loop.
+          # shellcheck is pinned in a dedicated step above.
           need=()
-          for pkg in shellcheck bats jq; do
+          for pkg in bats jq; do
             command -v "$pkg" >/dev/null 2>&1 || need+=("$pkg")
           done
           if (( ${#need[@]} > 0 )); then
@@ -45,14 +83,14 @@ jobs:
             sudo apt-get install -y "${need[@]}"
           fi
 
-      - name: Install shellcheck + bats (macOS)
+      - name: Install bats + jq (macOS)
         if: runner.os == 'macOS'
         run: |
           # macOS ships bash 3.2 which has no `declare -A`; parallel
           # arrays keep this step portable. `bats` is packaged as
-          # bats-core on brew.
-          tools=(shellcheck bats jq)
-          formulas=(shellcheck bats-core jq)
+          # bats-core on brew. shellcheck is pinned in a dedicated step above.
+          tools=(bats jq)
+          formulas=(bats-core jq)
           need=()
           for i in "${!tools[@]}"; do
             command -v "${tools[$i]}" >/dev/null 2>&1 \

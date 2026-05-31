@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/sentinel-state/v1.json",
+  "title": "SentinelState",
+  "description": "Cached per-PR state for bin/ci-sentinel.sh. Used to detect transitions between polls.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repo", "pr_number", "last_poll_at", "checks_status", "review_status"],
+  "properties": {
+    "repo":          { "type": "string", "description": "<owner>/<repo>." },
+    "pr_number":     { "type": "integer", "minimum": 1 },
+    "base_branch":   { "type": "string" },
+    "head_branch":   { "type": "string" },
+    "last_poll_at":  { "type": "string", "format": "date-time" },
+    "checks_status": { "type": "string", "enum": ["pending", "success", "failure", "neutral", "unknown"] },
+    "review_status": { "type": "string", "enum": ["no-reviews", "changes-requested", "approved", "unknown"] },
+    "merged":        { "type": "boolean", "default": false },
+    "behind_count":  { "type": "integer", "minimum": 0 },
+    "ahead_count":   { "type": "integer", "minimum": 0 }
+  }
+}

@@ -61,9 +61,9 @@
       "description": "Profile schema version. Incremented on breaking changes."
     },
     "archetype": {
-      "$comment": "v1.6.0 — codebase archetype. When set, overrides detect-stack.sh's auto-detected archetype during scaffolding. Drives archetype-aware Project Memory scaffolding when documentation.use_archetype_scaffolds is true. Optional.",
+      "$comment": "v1.6.0 — codebase archetype. 'infra' covers IaC monorepos (Terraform/CDK/Pulumi/K8s/Helm). When set, overrides detect-stack.sh's auto-detected archetype during scaffolding. Drives archetype-aware Project Memory scaffolding when documentation.use_archetype_scaffolds is true. Optional.",
       "type": "string",
-      "enum": ["api-service", "cli-tool", "library", "web-app", "mobile-app", "plugin", "unknown"]
+      "enum": ["api-service", "cli-tool", "library", "web-app", "mobile-app", "plugin", "infra", "unknown"]
     },
     "stack": {
       "type": "object",
@@ -72,7 +72,7 @@
       "properties": {
         "primary_language": {
           "type": "string",
-          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "unknown"]
+          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "hcl", "unknown"]
         },
         "framework": {
           "oneOf": [
@@ -484,6 +484,92 @@
             { "type": "integer", "minimum": 1 }
           ]
         },
+        "staleness_threshold_commits": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum number of correlated source commits to flag a doc as stale. Default 5 when omitted."
+        },
+        "staleness_threshold_days": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Fallback days threshold for staleness detection. Default 30 when omitted."
+        },
+        "drift_check": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Public-doc governance configuration. Each detector can be toggled independently; count_claims requires explicit tracked_counts to be useful.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "scanned_files": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "version_refs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "enabled": { "type": "boolean", "default": true } }
+            },
+            "file_refs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "enabled": { "type": "boolean", "default": true } }
+            },
+            "script_refs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "enabled": { "type": "boolean", "default": true } }
+            },
+            "count_claims": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false },
+                "tracked_counts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["keyword", "source"],
+                    "properties": {
+                      "keyword": { "type": "string" },
+                      "source":  { "type": "string", "enum": ["filesystem-glob"] },
+                      "glob":    { "type": "string" },
+                      "extract": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            },
+            "ignore_lines": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "readme_badges": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "README shields.io badge generator. Master `enabled` plus per-badge sub-flags.",
+          "properties": {
+            "enabled":         { "type": "boolean", "default": false },
+            "license":         { "type": "boolean", "default": true },
+            "ci":              { "type": "boolean", "default": true },
+            "release":         { "type": "boolean", "default": true },
+            "tests":           { "type": "boolean", "default": false },
+            "health":          { "type": "boolean", "default": false },
+            "package_manager": { "type": "boolean", "default": false }
+          }
+        },
+        "readme_stack_icons": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "README skillicons.dev tech-stack icon block.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "include": { "type": "array", "items": { "type": "string" } },
+            "exclude": { "type": "array", "items": { "type": "string" } }
+          }
+        },
         "enable_drift_checks": {
           "type": "object",
           "additionalProperties": false,
@@ -521,6 +607,31 @@
               "description": "Restrict detection to specific languages. \"auto\" lets the detector use the StackDescriptor's primary + secondary languages."
             }
           }
+        }
+      }
+    },
+    "guards": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pre-action guard configuration. Per-flow arrays declare which guards to run; profiles may promote (advisory → confirm/critical) but never silently demote. Omitting a flow means 'run all built-in guards at their built-in severity'.",
+      "properties": {
+        "commit":  { "$ref": "#/$defs/GuardList" },
+        "pr":      { "$ref": "#/$defs/GuardList" },
+        "release": { "$ref": "#/$defs/GuardList" },
+        "ship":    { "$ref": "#/$defs/GuardList" }
+      }
+    }
+  },
+  "$defs": {
+    "GuardList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name":     { "type": "string", "description": "Guard identifier (e.g. 'staged-files-exist'). Matches a script under bin/guards/<name>.sh." },
+          "severity": { "type": "string", "enum": ["advisory", "confirm", "critical"], "description": "Override the built-in severity. Profiles may promote advisory guards to confirm or critical." }
         }
       }
     }

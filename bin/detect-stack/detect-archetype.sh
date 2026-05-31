@@ -61,6 +61,28 @@ if [[ -f "${path}/.claude-plugin/plugin.json" ]] || \
   archetype="plugin"
 fi
 
+# 1b. infra — IaC monorepo signals (Terraform / CDK / Pulumi / Helm /
+#     Kustomize). Slotted right after plugin so a Terraform repo with no
+#     [[bin]] doesn't fall through to library/cli-tool. The frontend
+#     tie-break in step 4 still wins when a repo legitimately mixes
+#     Terraform with a web app.
+if [[ "$archetype" == "unknown" ]]; then
+  # shellcheck source=./detect-iac.sh
+  source "${_detect_dir}/detect-iac.sh"
+  if nyann::detect_iac "$path"; then
+    archetype="infra"
+    if [[ -z "${framework//\"/}" || "${framework//\"/}" == "null" ]]; then
+      framework="\"$IAC_FRAMEWORK\""
+      _fw="$IAC_FRAMEWORK"
+    fi
+    # When the detected primary language is unknown but we're in an HCL repo,
+    # promote it to hcl so downstream consumers don't crash on enum validation.
+    if [[ "$primary_language" == "unknown" && "$IAC_FRAMEWORK" == "terraform" ]]; then
+      primary_language="hcl"
+    fi
+  fi
+fi
+
 # 2. mobile-app — language/framework signals
 if [[ "$archetype" == "unknown" ]]; then
   case "$primary_language" in

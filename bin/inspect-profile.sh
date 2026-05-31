@@ -74,6 +74,11 @@ hook_blurb() {
     mix-credo)            echo "mix credo for static analysis on staged Elixir files" ;;
     mix-test)             echo "mix test before push" ;;
     clang-format)         echo "clang-format on staged C / C++ source files" ;;
+    terraform-fmt)        echo "terraform fmt -check -recursive on *.tf files" ;;
+    terraform-validate)   echo "terraform validate per detected module" ;;
+    tflint)               echo "TFLint scans Terraform for best-practice violations" ;;
+    tfsec)                echo "tfsec security scan on Terraform" ;;
+    terraform-docs)       echo "regenerate per-module README.md from Terraform inputs/outputs" ;;
     *)                    echo "custom hook" ;;
   esac
 }

@@ -74,6 +74,21 @@ call the `AskUserQuestion` tool** (not plain text):
   `bin/pr.sh --target <cwd> --context-only` first, then build a
   Conventional-Commits title and a Summary/Test-plan markdown body.
 
+### Pre-action guards
+
+```
+bash bin/pre-action-guard.sh --flow ship --target <cwd> [--profile <resolved-profile.json>]
+```
+
+Ship runs both the PR-flow guards (`branch-pushed`, `wip-commits`) and
+any profile-promoted guards under `guards.ship`.
+
+| Exit | Meaning | Action |
+|---|---|---|
+| 0 | Pass | Continue |
+| 3 | Critical guard failed | Refuse to ship. The user has to fix the underlying issue or pass `--skip-guards`. |
+| 4 | Confirm-severity guard failed | AskUserQuestion: "Proceed with ship?" — explicit confirm required. |
+
 ## 3. Confirm before shipping
 
 Show the user the proposed title, body, and **mode** before invoking.
