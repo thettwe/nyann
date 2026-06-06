@@ -205,7 +205,12 @@ trap 'rm -f "$tmp_resolved" "$validate_err" "${_extends_tmpfiles[@]+"${_extends_
 file_version=$(jq -r '.schemaVersion // 1' "$resolved" 2>/dev/null || echo 1)
 if [[ "$file_version" =~ ^[0-9]+$ ]] && (( file_version < CURRENT_SCHEMA )); then
   nyann::log "profile at schemaVersion ${file_version}; auto-migrating to v${CURRENT_SCHEMA} in memory"
-  migrated=$("${_script_dir}/migrate-profile.sh" "$resolved")
+  # Guard the migrate call: under inherited `set -o errexit` a bare
+  # `migrated=$(...)` would abort load with migrate-profile.sh's raw exit
+  # code and no context. The `if !` form lets us attach a clear message.
+  if ! migrated=$("${_script_dir}/migrate-profile.sh" "$resolved"); then
+    nyann::die "auto-migration of profile '${name}' (${resolved}) failed"
+  fi
   printf '%s\n' "$migrated" > "$tmp_resolved"
 else
   cp "$resolved" "$tmp_resolved"
@@ -315,9 +320,11 @@ fi
 if $_skip_validation; then
   nyann::log "starter profile validation skipped (sentinel matches v${_plugin_version})"
 else
-  "${_script_dir}/validate-profile.sh" "$tmp_resolved" >/dev/null 2>"$validate_err"
-  vrc=$?
-  if [[ $vrc -ne 0 ]]; then
+  # Guard the call: under inherited `set -o errexit` a bare invocation
+  # would abort before the diagnostics ran (and surface jq's exit 5 on
+  # malformed JSON instead of the documented exit 4). The `if !` form
+  # keeps the failure branch reachable and pins the exit code.
+  if ! "${_script_dir}/validate-profile.sh" "$tmp_resolved" >/dev/null 2>"$validate_err"; then
     cat "$validate_err" >&2 || true
     nyann::warn "profile failed validation: ${resolved}"
     exit 4

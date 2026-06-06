@@ -68,6 +68,86 @@ teardown() { rm -rf "$TMP"; }
   [ "$sha1" = "$sha2" ]
 }
 
+@test "--apply refuses README with duplicate start marker (no data loss)" {
+  stack="$TMP/stack.json"
+  jq -n '{primary_language:"typescript", framework:"react", secondary_languages:[], package_managers:[]}' > "$stack"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+
+<!-- nyann:stack-icons:start -->
+old
+<!-- nyann:stack-icons:end -->
+
+Content BETWEEN the two blocks must survive.
+
+<!-- nyann:stack-icons:start -->
+dup
+<!-- nyann:stack-icons:end -->
+
+Tail content.
+EOF
+  run bash "$REPO_ROOT/bin/gen-readme-stack-icons.sh" --target "$REPO" --stack "$stack" --apply
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "more than once"
+  grep -q "Content BETWEEN the two blocks must survive" "$REPO/README.md"
+  grep -q "Tail content" "$REPO/README.md"
+}
+
+@test "--apply preserves an end-marker substring in prose before the block" {
+  stack="$TMP/stack.json"
+  jq -n '{primary_language:"typescript", framework:"react", secondary_languages:[], package_managers:[]}' > "$stack"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+
+The closing marker is written `<!-- nyann:stack-icons:end -->` in docs.
+
+<!-- nyann:stack-icons:start -->
+old
+<!-- nyann:stack-icons:end -->
+
+Tail content.
+EOF
+  bash "$REPO_ROOT/bin/gen-readme-stack-icons.sh" --target "$REPO" --stack "$stack" --apply > /dev/null
+  grep -q "The closing marker is written" "$REPO/README.md"
+  grep -q "Tail content" "$REPO/README.md"
+  grep -q "skillicons.dev/icons?i=ts,react" "$REPO/README.md"
+  ! grep -qx "old" "$REPO/README.md"
+}
+
+@test "--apply twice is byte-identical when README lacks trailing newline" {
+  stack="$TMP/stack.json"
+  jq -n '{primary_language:"typescript", framework:"react", secondary_languages:[], package_managers:[]}' > "$stack"
+  printf '# Project\n\nNo trailing newline here.' > "$REPO/README.md"
+  bash "$REPO_ROOT/bin/gen-readme-stack-icons.sh" --target "$REPO" --stack "$stack" --apply > /dev/null
+  sha1=$(shasum "$REPO/README.md" | cut -c1-40)
+  bash "$REPO_ROOT/bin/gen-readme-stack-icons.sh" --target "$REPO" --stack "$stack" --apply > /dev/null
+  sha2=$(shasum "$REPO/README.md" | cut -c1-40)
+  [ "$sha1" = "$sha2" ]
+}
+
+@test "--apply follows a single-hop symlink and keeps it a symlink" {
+  stack="$TMP/stack.json"
+  jq -n '{primary_language:"typescript", framework:"react", secondary_languages:[], package_managers:[]}' > "$stack"
+  printf '# Real\n' > "$REPO/real.md"
+  ( cd "$REPO" && ln -s real.md README.md )
+  bash "$REPO_ROOT/bin/gen-readme-stack-icons.sh" --target "$REPO" --stack "$stack" --apply > /dev/null
+  [ -L "$REPO/README.md" ]
+  grep -q "skillicons.dev/icons?i=ts,react" "$REPO/real.md"
+  grep -q "# Real" "$REPO/real.md"
+}
+
+@test "--apply refuses a README symlink pointing outside the target tree" {
+  stack="$TMP/stack.json"
+  jq -n '{primary_language:"typescript", framework:"react", secondary_languages:[], package_managers:[]}' > "$stack"
+  outside="$TMP/outside.md"
+  printf '# Outside\n' > "$outside"
+  ( cd "$REPO" && ln -s "$outside" README.md )
+  run bash "$REPO_ROOT/bin/gen-readme-stack-icons.sh" --target "$REPO" --stack "$stack" --apply
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "escapes target directory"
+  ! grep -q "skillicons" "$outside"
+}
+
 @test "Output validates against readme-badge-block schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

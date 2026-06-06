@@ -351,7 +351,9 @@ if $check_only; then
       printf '  user root:         %s\n' "$user_root"
       printf '\nRun /nyann:setup to configure.\n'
     fi
-    exit 0
+    # Documented contract: exit 2 when no preferences.json exists yet.
+    # Callers parse the JSON `status` field, not the exit code.
+    exit 2
   fi
 
   existing=$(cat "$prefs_path")

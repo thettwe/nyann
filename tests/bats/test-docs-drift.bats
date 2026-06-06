@@ -215,6 +215,105 @@ EOF
   echo "$out" | jq -e '.summary.total == 0'
 }
 
+@test "empty-docs repo: emits valid empty report (no abort)" {
+  # No README/CONTRIBUTING/SECURITY.md and no docs/ dir → scanned[] is empty.
+  # Under `set -o nounset` this used to abort before emitting JSON; the
+  # contract is "always exit 0 with a valid DocsDriftReport".
+  run bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.summary.total == 0'
+  echo "$output" | jq -e '.scanned_files == []'
+  echo "$output" | jq -e '.findings == []'
+}
+
+@test "empty-docs repo: --files listing only nonexistent paths still emits valid JSON" {
+  run bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --files nope.md,gone.md
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.findings == []'
+  echo "$output" | jq -e '.summary.total == 0'
+}
+
+@test "script-ref: 'make sense' in prose NOT flagged" {
+  printf 'build:\n\techo b\n' > "$REPO/Makefile"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+This helps you make sense of the data and make sure things work.
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors script-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "script-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "script-ref: 'make build' in a code span referencing a real target NOT flagged" {
+  printf 'build:\n\techo b\n' > "$REPO/Makefile"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+Run `make build` to compile.
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors script-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "script-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "script-ref: 'make ghost' in a code span (missing target) IS flagged" {
+  printf 'build:\n\techo b\n' > "$REPO/Makefile"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+Run `make ghost` to do nothing.
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors script-refs --files README.md)
+  echo "$out" | jq -e '.findings[] | select(.kind == "script-ref" and .current == "make ghost")'
+}
+
+@test "script-ref: 'make build' inside a fenced code block referencing a real target NOT flagged" {
+  printf 'build:\n\techo b\n' > "$REPO/Makefile"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+```sh
+make build
+```
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors script-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "script-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "file-ref: anchored broken link (docs/gone.md#x) IS flagged" {
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+See [intro](docs/gone.md#intro) for details.
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors file-refs --files README.md)
+  echo "$out" | jq -e '.findings[] | select(.kind == "file-ref" and .current == "docs/gone.md")'
+}
+
+@test "file-ref: anchored link to an existing file NOT flagged" {
+  mkdir -p "$REPO/docs"
+  echo "x" > "$REPO/docs/here.md"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+See [intro](docs/here.md#intro) and [q](docs/here.md?v=1).
+EOF
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors file-refs --files README.md)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "file-ref")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "count-claim: recursive ** glob counts deep + top-level files" {
+  mkdir -p "$REPO/tests/sub/deep"
+  : > "$REPO/tests/top.bats"
+  : > "$REPO/tests/sub/mid.bats"
+  : > "$REPO/tests/sub/deep/low.bats"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+We have 99 tests.
+EOF
+  prof="$TMP/p.json"
+  jq -n '{documentation: {drift_check: {enabled: true, count_claims: {enabled: true, tracked_counts: [{keyword: "tests", source: "filesystem-glob", glob: "tests/**/*.bats"}]}}}}' > "$prof"
+  out=$(bash "$REPO_ROOT/bin/docs-drift-scan.sh" --target "$REPO" --detectors count-claims --files README.md --profile "$prof")
+  echo "$out" | jq -e '.findings[] | select(.kind == "count-claim" and .expected == "3 tests")'
+}
+
 @test "Output validates against docs-drift-report schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

@@ -34,6 +34,14 @@ dry_run=false
 MARKER_START="<!-- nyann:templates:start -->"
 MARKER_END="<!-- nyann:templates:end -->"
 
+# YAML files (ISSUE_TEMPLATE/config.yml) can't carry HTML-comment
+# markers — they're parsed as YAML, where `<!-- ... -->` is a syntax
+# error and breaks the issue-template chooser. Use `#`-comment markers
+# for those instead. The marker text matches so re-run detection still
+# brackets the generated block.
+YAML_MARKER_START="# nyann:templates:start"
+YAML_MARKER_END="# nyann:templates:end"
+
 # shellcheck disable=SC2034  # stack_path: accepted for bootstrap compat, not used
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -113,7 +121,7 @@ fi
 # GitHub still parses the metadata block. The end marker always lands
 # at the bottom.
 wrap_with_markers() {
-  local body="$1"
+  local body="$1" marker_start="$2" marker_end="$3"
   if [[ "$body" == "---"$'\n'* ]]; then
     # Find the second `---` line — end of frontmatter.
     local frontmatter
@@ -125,9 +133,9 @@ wrap_with_markers() {
     local rest="${body#"$frontmatter"}"
     # Strip leading newline from rest if present.
     rest="${rest#$'\n'}"
-    printf '%s\n%s\n%s\n%s\n' "$frontmatter" "$MARKER_START" "$rest" "$MARKER_END"
+    printf '%s\n%s\n%s\n%s\n' "$frontmatter" "$marker_start" "$rest" "$marker_end"
   else
-    printf '%s\n%s\n%s\n' "$MARKER_START" "$body" "$MARKER_END"
+    printf '%s\n%s\n%s\n' "$marker_start" "$body" "$marker_end"
   fi
 }
 
@@ -148,20 +156,29 @@ write_template() {
   content="${content//\{\{ checklist \}\}/$checklist}"
   content="${content//\{\{ scope_section \}\}/$scope_section}"
 
+  # Pick comment syntax by file type: YAML files get `#` markers
+  # (HTML comments are invalid YAML and break config.yml parsing);
+  # everything else (Markdown) keeps the HTML-comment markers, which
+  # render as nothing on GitHub.
+  local marker_start="$MARKER_START" marker_end="$MARKER_END"
+  case "$dest" in
+    *.yml|*.yaml) marker_start="$YAML_MARKER_START"; marker_end="$YAML_MARKER_END" ;;
+  esac
+
   local marked
-  marked=$(wrap_with_markers "$content")
+  marked=$(wrap_with_markers "$content" "$marker_start" "$marker_end")
 
   mkdir -p "$(dirname "$dest")"
 
   if [[ -f "$dest" ]]; then
-    if grep -Fq "$MARKER_START" "$dest" && grep -Fq "$MARKER_END" "$dest"; then
+    if grep -Fq "$marker_start" "$dest" && grep -Fq "$marker_end" "$dest"; then
       # Marker-bracketed file: drop the existing marked block, then
       # append the freshly-marked one. Two-pass keeps the awk script
       # free of multi-line variable interpolation (which trips
       # `awk -v` on embedded newlines).
       local tmp preamble
       tmp=$(mktemp -t nyann-tmpl.XXXXXX)
-      preamble=$(awk -v start="$MARKER_START" -v end="$MARKER_END" '
+      preamble=$(awk -v start="$marker_start" -v end="$marker_end" '
         index($0, start) { in_block = 1; next }
         index($0, end)   { in_block = 0; next }
         !in_block        { print }

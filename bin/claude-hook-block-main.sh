@@ -175,18 +175,47 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 if [[ -z "$parse_result" ]]; then
-  # Fallback to a less accurate grep-based check when python is
-  # unreachable. Coverage is narrower (no `git -C` / `--git-dir`
-  # awareness) but the hook stays usable on minimal environments.
-  if ! grep -Eq '(^|[[:space:]\|&;])git[[:space:]]+(commit|push)\b' <<<"$cmd"; then
+  # Fallback to a less accurate check when python is unreachable.
+  # Coverage is narrower (no `git -C` / `--git-dir` awareness) but the
+  # hook stays usable on minimal environments. We still must match the
+  # python path's semantics on the escape hatch: `--no-verify` only
+  # disarms the guard when it belongs to the SAME clause as the
+  # commit/push subcommand. A decoy like `echo --no-verify; git commit`
+  # or `git log --no-verify; git commit` must NOT bypass.
+  #
+  # Split the command into clauses on shell operators, then inspect each
+  # clause independently. The first clause that is a `git ... commit` /
+  # `git ... push` decides: block unless that clause's own tail carries
+  # `--no-verify`.
+  sub_fallback=""
+  no_verify_in_clause=false
+  # Replace shell operators with newlines so we can iterate clauses.
+  # `sed` here is a deliberate exception to the no-sed guidance: we need
+  # operator-aware splitting and have no python.
+  clauses="$(printf '%s' "$cmd" | sed -E 's/(\&\&|\|\||[;|&])/\n/g')"
+  while IFS= read -r clause; do
+    # Does this clause invoke `git ... commit` / `git ... push`? The
+    # subcommand may sit after global options (`-C dir`, `-c k=v`), so
+    # we don't require it immediately after `git`.
+    if grep -Eq '(^|[[:space:]])git([[:space:]]|$)' <<<"$clause" \
+       && grep -Eq '(^|[[:space:]])(commit|push)([[:space:]]|$)' <<<"$clause"; then
+      sub_fallback=$(grep -Eo '(commit|push)' <<<"$clause" | head -1)
+      # Honour the escape hatch only when --no-verify is in THIS clause.
+      if grep -Eq '(^|[[:space:]])--no-verify\b' <<<"$clause"; then
+        no_verify_in_clause=true
+      fi
+      break
+    fi
+  done <<<"$clauses"
+
+  if [[ -z "$sub_fallback" ]]; then
     exit 0
   fi
-  if grep -Eq '(^|[[:space:]])--no-verify\b' <<<"$cmd"; then
+  if $no_verify_in_clause; then
     exit 0
   fi
   # Fallback also emits JSON so the parsing below doesn't care which
   # path produced the result.
-  sub_fallback=$(grep -Eo 'commit|push' <<<"$cmd" | head -1)
   parse_result=$(jq -nc --arg sub "$sub_fallback" '{decision:"BLOCK", sub:$sub, branch_dir:""}')
 fi
 
@@ -207,7 +236,12 @@ else
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
 fi
 
-case "$branch" in
+# Lowercase the branch before matching. On case-insensitive filesystems
+# (macOS default) `git checkout Main` checks out the same refs/heads/main
+# but reports `Main` — without folding case, the guard fails open and a
+# commit to main would be allowed.
+branch_lc="$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')"
+case "$branch_lc" in
   main|master)
     # Block with exit 2 so Claude Code surfaces the message as a hard
     # failure. Per Claude Code hook contract, stderr is shown to the user.

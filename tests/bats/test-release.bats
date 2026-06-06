@@ -285,6 +285,84 @@ EOF
   git -C "$repo" rev-parse v0.2.0-rc.1 >/dev/null
 }
 
+# ── BUG B regression: partial-failure idempotency ───────────────────────────
+# If a release dies after writing the CHANGELOG but before the tag is created,
+# re-running must NOT prepend a second "## [version]" block or create a second
+# release commit. We simulate the tag failure with tag.gpgsign=true + no key,
+# then re-run and assert no duplication.
+
+@test "tag-creation failure rolls back the release commit (no orphaned commit, clean tree)" {
+  repo=$(make_repo_with_cc_history)
+  head_before=$(git -C "$repo" rev-parse HEAD)
+  # Force annotated-tag creation to fail: signing requested, no signing key.
+  git -C "$repo" config tag.gpgsign true
+  git -C "$repo" config gpg.program /bin/false
+  run bash "$RELEASE" --target "$repo" --version 0.2.0 --yes
+  [ "$status" -ne 0 ]
+  # No tag was created.
+  ! git -C "$repo" rev-parse v0.2.0 >/dev/null 2>&1
+  # The release commit was dropped — HEAD is back where it started.
+  head_after=$(git -C "$repo" rev-parse HEAD)
+  [ "$head_before" = "$head_after" ]
+  # Working tree is clean (rollback restored it).
+  [ -z "$(git -C "$repo" status --porcelain)" ]
+}
+
+@test "re-run after a partial tag failure does NOT duplicate the CHANGELOG section" {
+  repo=$(make_repo_with_cc_history)
+  git -C "$repo" config tag.gpgsign true
+  git -C "$repo" config gpg.program /bin/false
+  # First attempt fails at the tag step.
+  run bash "$RELEASE" --target "$repo" --version 0.2.0 --yes
+  [ "$status" -ne 0 ]
+  # Repair the environment so a normal release could proceed.
+  git -C "$repo" config tag.gpgsign false
+  # Re-run. Whether it now succeeds or refuses, it must NOT leave two
+  # "## [0.2.0]" blocks in the CHANGELOG.
+  bash "$RELEASE" --target "$repo" --version 0.2.0 --yes 2>/dev/null || true
+  if [ -f "$repo/CHANGELOG.md" ]; then
+    count=$(grep -c -F -e "## [0.2.0]" "$repo/CHANGELOG.md" || true)
+    [ "${count:-0}" -le 1 ]
+  fi
+}
+
+@test "idempotency guard: existing CHANGELOG section without tag is refused" {
+  repo=$(make_repo_with_cc_history)
+  # Simulate the orphaned state: CHANGELOG has the section but no tag/commit.
+  printf '# Changelog\n\n## [0.2.0] — 2026-01-01\n\n### Features\n\n- x\n' > "$repo/CHANGELOG.md"
+  git -C "$repo" -c user.email=t@t -c user.name=t add CHANGELOG.md
+  git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "chore: stray changelog"
+  run bash "$RELEASE" --target "$repo" --version 0.2.0 --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -F -e "already contains"
+}
+
+# ── BUG C regression: prerelease tag not mis-ranked as latest stable ─────────
+# `git tag --sort=-v:refname` ranks v0.2.0-rc.1 ABOVE its own stable v0.2.0
+# without versionsort.suffix=-. The release "from" range must resolve to the
+# latest STABLE tag, not the same-base prerelease.
+
+@test "prerelease tag is not picked as the latest tag for the changelog range" {
+  repo=$(make_repo_with_cc_history)
+  # v0.1.0 exists from the fixture. Cut v0.2.0-rc.1, THEN the stable v0.2.0 on a
+  # later commit — the rc shares the 0.2.0 base, so without versionsort.suffix=-
+  # it out-sorts the stable tag.
+  echo "rc" > "$repo/rc.txt"
+  git -C "$repo" -c user.email=t@t -c user.name=t add rc.txt
+  git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "feat: rc work"
+  git -C "$repo" -c user.email=t@t -c user.name=t tag v0.2.0-rc.1
+  echo "stable" > "$repo/stable.txt"
+  git -C "$repo" -c user.email=t@t -c user.name=t add stable.txt
+  git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "feat: stabilize"
+  git -C "$repo" -c user.email=t@t -c user.name=t tag v0.2.0
+  echo "z" > "$repo/z.txt"
+  git -C "$repo" -c user.email=t@t -c user.name=t add z.txt
+  git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m "feat: post-stable feature"
+  out=$(bash "$RELEASE" --target "$repo" --version 0.3.0 --dry-run 2>/dev/null)
+  # 'from' must be the stable v0.2.0, NOT the higher-sorting prerelease v0.2.0-rc.1.
+  [ "$(echo "$out" | jq -r '.from')" = "v0.2.0" ]
+}
+
 @test "stable real run sets prerelease:false and DOES modify CHANGELOG" {
   repo=$(make_repo_with_cc_history)
   out=$(bash "$RELEASE" --target "$repo" --version 0.2.0 --yes 2>/dev/null)
@@ -324,20 +402,26 @@ EOF
 # Mock gh that handles auth + pr list (PR resolution) + pr checks (wait-for-pr-checks).
 # $1 = pr_num         (number to return, or literal "none" for "no PR found")
 # $2 = checks_outcome (success | failure | timeout-empty)
+# $3 = repo path      (optional; used to emit a headRefOid matching HEAD so the
+#                      exact-SHA PR resolution in ci-gate.sh matches)
 make_mock_gh_release() {
   local pr_num="${1:-42}"
   local checks_outcome="${2:-success}"
+  local repo_for_sha="${3:-${repo:-}}"
+  local head_sha=""
+  [[ -n "$repo_for_sha" ]] && head_sha=$(git -C "$repo_for_sha" rev-parse HEAD 2>/dev/null || echo "")
   local list_body
   if [[ "$pr_num" == "none" ]]; then
     list_body='[]'
   else
-    list_body="[{\"number\":${pr_num}}]"
+    list_body="[{\"number\":${pr_num},\"headRefOid\":\"${head_sha}\"}]"
   fi
   mkdir -p "$TMP/mock"
   cat > "$TMP/mock/gh" <<SH
 #!/bin/sh
 case "\$1" in
   auth) exit 0 ;;
+  api) echo '${list_body}'; exit 0 ;;
   pr)
     case "\$2" in
       list) echo '${list_body}'; exit 0 ;;

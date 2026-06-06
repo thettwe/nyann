@@ -147,6 +147,24 @@ add_commit_with_body() {
   [ "$(echo "$out" | jq -r '.recommended')" = "2.1.0" ]
 }
 
+# --- BUG C regression: prerelease not picked as current stable ---
+# `git tag --sort=-v:refname` ranks v1.2.4-rc.1 ABOVE its base stable v1.2.3
+# without versionsort.suffix=-. The recommendation's "current" must be the
+# latest STABLE tag.
+
+@test "same-base prerelease tag does not become the current version" {
+  repo=$(make_repo)
+  # Stable v1.2.3, then a prerelease that shares the 1.2.4 base sorting above it
+  # is the trap; here we use v1.2.3-rc.2 which out-sorts v1.2.3 by default sort.
+  git -C "$repo" -c user.email=t@t -c user.name=t tag v1.2.3
+  git -C "$repo" -c user.email=t@t -c user.name=t tag v1.2.3-rc.2
+  add_commit "$repo" "fix: something"
+  out=$(bash "$RV" --target "$repo")
+  # current must be the stable 1.2.3, not the rc.
+  [ "$(echo "$out" | jq -r '.current')" = "1.2.3" ]
+  [ "$(echo "$out" | jq -r '.recommended')" = "1.2.4" ]
+}
+
 # --- error cases ---
 
 @test "not a git repo dies" {

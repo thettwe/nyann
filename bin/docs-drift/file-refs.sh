@@ -84,5 +84,5 @@ while IFS= read -r line || [[ -n "$line" ]]; do
             --arg hint "either create ${path}, fix the link, or wrap the line with <!-- drift-ignore -->" \
             '{kind:$kind, file:$file, line:$line, severity:$severity, message:$message, current:$current, fix_hint:$hint}'
     fi
-  done < <( printf '%s' "$line" | grep -oE '\]\([^)[:space:]]+\.[A-Za-z0-9_/-]+\)' )
+  done < <( printf '%s' "$line" | grep -oE '\]\([^)[:space:]]+\)' )
 done < "$abs"

@@ -67,6 +67,39 @@ run_gen() {
   grep -Fq 'labels: bug' "$REPO/.github/ISSUE_TEMPLATE/bug_report.md"
 }
 
+@test "generated config.yml parses as valid YAML — no HTML-comment markers (BUG C)" {
+  # config.yml has no frontmatter, so it used to fall into the else branch
+  # of wrap_with_markers and get `<!-- nyann:templates:start -->` wrappers.
+  # HTML comments are invalid YAML → the issue-template chooser config
+  # failed to parse. The fix uses `#`-comment markers for YAML files.
+  run run_gen
+  [ "$status" -eq 0 ]
+  cfg="$REPO/.github/ISSUE_TEMPLATE/config.yml"
+  [ -f "$cfg" ]
+  # Must parse as YAML.
+  python3 -c "import yaml; yaml.safe_load(open('$cfg'))"
+  # No HTML-comment markers leaked in.
+  ! grep -Fq '<!-- nyann:templates' "$cfg"
+  # Marker is present (idempotent re-runs) but as a YAML comment.
+  grep -Fq '# nyann:templates:start' "$cfg"
+  grep -Fq '# nyann:templates:end' "$cfg"
+  # Original config keys survive.
+  python3 -c "import yaml; d=yaml.safe_load(open('$cfg')); assert d.get('blank_issues_enabled') is False"
+}
+
+@test "config.yml re-run is idempotent with YAML markers (BUG C)" {
+  run run_gen
+  [ "$status" -eq 0 ]
+  cfg="$REPO/.github/ISSUE_TEMPLATE/config.yml"
+  sha1=$(shasum -a 256 "$cfg" | awk '{print $1}')
+  run run_gen
+  [ "$status" -eq 0 ]
+  sha2=$(shasum -a 256 "$cfg" | awk '{print $1}')
+  [ "$sha1" = "$sha2" ]
+  # Exactly one marked block (regeneration replaced, did not duplicate).
+  [ "$(grep -c '# nyann:templates:start' "$cfg")" -eq 1 ]
+}
+
 # --- Marker-aware re-run semantics ---
 
 @test "fresh write wraps content in nyann markers" {

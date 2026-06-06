@@ -134,6 +134,19 @@ if [[ "$branch_name" == -* ]]; then
   exit 3
 fi
 
+# Slugs pass `^[a-z0-9][a-z0-9._-]*$`, but the assembled name can still
+# violate git's ref rules — e.g. `a..b` (double-dot), a trailing `.`, or
+# a `.lock` suffix. Without this check `git branch` emits a raw
+# `fatal: not a valid branch name` (exit 128). Validate up front and
+# surface a nyann-formatted error instead, keeping the fail-safe (no
+# branch created).
+if ! git -C "$target" check-ref-format --branch "$branch_name" >/dev/null 2>&1; then
+  nyann::warn "branch name is not a valid git ref: $branch_name"
+  nyann::warn "git ref rules forbid '..', trailing '.', '.lock' suffixes, and similar"
+  rm -f "$tmp_profile"
+  exit 4
+fi
+
 # Choose base branch.
 first_base=$(jq -r '.branching.base_branches[0] // "main"' "$tmp_profile")
 if ! nyann::valid_git_ref "$first_base"; then

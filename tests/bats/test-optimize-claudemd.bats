@@ -325,3 +325,136 @@ JSON
   applied=$(json_output | jq '.applied | length')
   [ "$applied" -eq 0 ]
 }
+
+# ---- BUG A: marker-on-line-1 reconstruction -------------------------------
+# gen-claudemd.sh writes the start marker on line 1 for a fresh repo with
+# no user preamble. The old reconstruction used `sed '1,/marker/'`, whose
+# `1,/regex/` range extends to the NEXT match (or EOF) when line 1 already
+# matches — so `before_block` captured the ENTIRE file and the rebuild
+# duplicated the managed block, emitting TWO end markers. The next
+# gen-claudemd run then hit its start>=end guard and refused to run,
+# bricking the file. After the fix the output must stay a single
+# well-formed block (exactly one start + one end marker, in order).
+
+make_fresh_marker_line1() {
+  # Mirrors gen-claudemd's fresh-repo output: start marker on line 1.
+  cat > "$REPO/CLAUDE.md" <<'MD'
+<!-- nyann:start -->
+
+## How to work here
+
+- `npm test` — run tests
+
+## Unused section
+
+Nobody references this section at all.
+
+## Conventions
+
+Commit format: conventional-commits
+
+<!-- nyann:end -->
+MD
+}
+
+@test "marker on line 1 → optimize keeps a single well-formed block (no duplication)" {
+  make_fresh_marker_line1
+  # Usage data matches the fixture's section names so only "Unused
+  # section" is proposed for removal (the others are well-referenced).
+  cat > "$REPO/memory/claudemd-usage.json" <<'JSON'
+{
+  "sessions": 20,
+  "sections": {
+    "How to work here": { "referenced": 30, "last_referenced": "2025-01-15T00:00:00Z" },
+    "Unused section": { "referenced": 0, "last_referenced": "2025-01-01T00:00:00Z" },
+    "Conventions": { "referenced": 25, "last_referenced": "2025-01-14T00:00:00Z" }
+  },
+  "commands_run": {},
+  "docs_read": {}
+}
+JSON
+  run bash "$OPTIMIZE" --target "$REPO" --profile "$PROFILE"
+  [ "$status" -eq 0 ]
+  # Exactly one start marker and one end marker survive.
+  [ "$(grep -cF '<!-- nyann:start -->' "$REPO/CLAUDE.md")" -eq 1 ]
+  [ "$(grep -cF '<!-- nyann:end -->' "$REPO/CLAUDE.md")" -eq 1 ]
+  # Start marker still precedes end marker (order intact).
+  start=$(grep -nF '<!-- nyann:start -->' "$REPO/CLAUDE.md" | cut -d: -f1)
+  end=$(grep -nF '<!-- nyann:end -->' "$REPO/CLAUDE.md" | cut -d: -f1)
+  [ "$start" -lt "$end" ]
+  # The removal still happened and the survivors are intact.
+  ! grep -Fq "Unused section" "$REPO/CLAUDE.md"
+  grep -Fq "How to work here" "$REPO/CLAUDE.md"
+  grep -Fq "Conventions" "$REPO/CLAUDE.md"
+}
+
+@test "marker on line 1 → re-running optimize twice stays single-block (no progressive corruption)" {
+  make_fresh_marker_line1
+  make_usage_no_recs
+  bash "$OPTIMIZE" --target "$REPO" --profile "$PROFILE" 2>/dev/null
+  run bash "$OPTIMIZE" --target "$REPO" --profile "$PROFILE"
+  [ "$status" -eq 0 ]
+  [ "$(grep -cF '<!-- nyann:start -->' "$REPO/CLAUDE.md")" -eq 1 ]
+  [ "$(grep -cF '<!-- nyann:end -->' "$REPO/CLAUDE.md")" -eq 1 ]
+}
+
+# ---- BUG B: fenced-code section removal -----------------------------------
+# The `remove` awk treated any `## ` line as a section boundary, including
+# `## ` lines INSIDE a fenced code block. Removing a section whose body
+# contained such a fence stopped early, orphaning the closing fence and
+# the trailing content (e.g. the next real `## ` section). The fix tracks
+# fenced-code state and only treats `## ` as a boundary outside a fence.
+
+@test "removing a section whose body has a fenced ## line does not corrupt the rest" {
+  cat > "$REPO/CLAUDE.md" <<'MD'
+# Project
+
+<!-- nyann:start -->
+
+## How to work here
+
+- `npm test` — run tests
+
+## Unused section
+
+Example fenced block that contains a heading-like line:
+
+```
+## not a real heading
+echo hello
+```
+
+Trailing body after the fence.
+
+## Conventions
+
+Commit format: conventional-commits
+
+<!-- nyann:end -->
+MD
+  cat > "$REPO/memory/claudemd-usage.json" <<'JSON'
+{
+  "sessions": 20,
+  "sections": {
+    "How to work here": { "referenced": 30, "last_referenced": "2025-01-15T00:00:00Z" },
+    "Unused section": { "referenced": 0, "last_referenced": "2025-01-01T00:00:00Z" },
+    "Conventions": { "referenced": 25, "last_referenced": "2025-01-14T00:00:00Z" }
+  },
+  "commands_run": {},
+  "docs_read": {}
+}
+JSON
+  run bash "$OPTIMIZE" --target "$REPO" --profile "$PROFILE"
+  [ "$status" -eq 0 ]
+  # The whole Unused section — heading, fence, and trailing body — is gone.
+  ! grep -Fq "Unused section" "$REPO/CLAUDE.md"
+  ! grep -Fq "Trailing body after the fence" "$REPO/CLAUDE.md"
+  ! grep -Fq "not a real heading" "$REPO/CLAUDE.md"
+  # Crucially, the *next* real section survived (it would have been
+  # orphaned/dropped if the awk stopped at the in-fence `## ` line).
+  grep -Fq "How to work here" "$REPO/CLAUDE.md"
+  grep -Fq "Conventions" "$REPO/CLAUDE.md"
+  grep -Fq "conventional-commits" "$REPO/CLAUDE.md"
+  # No orphaned closing fence left behind.
+  [ "$(grep -cF '```' "$REPO/CLAUDE.md")" -eq 0 ]
+}

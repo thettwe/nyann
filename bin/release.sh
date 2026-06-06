@@ -11,10 +11,18 @@
 #              [--push]                     # also push tag to origin
 #              [--dry-run]                  # print what would happen, mutate nothing
 #              [--wait-for-checks]          # gate the tag step on green CI for HEAD's PR
+#              [--no-wait-for-checks]       # opt out of the CI gate that --push enables by default
 #              [--wait-for-checks-timeout <sec>]  # default 1800
 #              [--wait-for-checks-interval <sec>] # default 30
 #              [--allow-no-pr]              # allow --wait-for-checks when no PR matches HEAD (off by default)
 #              [--allow-no-checks]          # allow --wait-for-checks when PR has no checks attached (off by default)
+#
+# CI gate default: --push pushes a tag a marketplace consumes, so it
+# enables the CI gate automatically. When auto-enabled it degrades
+# gracefully — a release cut on main with no open PR, or a host without
+# an authenticated gh, proceeds with a warning instead of failing. An
+# explicit --wait-for-checks stays strict (no PR / no checks / no gh is
+# fatal). Use --no-wait-for-checks to push without any gate.
 #              [--gh <path>]                # gh binary, default `gh`
 #
 # Output (JSON on stdout):
@@ -38,7 +46,11 @@
 #
 # Exit codes:
 #   0 — released, skipped (soft), or noop
-#   2 — hard error (bad version, not a git repo, dirty tree, invalid strategy)
+#   2 — hard error (bad version, not a git repo, dirty tree, invalid strategy,
+#       tag creation failed)
+#   3 — --push requested but the tag/branch push did not complete
+#   4 — --gh-release requested but `gh release create` failed (tag may be pushed;
+#       see gh_release.next_steps[] in the JSON for recovery)
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _release_dir="${_script_dir}/release"
@@ -57,6 +69,7 @@ push=false
 dry_run=false
 confirm=false
 wait_for_checks=false
+no_wait_for_checks=false
 wait_timeout=1800
 wait_interval=30
 allow_no_pr=false
@@ -88,6 +101,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run)        dry_run=true; shift ;;
     --yes)            confirm=true; shift ;;
     --wait-for-checks)         wait_for_checks=true; shift ;;
+    --no-wait-for-checks)      no_wait_for_checks=true; shift ;;
     --wait-for-checks-timeout) wait_timeout="${2:-}"; shift 2 ;;
     --wait-for-checks-timeout=*) wait_timeout="${1#--wait-for-checks-timeout=}"; shift ;;
     --wait-for-checks-interval) wait_interval="${2:-}"; shift 2 ;;
@@ -109,6 +123,28 @@ while [[ $# -gt 0 ]]; do
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
+
+# Security default: a pushed tag is consumed by the marketplace, so gate it on
+# green CI unless the caller explicitly opted out. Only auto-enable when gh is
+# actually usable — otherwise a developer pushing a release from a host without
+# gh (or on main with no open PR) would suddenly hit a hard failure where the
+# previous behaviour just pushed. Auto mode therefore also flips on the
+# allow-no-pr / allow-no-checks degradations so a missing PR/checks warns
+# instead of aborting. An explicit --wait-for-checks stays strict.
+auto_wait=false
+if $push && ! $wait_for_checks && ! $no_wait_for_checks && ! $dry_run; then
+  _origin_url=$(git -C "$target" config --get remote.origin.url 2>/dev/null || echo "")
+  if [[ "$_origin_url" != *github.com* ]]; then
+    : # non-GitHub origin (or none): ci-gate can't apply — push as before.
+  elif command -v "$gh_bin" >/dev/null 2>&1 && "$gh_bin" auth status >/dev/null 2>&1; then
+    wait_for_checks=true
+    auto_wait=true
+    allow_no_pr=true
+    allow_no_checks=true
+  else
+    nyann::warn "release: pushing a GitHub tag without a CI gate (gh unavailable or unauthenticated). Pass --wait-for-checks once gh is set up, or --no-wait-for-checks to silence this."
+  fi
+fi
 
 if $wait_for_checks; then
   [[ "$wait_timeout" =~ ^[0-9]+$ && "$wait_timeout" -ge 1 ]]   || nyann::die "--wait-for-checks-timeout must be a positive integer"
@@ -212,7 +248,22 @@ if [[ -n "$workspace_path" ]] || $all_workspaces; then
       if $batch_commit; then
         pending_tags+=("$ws_tag")
       else
+        # Non-batch: release-workspace.sh wrote <ws>/CHANGELOG.md but did NOT
+        # commit. Commit this workspace's changelog FIRST, then tag, so the tag
+        # lands on the commit that actually contains its changelog (mirrors the
+        # single-repo commit→tag flow) and the working tree is left clean.
+        # Without this, the tag would point at the pre-changelog HEAD and the
+        # changelog would linger uncommitted.
         nyann::resolve_identity "$target"
+        ws_changelog="$target/$ws/CHANGELOG.md"
+        if [[ -f "$ws_changelog" ]]; then
+          git -C "$target" add -- "$ws/CHANGELOG.md"
+          if ! git -C "$target" diff --cached --quiet; then
+            git -C "$target" \
+              -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
+              commit -q -m "chore(release): $ws_tag" >/dev/null
+          fi
+        fi
         git -C "$target" \
           -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
           tag -a -m "release $ws_tag" -- "$ws_tag"
@@ -264,6 +315,7 @@ _rollback_dir=""
 _mutation_in_progress=false
 _rollback_files=()
 _bump_plan_file=""
+_release_commit_made=false
 
 _rollback_on_signal() {
   trap - INT TERM HUP
@@ -312,6 +364,19 @@ if git -C "$target" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
   nyann::die "tag $tag already exists"
 fi
 
+# Idempotency guard: if a prior run wrote the CHANGELOG section but then died
+# before (or during) tag creation, the tag-exists check above won't fire (no tag
+# was ever created). Re-running would prepend a SECOND "## [version]" block and
+# create a second release commit. Refuse instead, and point at recovery.
+# Scoped to the conventional-changelog stable path — prerelease and manual
+# strategies don't write the CHANGELOG, so the marker can never be theirs.
+if ! $dry_run && [[ "$strategy" == "conventional-changelog" ]] && ! $is_prerelease; then
+  _full_changelog="$target/$changelog_path"
+  if [[ -f "$_full_changelog" ]] && grep -Fq "## [$version]" "$_full_changelog"; then
+    nyann::die "CHANGELOG already contains a '## [$version]' section but tag $tag does not exist — a prior release run likely failed after writing the CHANGELOG but before tagging. Inspect the working tree: if the release commit is present, create the tag manually ('git tag -a $tag'); otherwise 'git reset --hard HEAD~1' to drop the partial release commit, then re-run."
+  fi
+fi
+
 if ! $dry_run; then
   if ! git -C "$target" diff --quiet || ! git -C "$target" diff --cached --quiet; then
     nyann::die "working tree has uncommitted changes; commit or stash first"
@@ -321,7 +386,7 @@ fi
 # --- resolve from-ref --------------------------------------------------------
 
 if [[ -z "$from_ref" ]]; then
-  latest_tag=$(git -C "$target" tag --list "${tag_prefix}*" --sort=-v:refname | head -n1)
+  latest_tag=$(git -C "$target" -c versionsort.suffix=- tag --list "${tag_prefix}*" --sort=-v:refname | head -n1)
   if [[ -n "$latest_tag" ]]; then
     from_ref="$latest_tag"
     log_range="${from_ref}..HEAD"
@@ -410,6 +475,7 @@ fi
 
 ci_gate_json=""
 if $wait_for_checks; then
+  $auto_wait && nyann::log "release: --push enabled the CI gate by default (use --no-wait-for-checks to skip)"
   ci_gate_args=(--target "$target" --gh "$gh_bin" --timeout "$wait_timeout" --interval "$wait_interval")
   if $allow_no_pr; then
     ci_gate_args+=(--allow-no-pr)
@@ -504,6 +570,7 @@ case "$strategy" in
       git -C "$target" \
         -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
         commit -q -m "chore(release): $tag" >/dev/null
+      _release_commit_made=true
 
       _mutation_in_progress=false
       trap - INT TERM HUP
@@ -517,10 +584,23 @@ esac
 
 # --- tag creation -------------------------------------------------------------
 
+# If tag creation fails (e.g. tag.gpgsign=true with no signing key), the release
+# commit (made above) is already on the branch but no tag exists. Under set -e a
+# bare `git tag` failure would exit here, stranding that commit: a re-run would
+# prepend a SECOND CHANGELOG block and create a SECOND release commit (the
+# tag-exists guard can't fire — no tag was created). So on failure we drop the
+# just-created release commit before dying, restoring the pre-release state.
 nyann::resolve_identity "$target"
-git -C "$target" \
+if ! git -C "$target" \
   -c "user.email=$NYANN_GIT_EMAIL" -c "user.name=$NYANN_GIT_NAME" \
-  tag -a -m "release $tag" -- "$tag"
+  tag -a -m "release $tag" -- "$tag"; then
+  if ${_release_commit_made:-false}; then
+    nyann::warn "release: tag creation for $tag failed; dropping the just-created release commit to avoid a half-applied release"
+    git -C "$target" reset --hard HEAD~1 >/dev/null 2>&1 || \
+      nyann::warn "release: failed to roll back the release commit — inspect with 'git log -1' and reset manually"
+  fi
+  nyann::die "release: failed to create tag $tag (check tag.gpgsign / signing key, or tag protection)"
+fi
 
 # --- push via module ----------------------------------------------------------
 
@@ -544,6 +624,7 @@ fi
 # --- GitHub release via module ------------------------------------------------
 
 gh_release_json=""
+gh_release_outcome=""
 if $gh_release; then
   gh_args=(--tag "$tag" --gh "$gh_bin")
   if [[ -n "$changelog_block" ]]; then
@@ -557,6 +638,7 @@ if $gh_release; then
   fi
   gh_result=$("${_release_dir}/github-release.sh" "${gh_args[@]}") || true
   gh_release_json=$(jq 'del(.next_steps)' <<<"$gh_result" 2>/dev/null || echo '{}')
+  gh_release_outcome=$(jq -r '.outcome // ""' <<<"$gh_result" 2>/dev/null || echo "")
   gh_steps=$(jq '.next_steps // []' <<<"$gh_result" 2>/dev/null || echo '[]')
   next_steps_json=$(jq --argjson steps "$gh_steps" '. + $steps' <<<"$next_steps_json")
 fi
@@ -589,4 +671,12 @@ jq -n \
 
 if $push && [[ "$pushed" != "true" ]]; then
   exit 3
+fi
+
+# A failed `gh release create` must not pass silently as exit 0 — the tag may be
+# pushed but the GitHub release the user asked for is missing. Surface a distinct
+# non-zero so callers/CI can detect it (the JSON above carries gh_release.outcome
+# and next_steps[] for recovery). Push failures (exit 3 above) take precedence.
+if [[ "$gh_release_outcome" == "failed" ]]; then
+  exit 4
 fi

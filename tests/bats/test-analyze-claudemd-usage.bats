@@ -136,16 +136,17 @@ JSON
   budget_used=$(echo "$output" | jq '.budget_used')
   [ "$budget_used" -gt 0 ]
   budget_remaining=$(echo "$output" | jq '.budget_remaining')
-  [ "$budget_remaining" -ge 0 ]
+  [ "$budget_remaining" -gt 0 ]
 }
 
 @test "generates compression recommendations for low-density sections" {
   make_claudemd
-  make_usage 15 30 1 20
+  # Docs map: 5 refs / 203 bytes => density 0.0246, in [0.01, 0.05) => compress
+  make_usage 15 30 5 20
   run bash "$ANALYZE" --target "$REPO"
   [ "$status" -eq 0 ]
   compress_count=$(echo "$output" | jq '[.recommendations[] | select(.action == "compress")] | length')
-  [ "$compress_count" -ge 0 ]
+  [ "$compress_count" -gt 0 ]
 }
 
 @test "missing usage file fails with clear error" {

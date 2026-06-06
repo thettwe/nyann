@@ -53,20 +53,46 @@ if $peek; then
   exit 0
 fi
 
-# Default mode: atomic read-and-truncate. Rename the queue to a sibling
-# `.reading` file FIRST so any sentinel append between read and truncate
-# lands in a freshly-created queue file (preserved for the next read)
-# rather than being silently dropped. mv is atomic on the same filesystem.
+# Default mode: read-and-truncate under the shared notifications lock so a
+# concurrent sentinel append can't land in the moved inode and then be
+# rm'd (the mv-then-rm alone is NOT atomic against a writer whose fd was
+# opened before the mv — see ci-sentinel.sh append_notification, which
+# holds the SAME lock). The lock name is derived from the queue path so
+# both sides agree. Hold time is kept minimal: lock → mv → read → rm →
+# unlock. mv is atomic on the same filesystem; the lock closes the
+# residual window against writers.
+lock_dir="${notif_file}.lock"
 reading_file="${notif_file}.reading.$$"
+nyann::lock "$lock_dir"
 if mv "$notif_file" "$reading_file" 2>/dev/null; then
+  # A crash between here and the rm -f would strand the queue in
+  # reading_file forever. Install an EXIT trap so an interrupted reader
+  # still cleans up; the explicit rm -f below makes the trap a no-op on
+  # the happy path (rm -f is idempotent). The trap also frees the lock.
+  trap 'rm -f "$reading_file"; nyann::unlock "$lock_dir"' EXIT
   if [[ -s "$reading_file" ]]; then
-    jq -s '.' "$reading_file" 2>/dev/null || echo "[]"
+    # Capture jq's output AND exit status BEFORE deleting anything: a
+    # partial/corrupt NDJSON line from a crashed writer makes jq fail,
+    # and `|| echo "[]"` would otherwise mask the failure and we'd rm
+    # the only copy of the data. On failure, preserve the queue to a
+    # `.corrupt.$$` sibling (do NOT rm) so it can be recovered.
+    if out=$(jq -s '.' "$reading_file" 2>/dev/null); then
+      printf '%s\n' "$out"
+      rm -f "$reading_file"
+    else
+      mv "$reading_file" "${notif_file}.corrupt.$$" 2>/dev/null || true
+      nyann::warn "notification queue unparseable (crashed writer?) — preserved to ${notif_file}.corrupt.$$; delivering nothing this call"
+      echo "[]"
+    fi
   else
     echo "[]"
+    rm -f "$reading_file"
   fi
-  rm -f "$reading_file"
+  nyann::unlock "$lock_dir"
+  trap - EXIT
 else
   # Concurrent reader took it first, or filesystem hiccup. Either way,
   # nothing to deliver this call.
+  nyann::unlock "$lock_dir"
   echo "[]"
 fi

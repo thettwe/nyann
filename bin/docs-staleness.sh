@@ -57,8 +57,10 @@ if [[ -n "$profile_file" && -f "$profile_file" ]]; then
   [[ -n "$v" ]] && threshold_days="$v"
 fi
 
-[[ "$threshold_commits" =~ ^[0-9]+$ ]] || threshold_commits=5
-[[ "$threshold_days"    =~ ^[0-9]+$ ]] || threshold_days=30
+# Require >= 1: a threshold of 0 would flag every doc and violates the
+# schema (minimum: 1). Reject non-positive / non-numeric → fall back to default.
+[[ "$threshold_commits" =~ ^[0-9]+$ ]] && (( threshold_commits >= 1 )) || threshold_commits=5
+[[ "$threshold_days"    =~ ^[0-9]+$ ]] && (( threshold_days    >= 1 )) || threshold_days=30
 
 # Quick exits: not a git repo, or no docs/ dir.
 emit_empty() {

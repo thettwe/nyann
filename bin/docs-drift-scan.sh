@@ -115,6 +115,7 @@ findings_tmp=$(mktemp -t nyann-drift.XXXXXX)
 trap 'rm -f "$findings_tmp"' EXIT
 : > "$findings_tmp"
 
+if (( ${#scanned[@]} )); then
 for f in "${scanned[@]}"; do
   [[ -f "$target/$f" ]] || continue
   for d in "${detectors[@]}"; do
@@ -140,6 +141,7 @@ for f in "${scanned[@]}"; do
     esac
   done
 done
+fi
 
 # Aggregate.
 all_findings='[]'
@@ -154,7 +156,10 @@ med=$(   jq '[.[] | select(.severity == "medium")] | length'   <<<"$all_findings
 low=$(   jq '[.[] | select(.severity == "low")] | length'      <<<"$all_findings")
 by_kind=$(jq '[.[] | .kind] | group_by(.) | map({(.[0]): length}) | add // {}' <<<"$all_findings")
 
-scanned_json=$(printf '%s\n' "${scanned[@]}" | jq -R . | jq -s .)
+scanned_json='[]'
+if (( ${#scanned[@]} )); then
+  scanned_json=$(printf '%s\n' "${scanned[@]}" | jq -R . | jq -s .)
+fi
 
 jq -n \
   --arg t "$target" \

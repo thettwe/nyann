@@ -85,3 +85,66 @@ MD
   [ "$(echo "$output" | jq '.broken | length')" -eq 0 ]
   rm -rf "$TMP"
 }
+
+# ---- BUG C: percent-encoded + paren targets -------------------------------
+# gen-claudemd percent-encodes link targets via nyann::safe_md_link_target
+# (space→%20, `(`→%28, `)`→%29). The old check stat'd the raw href, so a
+# generated `./target%20file.md` link missed the on-disk `target file.md`
+# and flagged gen-claudemd's OWN output as broken. Separately the
+# extraction regex `[^)\s]+` truncated a literal-paren target like
+# `./file(1).md` to `./file(1`, also a false "broken".
+
+@test "percent-encoded (%20/%28/%29) links to existing files are NOT reported broken" {
+  TMP=$(mktemp -d)
+  mkdir -p "$TMP/repo/docs"
+  # On-disk names carry the DECODED characters.
+  echo "x" > "$TMP/repo/docs/target file.md"
+  echo "x" > "$TMP/repo/docs/file(1).md"
+  cat > "$TMP/repo/CLAUDE.md" <<'MD'
+# Project
+
+- [encoded space](./docs/target%20file.md)
+- [encoded parens](./docs/file%281%29.md)
+MD
+  run bash "$CHK" --target "$TMP/repo"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq '.broken | length')" -eq 0 ]
+  [ "$(echo "$output" | jq '.checked')" -eq 2 ]
+  rm -rf "$TMP"
+}
+
+@test "literal-paren target ./file(1).md is extracted whole (not truncated) and resolves" {
+  TMP=$(mktemp -d)
+  mkdir -p "$TMP/repo/docs"
+  echo "x" > "$TMP/repo/docs/file(1).md"
+  cat > "$TMP/repo/CLAUDE.md" <<'MD'
+# Project
+
+- [literal parens](./docs/file(1).md)
+MD
+  run bash "$CHK" --target "$TMP/repo"
+  [ "$status" -eq 0 ]
+  # The link must be checked (extraction didn't drop it) and not broken
+  # (target extracted as `./docs/file(1).md`, not the truncated
+  # `./docs/file(1`).
+  [ "$(echo "$output" | jq '.checked')" -eq 1 ]
+  [ "$(echo "$output" | jq '.broken | length')" -eq 0 ]
+  rm -rf "$TMP"
+}
+
+@test "a genuinely missing encoded target is still reported broken" {
+  # Decoding must not paper over real breakage: an encoded link whose
+  # decoded target does not exist stays broken.
+  TMP=$(mktemp -d)
+  mkdir -p "$TMP/repo/docs"
+  cat > "$TMP/repo/CLAUDE.md" <<'MD'
+# Project
+
+- [missing](./docs/no%20such%20file.md)
+MD
+  run bash "$CHK" --target "$TMP/repo"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq '.broken | length')" -eq 1 ]
+  [ "$(echo "$output" | jq -r '.broken[0].reason')" = "file-not-found" ]
+  rm -rf "$TMP"
+}

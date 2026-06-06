@@ -39,15 +39,31 @@ count_actual() {
   local src="$1" glob="$2" extract="$3"
   case "$src" in
     filesystem-glob)
-      # shellcheck disable=SC2086
+      # Resolve the glob via `find -path` so `**` and deep matches work
+      # without globstar (absent in bash 3.2). In `find -path` a single `*`
+      # already spans `/`, so `**/` ("zero or more dir levels") collapses to
+      # nothing — `tests/**/*.bats` → `tests/*.bats` then matches both
+      # `tests/top.bats` and `tests/a/b/x.bats`. Any remaining `**` collapses
+      # to `*`. `-print0 | xargs -0` keeps paths with spaces intact.
+      local find_pat="${glob//\*\*\//}"
+      find_pat="${find_pat//\*\*/*}"
+      local out
       if [[ "$extract" == lines-matching:* ]]; then
         local regex="${extract#lines-matching:}"
-        ( cd "$target" && find $glob -type f 2>/dev/null | xargs grep -hE "$regex" 2>/dev/null | grep -c '.' ) || echo 0
+        out=$( cd "$target" && find . -type f -path "./$find_pat" -print0 2>/dev/null \
+                 | xargs -0 grep -hE "$regex" 2>/dev/null | grep -c '.' )
       else
-        ( cd "$target" && find $glob -type f 2>/dev/null | grep -c '.' ) || echo 0
+        # Count files = count NUL terminators (portable; `grep -zc` differs
+        # between GNU and BSD).
+        out=$( cd "$target" && find . -type f -path "./$find_pat" -print0 2>/dev/null \
+                 | tr -dc '\0' | wc -c )
       fi
+      # Normalize numerically: empty / non-numeric / failed grep → 0,
+      # strip any stray output so the caller always gets a clean integer.
+      out="${out//[^0-9]/}"
+      printf '%s' "$(( 10#${out:-0} ))"
       ;;
-    *) echo 0 ;;
+    *) printf '%s' 0 ;;
   esac
 }
 

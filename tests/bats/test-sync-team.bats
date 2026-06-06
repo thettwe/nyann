@@ -62,6 +62,24 @@ teardown() { rm -rf "$TMP"; }
   [ "$(echo "$output" | jq '.synced | length')" -eq 1 ]
 }
 
+@test "sync reports remote profile with invalid name as invalid, not registered" {
+  # Regression (BUG E): pname comes from a REMOTE repo's file listing.
+  # A remote shipping `profiles/UPPER_Bad Name.json` registered as a
+  # "valid" entry that load-profile.sh later refuses (it re-validates
+  # the name), leaving a permanently-unloadable record. Sync must now
+  # report it invalid (kind=invalid-name) and skip registration.
+  cp "${REPO_ROOT}/profiles/nextjs-prototype.json" "$SRC/profiles/UPPER_Bad.json"
+  ( cd "$SRC" && git -c user.email=t@t -c user.name=t add . && git -c user.email=t@t -c user.name=t commit -q -m "bad-name profile" )
+
+  bash "$ADD" --user-root "$UR" --name ours --url "file://$SRC" >/dev/null 2>&1
+  run --separate-stderr bash "$SYNC" --user-root "$UR"
+  [ "$status" -eq 0 ]
+  # The good profile registers; the bad-named one does not.
+  [ "$(echo "$output" | jq -r '[.registered[].name] | index("UPPER_Bad")')" = "null" ]
+  # The bad-named one is reported invalid with kind=invalid-name.
+  [ "$(echo "$output" | jq '[.invalid[] | select(.name=="UPPER_Bad" and .kind=="invalid-name")] | length')" -eq 1 ]
+}
+
 @test "load-profile resolves team-namespaced name" {
   bash "$ADD" --user-root "$UR" --name ours --url "file://$SRC" >/dev/null 2>&1
   bash "$SYNC" --user-root "$UR" >/dev/null 2>&1

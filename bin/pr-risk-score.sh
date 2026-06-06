@@ -145,8 +145,13 @@ if [[ -z "$health_file" ]]; then
 fi
 
 if [[ -f "$health_file" ]]; then
-  health_current=$(jq -r '.scores[-1].score // 0' "$health_file" 2>/dev/null || echo 0)
-  health_previous=$(jq -r '.scores[-2].score // 0' "$health_file" 2>/dev/null || echo 0)
+  # Coerce to integer via floor — scores may be floats (e.g. 70.5), and bash
+  # integer arithmetic below would abort under set -e on a non-integer.
+  health_current=$(jq -r '(.scores[-1].score // 0) | floor' "$health_file" 2>/dev/null || echo 0)
+  health_previous=$(jq -r '(.scores[-2].score // 0) | floor' "$health_file" 2>/dev/null || echo 0)
+  # Defensive: if jq emitted anything non-integer (e.g. null, error), fall back to 0.
+  [[ "$health_current" =~ ^-?[0-9]+$ ]] || health_current=0
+  [[ "$health_previous" =~ ^-?[0-9]+$ ]] || health_previous=0
   health_delta=$((health_current - health_previous))
 fi
 

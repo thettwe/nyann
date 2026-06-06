@@ -155,3 +155,36 @@ make_monorepo() {
     return 1
   fi
 }
+
+# ── BUG A regression: non-batch monorepo release ─────────────────────────────
+# Without --batch-commit, release.sh must commit each workspace's CHANGELOG
+# BEFORE tagging, so the tag lands on the commit that contains its changelog and
+# the working tree is left clean. (Previously it tagged pre-changelog HEAD and
+# left the changelog uncommitted.)
+
+@test "release.sh non-batch monorepo: tag points at the commit containing the changelog" {
+  repo=$(make_monorepo)
+  bash "$RELEASE" --target "$repo" --workspace packages/core \
+    --version 1.0.0 --strategy conventional-changelog --yes 2>/dev/null
+  git -C "$repo" rev-parse --verify "refs/tags/core@1.0.0" >/dev/null 2>&1
+  tagged_sha=$(git -C "$repo" rev-parse "core@1.0.0^{commit}")
+  # The tagged commit itself must contain packages/core/CHANGELOG.md.
+  git -C "$repo" show --stat "$tagged_sha" | grep -q "packages/core/CHANGELOG.md"
+}
+
+@test "release.sh non-batch monorepo: working tree is clean after release" {
+  repo=$(make_monorepo)
+  bash "$RELEASE" --target "$repo" --workspace packages/core \
+    --version 1.0.0 --strategy conventional-changelog --yes 2>/dev/null
+  # No lingering uncommitted CHANGELOG; tree must be clean.
+  [ -z "$(git -C "$repo" status --porcelain)" ]
+}
+
+@test "release.sh non-batch monorepo: changelog is committed (tracked), not just on disk" {
+  repo=$(make_monorepo)
+  bash "$RELEASE" --target "$repo" --workspace packages/core \
+    --version 1.0.0 --strategy conventional-changelog --yes 2>/dev/null
+  [ -f "$repo/packages/core/CHANGELOG.md" ]
+  # File must be tracked at HEAD, not untracked/uncommitted.
+  git -C "$repo" cat-file -e "HEAD:packages/core/CHANGELOG.md"
+}

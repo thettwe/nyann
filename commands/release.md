@@ -18,7 +18,7 @@ arguments:
     description: Render what would happen without mutating.
     optional: true
   - name: wait-for-checks
-    description: Block tag creation on green CI for HEAD's PR (resolved via `gh pr list --search <SHA>`). Hard-fails on CI fail / timeout / unreachable gh / no-PR-found. Skipped silently on `--dry-run`.
+    description: Block tag creation on green CI for HEAD's PR (resolved by exact HEAD SHA / `headRefOid`). Hard-fails on CI fail / timeout / unreachable gh / no-PR-found. Skipped silently on `--dry-run`.
     optional: true
   - name: allow-no-pr
     description: When `--wait-for-checks` is set AND no PR matches HEAD, proceed anyway (legitimate for first-cut releases or local-only commits). Without this flag, no-PR-found is a hard error to avoid silent CI bypass on squash/rebase release flows.
@@ -43,6 +43,6 @@ Wraps `bin/release.sh`. Flow for `conventional-changelog`:
 
 Profiles may declare an optional `release` block (strategy, changelog_path, tag_prefix) — the skill honors it when present.
 
-`--wait-for-checks` is the safety net for "don't tag a broken build": it looks up the PR for HEAD and blocks on `bin/wait-for-pr-checks.sh` until CI passes. Output gains `ci_gate: { outcome, pr_number? }` on success so consumers can prove the gate ran. When no PR matches HEAD, the default is to fail rather than silently proceed — pass `--allow-no-pr` for first-cut or local-only releases.
+`--wait-for-checks` is the safety net for "don't tag a broken build": it resolves the PR by exact HEAD SHA (`headRefOid`) and blocks on `bin/wait-for-pr-checks.sh` until CI passes. Output gains `ci_gate: { outcome, pr_number? }` on success so consumers can prove the gate ran. Because a pushed tag is marketplace-consumed, `--push` **auto-enables** this gate when origin is a GitHub remote and `gh` is authenticated — degrading gracefully (warn, not fail) when there's no PR or no authenticated gh; pass `--no-wait-for-checks` to opt out. Passing `--wait-for-checks` explicitly makes it strict: no PR matching HEAD is then a hard error — pass `--allow-no-pr` for first-cut or local-only releases.
 
 See `skills/release/SKILL.md` for full flow, dry-run guidance, and breaking-change handling.

@@ -64,6 +64,36 @@ base_profile() {
   echo "$result" | jq -e 'has("ci") | not'
 }
 
+@test "merge: null ELEMENT inside overlay array is preserved verbatim (no index-shift)" {
+  # Regression (Bug B): the null-removal pass used to descend into array
+  # elements and delpaths the null, SHIFTING indices — silently repairing
+  # a malformed overlay into a different valid profile BEFORE validation.
+  # An overlay array with a null element must survive merge unchanged so
+  # validate-profile.sh can reject it later.
+  write_profile "$TMP" base '{"name":"b","schemaVersion":1,"conventions":{"commit_scopes":["x","y"]}}'
+  write_profile "$TMP" overlay '{"name":"o","schemaVersion":1,"conventions":{"commit_scopes":["api",null,"auth"]}}'
+  result=$(bash "$MERGE" --base "$TMP/base.json" --overlay "$TMP/overlay.json")
+  # Exactly the overlay array, null and order intact — NOT ["api","auth"].
+  echo "$result" | jq -e '.conventions.commit_scopes == ["api",null,"auth"]'
+}
+
+@test "merge: null ELEMENT inside a base array (untouched by overlay) is preserved" {
+  # The null-removal pass must not reach base array indices either.
+  write_profile "$TMP" base '{"name":"b","schemaVersion":1,"conventions":{"commit_scopes":["api",null,"auth"]}}'
+  write_profile "$TMP" overlay '{"name":"o","schemaVersion":1}'
+  result=$(bash "$MERGE" --base "$TMP/base.json" --overlay "$TMP/overlay.json")
+  echo "$result" | jq -e '.conventions.commit_scopes == ["api",null,"auth"]'
+}
+
+@test "merge: nested object null key in overlay still removes the field" {
+  # Bug B's fix must NOT regress object-member null removal at depth.
+  write_profile "$TMP" base '{"name":"b","schemaVersion":1,"ci":{"enabled":true,"provider":"gha"}}'
+  write_profile "$TMP" overlay '{"name":"o","schemaVersion":1,"ci":{"provider":null}}'
+  result=$(bash "$MERGE" --base "$TMP/base.json" --overlay "$TMP/overlay.json")
+  echo "$result" | jq -e '.ci.enabled == true'
+  echo "$result" | jq -e '.ci | has("provider") | not'
+}
+
 @test "merge: extends field is stripped from output" {
   write_profile "$TMP" base '{"name":"b","schemaVersion":1}'
   write_profile "$TMP" overlay '{"name":"o","schemaVersion":1,"extends":"b"}'

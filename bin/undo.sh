@@ -107,7 +107,13 @@ head_branch="$(git -C "$target" branch --show-current 2>/dev/null || echo '')"
 if [[ -z "$head_branch" ]]; then
   emit_refused "detached HEAD — refusing to undo"
 fi
-case "$head_branch" in
+# Lowercase before matching. On case-insensitive filesystems (macOS
+# default) `git checkout Main` reports `Main` while pointing at the same
+# refs/heads/main — without folding case the refusal fails open and undo
+# would rewrite history on real main. Emit the original (un-folded) name
+# in the message so the user sees what git reported.
+head_branch_lc="$(printf '%s' "$head_branch" | tr '[:upper:]' '[:lower:]')"
+case "$head_branch_lc" in
   main|master|develop) emit_refused "refusing to undo on long-lived branch $head_branch — use git revert instead" ;;
 esac
 

@@ -9,15 +9,16 @@ setup() {
 
 teardown() { rm -rf "$TMP"; }
 
-@test "setup --check exits 0 when no preferences exist" {
+@test "setup --check exits 2 when no preferences exist" {
+  # Documented contract (setup.sh header): exit 2 — no preferences.json yet.
   run bash "${REPO_ROOT}/bin/setup.sh" --check --user-root "$USER_ROOT"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
   [[ "$output" == *"not configured"* ]]
 }
 
-@test "setup --check --json exits 0 with not_configured status" {
+@test "setup --check --json exits 2 with not_configured status" {
   run bash "${REPO_ROOT}/bin/setup.sh" --check --json --user-root "$USER_ROOT"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
   [ "$(echo "$output" | jq -r '.status')" = "not_configured" ]
 }
 

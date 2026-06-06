@@ -79,6 +79,49 @@ nogh_path() {
   [ ! -s "$notif" ]
 }
 
+@test "read-notifications preserves a corrupt queue to .corrupt.* and returns []" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  notif="$NOTIF_DIR/${hash}.jsonl"
+  # One valid line followed by a truncated/partial line — what a crashed
+  # writer leaves behind. `jq -s` fails on this, so the reader must NOT rm.
+  jq -n '{timestamp:"2026-05-28T00:00:00Z", source:"sentinel", severity:"info", message:"ok", context:{}}' > "$notif"
+  printf '{"timestamp":"2026-05-28T00:00:05Z","source":"sentinel","sever' >> "$notif"
+  out=$(bash "$REPO_ROOT/bin/read-notifications.sh" --repo "$repo" --notif-dir "$NOTIF_DIR" 2>/dev/null)
+  echo "$out" | jq -e '. == []'
+  # Data preserved, not deleted: a .corrupt.* sibling exists with content.
+  shopt -s nullglob
+  corrupt=("$NOTIF_DIR/${hash}.jsonl.corrupt".*)
+  [ "${#corrupt[@]}" -eq 1 ]
+  [ -s "${corrupt[0]}" ]
+  # The valid first line survived intact (jq emits pretty-printed objects,
+  # so match on the value rather than a packed key:value pair).
+  grep -q '"ok"' "${corrupt[0]}"
+}
+
+@test "concurrent append during read is not lost (shared lock)" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  notif="$NOTIF_DIR/${hash}.jsonl"
+  lock="${notif}.lock"
+  # Pre-acquire the shared lock by hand (same mkdir-based scheme the lib
+  # uses), seed the queue, then start a reader. The reader must block on
+  # the lock; while it's blocked we append a second entry. On release the
+  # reader sees BOTH — the append is not dropped into a mv'd-away inode.
+  jq -n '{timestamp:"2026-05-28T00:00:00Z", source:"sentinel", severity:"warning", message:"first", context:{}}' > "$notif"
+  mkdir "$lock"
+  bash "$REPO_ROOT/bin/read-notifications.sh" --repo "$repo" --notif-dir "$NOTIF_DIR" > "$TMP/read.out" 2>/dev/null &
+  reader_pid=$!
+  # Give the reader time to reach (and block on) the lock.
+  sleep 0.5
+  jq -n '{timestamp:"2026-05-28T00:00:01Z", source:"sentinel", severity:"info", message:"second", context:{}}' >> "$notif"
+  rmdir "$lock"
+  wait "$reader_pid"
+  out=$(cat "$TMP/read.out")
+  [ "$(echo "$out" | jq 'length')" -eq 2 ]
+  echo "$out" | jq -e 'map(.message) == ["first","second"]'
+}
+
 @test "read-notifications --peek leaves the file intact" {
   repo="o/r"
   hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)

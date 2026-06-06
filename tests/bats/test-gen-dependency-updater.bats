@@ -263,3 +263,26 @@ json_valid() {
     .properties.ecosystems.items.properties.ecosystem.enum[]
   ' "${REPO_ROOT}/schemas/dependency-updater-config.schema.json")
 }
+
+# ---------------------------------------------------------------------------
+# Trailing --directory warning (BUG H): a --directory placed after the last
+# --ecosystem has nothing to pair with and was silently dropped.
+# ---------------------------------------------------------------------------
+
+@test "trailing --directory after last --ecosystem warns to stderr (BUG H)" {
+  run bash "$GEN" --updater dependabot --ecosystem npm --directory /pkgs
+  [ "$status" -eq 0 ]
+  # Warning surfaces the dropped directory so the typo isn't silent.
+  echo "$output" | grep -q "trailing --directory"
+  echo "$output" | grep -q "/pkgs"
+  # The npm block still renders with the default directory "/".
+  echo "$output" | grep -qF 'package-ecosystem: "npm"'
+  echo "$output" | grep -qF 'directory: "/"'
+}
+
+@test "no spurious trailing-directory warning when --directory precedes --ecosystem (BUG H)" {
+  run bash "$GEN" --updater dependabot --directory /pkgs --ecosystem npm
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -q "trailing --directory"
+  echo "$output" | grep -qF 'directory: "/pkgs"'
+}

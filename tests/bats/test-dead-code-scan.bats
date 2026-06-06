@@ -105,6 +105,28 @@ EOF
   echo "$out" | jq -e '.findings[] | select(.name == "HashMap")'
 }
 
+@test "Rust: pub use re-export is NOT flagged (public API surface)" {
+  cat > "$REPO/lib.rs" <<'EOF'
+pub use crate::inner::Widget;
+pub use crate::inner::{Alpha, Beta as Gamma};
+fn main() { println!("facade"); }
+EOF
+  ( cd "$REPO" && git add lib.rs )
+  out=$(bash "$REPO_ROOT/bin/dead-code-scan.sh" --target "$REPO")
+  count=$(echo "$out" | jq '[.findings[] | select(.name == "Widget" or .name == "Alpha" or .name == "Gamma")] | length')
+  [ "$count" -eq 0 ]
+}
+
+@test "Non-ASCII filename with unused import IS scanned (core.quotePath)" {
+  cat > "$REPO/café.js" <<'EOF'
+import Unused from "x";
+const y = 1;
+EOF
+  ( cd "$REPO" && git add "café.js" )
+  out=$(bash "$REPO_ROOT/bin/dead-code-scan.sh" --target "$REPO")
+  echo "$out" | jq -e '.findings[] | select(.name == "Unused" and .kind == "unused-import")'
+}
+
 @test "TS: import type Foo from x captures Foo, not type" {
   cat > "$REPO/td.ts" <<'EOF'
 import type Foo from "x";

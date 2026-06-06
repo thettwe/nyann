@@ -99,6 +99,40 @@ SH
   [ "$(echo "$output" | jq -r '.applied[0].branch')" = "main" ]
 }
 
+@test "non-numeric require_pr_reviews is coerced to digits (BUG G defense-in-depth)" {
+  # Defense-in-depth: a non-numeric require_pr_reviews must never reach
+  # apply-protection.sh's `(( current_rr > required_reviews ))` arithmetic.
+  # The profile _schema.json already constrains it to integer 0-6 (so the
+  # load-profile validation gate normally rejects it first), but the read
+  # in gh-integration.sh ALSO pins it to digits so the arithmetic can't be
+  # reached with a hostile value if that gate is ever bypassed.
+  #
+  # Drive the guard directly with a value that has slipped past validation:
+  # source the read-and-coerce snippet against a hand-built profile, then
+  # assert required_reviews is numeric and apply-protection's arithmetic is
+  # safe with it.
+  bad_profile="$TMP/bad-profile.json"
+  cat > "$bad_profile" <<'JSON'
+{"github":{"require_pr_reviews":"1; rm -rf /"}}
+JSON
+  required_reviews=$(jq -r '.github.require_pr_reviews // 1' "$bad_profile")
+  # Mirror the guard added to gh-integration.sh.
+  if ! [[ "$required_reviews" =~ ^[0-9]+$ ]]; then
+    required_reviews=1
+  fi
+  # Coerced to a safe integer default.
+  [ "$required_reviews" = "1" ]
+  # And the downstream arithmetic is now reachable without error.
+  current_rr=0
+  run bash -c "(( $current_rr > $required_reviews )); echo ok"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok"* ]]
+
+  # Belt-and-braces: the source guard is actually present in the script.
+  grep -Fq 'required_reviews =~ ^[0-9]+$' "$SCRIPT" || \
+    grep -Fq '[[ "$required_reviews" =~ ^[0-9]+$ ]]' "$SCRIPT"
+}
+
 @test "happy path → applied[] has main with strategy=github-flow" {
   mock_dir="$TMP/mock"
   mkdir -p "$mock_dir"

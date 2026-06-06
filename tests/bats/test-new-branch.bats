@@ -61,3 +61,19 @@ teardown() { rm -rf "$TMP"; }
     --purpose release --version "1.0.0-rc.1"
   [ "$status" -ne 4 ]
 }
+
+@test "rejects slug that assembles into an invalid git ref (double-dot)" {
+  # Regression: `a..b` passes the slug regex (^[a-z0-9][a-z0-9._-]*$) but
+  # `..` is forbidden in git refs. Previously the assembled name flowed
+  # straight into `git branch`, surfacing a raw `fatal: not a valid
+  # branch name` (exit 128). It must now be caught with a nyann-formatted
+  # error and no branch created.
+  run bash "$NEW_BRANCH" --target "$REPO" --profile default \
+    --purpose feature --slug "a..b"
+  [ "$status" -eq 4 ]
+  echo "$output" | grep -F "not a valid git ref"
+  # No git fatal leaked to the user.
+  ! echo "$output" | grep -qF "fatal:"
+  # Fail-safe: no branch matching the bad name was created.
+  [ -z "$(git -C "$REPO" branch --list '*a..b*')" ]
+}

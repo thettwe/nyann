@@ -82,6 +82,13 @@ threshold_secs=$(( days_threshold * 86400 ))
 _merged_list=""
 while IFS= read -r mb; do
   mb="${mb#"${mb%%[![:space:]]*}"}"
+  # `git branch` prefixes the current branch with `* ` and a
+  # worktree-checked-out branch with `+ `. Strip that marker (and the
+  # following space) so the bare name matches grep -Fxq later; otherwise
+  # such lines silently never match and fail safe (excluded latently).
+  case "$mb" in
+    '* '*|'+ '*) mb="${mb:2}" ;;
+  esac
   [[ -n "$mb" ]] && _merged_list="${_merged_list}${mb}"$'\n'
 done < <(git -C "$target" branch --merged "$base_branch" 2>/dev/null)
 

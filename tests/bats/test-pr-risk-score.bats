@@ -74,6 +74,32 @@ JSON
   echo "$result" | jq -e '.breakdown.health_delta.score > 50'
 }
 
+# ── BUG D regression: float health score must not abort arithmetic ──────────
+# .scores[].score can be a float (e.g. 70.5). Feeding it to bash $((...)) aborts
+# under set -euo pipefail with "invalid arithmetic operator". The script must
+# coerce to integer (floor) and still produce a valid result.
+
+@test "health delta: float scores do not abort the script" {
+  repo=$(make_repo_with_branch)
+  echo 'x' >> "$repo/src/app.ts"
+  git -C "$repo" add .
+  git -C "$repo" commit -qm "fix: tiny"
+
+  mkdir -p "$repo/memory"
+  cat > "$repo/memory/health.json" <<'JSON'
+{"scores":[{"score":90.5,"timestamp":"2026-01-01"},{"score":70.2,"timestamp":"2026-01-15"}]}
+JSON
+
+  run bash "$RISK" --target "$repo" --base main --health-file "$repo/memory/health.json"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -vq "invalid arithmetic"
+  # floor(70.2) - floor(90.5) = 70 - 90 = -20
+  echo "$output" | jq -e '.breakdown.health_delta.current == 70'
+  echo "$output" | jq -e '.breakdown.health_delta.previous == 90'
+  echo "$output" | jq -e '.breakdown.health_delta.delta == -20'
+  echo "$output" | jq -e '.score | type == "number"'
+}
+
 @test "output validates level thresholds" {
   repo=$(make_repo_with_branch)
   echo 'x' >> "$repo/src/app.ts"

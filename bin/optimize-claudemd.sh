@@ -108,13 +108,23 @@ for i in $(seq 0 $((rec_count - 1))); do
         # how you embed an awk program in shell. ENVIRON pulls the
         # variables in from the surrounding `env` prefix.
         # shellcheck disable=SC2016
+        # Track fenced-code state so a `## ` line *inside* a fenced
+        # block (``` or ~~~) is never mistaken for a section boundary.
+        # Without this, removing a section whose body contains such a
+        # fence stops early, orphaning the closing fence and trailing
+        # content. A fence toggles on any line whose first non-space run
+        # is ``` or ~~~ (info strings allowed after).
         modified_block=$(env \
           NYANN_AWK_SEC="## $section" \
           NYANN_AWK_ME="$MARKER_END" \
           awk '
-            BEGIN { sec=ENVIRON["NYANN_AWK_SEC"]; me=ENVIRON["NYANN_AWK_ME"] }
-            $0 == sec { skip=1; next }
-            skip && /^## / { skip=0 }
+            BEGIN { sec=ENVIRON["NYANN_AWK_SEC"]; me=ENVIRON["NYANN_AWK_ME"]; fence=0 }
+            {
+              line=$0
+              if (line ~ /^[ \t]*(```|~~~)/) fence = !fence
+            }
+            !fence && $0 == sec { skip=1; next }
+            skip && !fence && /^## / { skip=0 }
             skip && $0 == me { skip=0 }
             !skip { print }
           ' <<<"$modified_block")
@@ -180,16 +190,42 @@ for i in $(seq 0 $((rec_count - 1))); do
   esac
 done
 
-# Reconstruct the full file with the modified block
-before_block=$(sed -n "1,/${MARKER_START}/{ /${MARKER_START}/d; p; }" "$claudemd")
-after_block=$(sed -n "/${MARKER_END}/,\${ /${MARKER_END}/d; p; }" "$claudemd")
+# Reconstruct the full file with the modified block.
+#
+# Split by marker LINE NUMBERS, not `sed '1,/marker/'`. The sed range
+# `1,/regex/` extends to the NEXT match (or EOF) when line 1 already
+# matches — and gen-claudemd.sh emits the start marker on line 1 for a
+# fresh repo with no user preamble. That made `before_block` capture the
+# ENTIRE file and the reconstruction duplicate the managed block (two end
+# markers), bricking the next gen-claudemd run via its marker-order guard.
+# Line-number slicing makes `before_block` = everything strictly before
+# the start marker (empty when it's line 1) and `after_block` = everything
+# strictly after the end marker (empty when it's the last line).
+start_line=$(grep -nF -m1 "$MARKER_START" "$claudemd" | cut -d: -f1)
+end_line=$(grep -nF -m1 "$MARKER_END" "$claudemd" | cut -d: -f1)
+if [[ -z "$start_line" || -z "$end_line" ]] || (( start_line >= end_line )); then
+  nyann::die "CLAUDE.md has nyann markers in the wrong order (start=${start_line:-missing}, end=${end_line:-missing}); refusing to rewrite — fix the file by hand"
+fi
+before_block=""
+if (( start_line > 1 )); then
+  before_block=$(sed -n "1,$((start_line - 1))p" "$claudemd")
+fi
+total_lines=$(wc -l < "$claudemd" | tr -d ' ')
+after_block=""
+if (( end_line < total_lines )); then
+  after_block=$(sed -n "$((end_line + 1)),\$p" "$claudemd")
+fi
 
 new_content="${before_block}
 ${modified_block}
 ${after_block}"
 
-# Trim excess blank lines
+# Trim excess blank lines, then strip any leading blank lines. When the
+# start marker is on line 1 `before_block` is empty, so the reconstruction
+# above begins with a stray blank line that the `/^$/N` collapse (which
+# only folds *pairs*) leaves behind — awk drops the leading run.
 new_content=$(printf '%s\n' "$new_content" | sed '/^$/N;/^\n$/d')
+new_content=$(printf '%s\n' "$new_content" | awk 'NF==0 && !seen { next } { seen=1; print }')
 
 # Write to temp to get accurate byte count
 opt_tmp=$(mktemp -t nyann-claudemd-opt.XXXXXX)

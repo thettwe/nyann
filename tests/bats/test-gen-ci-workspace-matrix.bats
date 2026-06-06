@@ -272,6 +272,35 @@ EOF
   echo "$output" | grep -q "non-boolean value"
 }
 
+@test "hostile workspace ci.node_version is rejected (numeric-version guard, BUG C)" {
+  # ws_ci comes from a (possibly remote) profile; a malformed-but-quote-free
+  # node_version must not reach the matrix `version:` field — it reverts to
+  # the language default. (Quote/newline payloads are caught by the YAML-safe
+  # filter; this guards the strict numeric grammar mirroring _schema.json.)
+  echo '{"primary_language":"typescript","is_monorepo":true,"workspaces":[{"path":"packages/api","primary_language":"typescript","framework":null,"package_manager":"npm"},{"path":"packages/web","primary_language":"typescript","framework":"next","package_manager":"pnpm"}]}' > "$TMP/stack.json"
+  cat > "$TMP/ws-configs.json" <<'EOF'
+[
+  {"path":"packages/api","primary_language":"typescript","framework":null,"package_manager":"npm","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true,"node_version":"20"},
+   "hooks":{"pre_commit":["eslint"],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null},
+  {"path":"packages/web","primary_language":"typescript","framework":"next","package_manager":"pnpm","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true,"node_version":"20-evil"},
+   "hooks":{"pre_commit":["eslint"],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null}
+]
+EOF
+  run bash "$GEN" --target "$TARGET" --profile "$TMP/profile.json" \
+    --stack "$TMP/stack.json" --workspace-configs "$TMP/ws-configs.json"
+  [ "$status" -eq 0 ]
+  yml="$TARGET/.github/workflows/ci-workspaces.yml"
+  [ -f "$yml" ]
+  python3 -c "import yaml; yaml.safe_load(open('$yml'))"
+  # The bad version was reverted to the default; the tainted token never lands.
+  ! grep -Fq "20-evil" "$yml"
+  awk '/- workspace: web/,/^$/' "$yml" | grep -Fq "version: '20'"
+}
+
 @test "workspace key with special characters: sanitized in YAML" {
   echo '{"primary_language":"typescript","is_monorepo":true,"workspaces":[{"path":"apps/my-cool-app","primary_language":"typescript","framework":null,"package_manager":"npm"}]}' > "$TMP/stack.json"
 
@@ -289,4 +318,98 @@ EOF
   [ "$status" -eq 0 ]
   # Generated YAML must parse via python yaml (or fail this test)
   python3 -c "import yaml; yaml.safe_load(open('$TARGET/.github/workflows/ci.yml'))"
+}
+
+@test "two non-JS workspaces (go + python): matrix is non-empty, valid YAML, correct install-cmds (BUG A/B)" {
+  # Regression: the no-package-manager install sentinel used to contain
+  # single quotes ("echo 'no install'"), which the YAML safety filter
+  # rejected — dropping the whole workspace. Two non-JS workspaces could
+  # leave matrix.include empty, which GitHub rejects outright. And
+  # unknown/non-JS package managers used to default to `npm ci`, failing
+  # at install on every non-JS workspace.
+  echo '{"primary_language":"go","is_monorepo":true,"package_manager":"go","workspaces":[{"path":"services/api","primary_language":"go","framework":null,"package_manager":"go"},{"path":"services/worker","primary_language":"python","framework":null,"package_manager":"poetry"}]}' > "$TMP/stack.json"
+  cat > "$TMP/ws-configs.json" <<'EOF'
+[
+  {"path":"services/api","primary_language":"go","framework":null,"package_manager":"go","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true},
+   "hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null},
+  {"path":"services/worker","primary_language":"python","framework":null,"package_manager":"poetry","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true},
+   "hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null}
+]
+EOF
+  run bash "$GEN" --target "$TARGET" --profile "$TMP/profile.json" \
+    --stack "$TMP/stack.json" --workspace-configs "$TMP/ws-configs.json"
+  [ "$status" -eq 0 ]
+  yml="$TARGET/.github/workflows/ci-workspaces.yml"
+  [ -f "$yml" ]
+  # Generated workflow parses as YAML.
+  python3 -c "import yaml; yaml.safe_load(open('$yml'))"
+  # Both non-JS workspaces survive into the matrix (non-empty include).
+  python3 -c "import yaml,sys; d=yaml.safe_load(open('$yml')); inc=d['jobs']['workspace-ci']['strategy']['matrix']['include']; sys.exit(0 if len(inc)==2 else 1)"
+  # Correct, non-npm install commands.
+  awk '/- workspace: api/,/- workspace: worker/' "$yml" | grep -Fq "install-cmd: 'go mod download'"
+  awk '/- workspace: worker/,/^$/' "$yml" | grep -Fq "install-cmd: 'poetry install'"
+  # Neither non-JS workspace degraded to npm ci.
+  ! awk '/- workspace: api/,/test-cmd/' "$yml" | grep -Fq "install-cmd: 'npm ci'"
+  ! awk '/- workspace: worker/,/test-cmd/' "$yml" | grep -Fq "install-cmd: 'npm ci'"
+}
+
+@test "workspace with unknown package manager falls back per-language, not npm ci (BUG B)" {
+  # An unrecognized pm string for a Go workspace must resolve to the Go
+  # install command, never the npm catch-all.
+  echo '{"primary_language":"go","is_monorepo":true,"workspaces":[{"path":"services/api","primary_language":"go","framework":null,"package_manager":"go"},{"path":"services/cli","primary_language":"go","framework":null,"package_manager":"bazel"}]}' > "$TMP/stack.json"
+  cat > "$TMP/ws-configs.json" <<'EOF'
+[
+  {"path":"services/api","primary_language":"go","framework":null,"package_manager":"go","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true},
+   "hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null},
+  {"path":"services/cli","primary_language":"go","framework":null,"package_manager":"bazel","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true},
+   "hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null}
+]
+EOF
+  run bash "$GEN" --target "$TARGET" --profile "$TMP/profile.json" \
+    --stack "$TMP/stack.json" --workspace-configs "$TMP/ws-configs.json"
+  [ "$status" -eq 0 ]
+  yml="$TARGET/.github/workflows/ci-workspaces.yml"
+  [ -f "$yml" ]
+  python3 -c "import yaml; yaml.safe_load(open('$yml'))"
+  # Unknown 'bazel' pm on a Go workspace → go mod download, not npm ci.
+  awk '/- workspace: cli/,/^$/' "$yml" | grep -Fq "install-cmd: 'go mod download'"
+  ! grep -Fq "install-cmd: 'npm ci'" "$yml"
+}
+
+@test "--dry-run previews the workspace matrix and writes nothing (BUG G)" {
+  # The dry-run exit used to sit before the workspace-matrix section, so
+  # ci-workspaces.yml never appeared in the preview (preview-before-mutate
+  # violation). It must now be previewed, and no file may be written.
+  echo '{"primary_language":"typescript","is_monorepo":true,"package_manager":"pnpm","workspaces":[{"path":"packages/api","primary_language":"python","framework":null,"package_manager":"pip"},{"path":"packages/web","primary_language":"typescript","framework":"next","package_manager":"pnpm"}]}' > "$TMP/stack.json"
+  cat > "$TMP/ws-configs.json" <<'EOF'
+[
+  {"path":"packages/api","primary_language":"python","framework":null,"package_manager":"pip","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true},
+   "hooks":{"pre_commit":["ruff"],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null},
+  {"path":"packages/web","primary_language":"typescript","framework":"next","package_manager":"pnpm","profile":null,
+   "ci":{"enabled":true,"lint":true,"typecheck":true,"test":true},
+   "hooks":{"pre_commit":["eslint"],"commit_msg":[],"pre_push":[]},
+   "extras":{},"documentation":null}
+]
+EOF
+  run bash "$GEN" --target "$TARGET" --profile "$TMP/profile.json" \
+    --stack "$TMP/stack.json" --workspace-configs "$TMP/ws-configs.json" --dry-run
+  [ "$status" -eq 0 ]
+  # Workspace matrix preview appears on stdout.
+  echo "$output" | grep -Fq "# nyann:ci-workspaces:start"
+  echo "$output" | grep -Fq "name: CI (workspaces)"
+  echo "$output" | grep -Fq "packages/api"
+  echo "$output" | grep -Fq "packages/web"
+  # Nothing was written.
+  [ ! -f "$TARGET/.github/workflows/ci.yml" ]
+  [ ! -f "$TARGET/.github/workflows/ci-workspaces.yml" ]
 }

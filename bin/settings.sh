@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     --user-root)   user_root="${2:-}"; shift 2 ;;
     --user-root=*) user_root="${1#--user-root=}"; shift ;;
     --show)        mode="show"; shift ;;
-    --set)         mode="set"; set_key="${2:-}"; set_value="${3:-}"; shift 3 ;;
+    --set)         mode="set"; set_key="${2:-}"; set_value="${3:-}"; shift "$(( $# < 3 ? $# : 3 ))" ;;
     --json)        json_out=true; shift ;;
     -h|--help)     sed -n '3,21p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)             nyann::die "unknown argument: $1" ;;
@@ -56,13 +56,17 @@ if [[ "$mode" == "show" ]]; then
   printf '%-32s %s\n' "default_profile"                 "$(jq -r '.default_profile // "auto-detect"' "$prefs_path")"
   printf '%-32s %s\n' "branching_strategy"              "$(jq -r '.branching_strategy // "auto-detect"' "$prefs_path")"
   printf '%-32s %s\n' "commit_format"                   "$(jq -r '.commit_format // "conventional-commits"' "$prefs_path")"
-  printf '%-32s %s\n' "gh_integration"                  "$(jq -r '.gh_integration // true' "$prefs_path")"
+  # Booleans use explicit comparisons, never `// <default>`: jq's `//`
+  # operator treats a literal `false` as null-equivalent, so a stored
+  # `false` would be replaced by the fallback and a DISABLED feature would
+  # render as enabled. Match what's on disk; fall back only when absent.
+  printf '%-32s %s\n' "gh_integration"                  "$(jq -r 'if .gh_integration == false then "false" elif .gh_integration == true then "true" else "true" end' "$prefs_path")"
   printf '%-32s %s\n' "documentation_storage"           "$(jq -r '.documentation_storage // "local"' "$prefs_path")"
-  printf '%-32s %s\n' "auto_sync_team_profiles"         "$(jq -r '.auto_sync_team_profiles // false' "$prefs_path")"
-  printf '%-32s %s\n' "session_triage"                  "$(jq -r '.session_triage // true' "$prefs_path")"
+  printf '%-32s %s\n' "auto_sync_team_profiles"         "$(jq -r 'if .auto_sync_team_profiles == true then "true" elif .auto_sync_team_profiles == false then "false" else "false" end' "$prefs_path")"
+  printf '%-32s %s\n' "session_triage"                  "$(jq -r 'if .session_triage == false then "false" elif .session_triage == true then "true" else "true" end' "$prefs_path")"
   printf '%-32s %s\n' "guard_default_severity"          "$(jq -r '.guard_default_severity // "advisory"' "$prefs_path")"
-  printf '%-32s %s\n' "notifications.sentinel"          "$(jq -r '.notifications.sentinel // true' "$prefs_path")"
-  printf '%-32s %s\n' "notifications.staleness_alerts"  "$(jq -r '.notifications.staleness_alerts // true' "$prefs_path")"
+  printf '%-32s %s\n' "notifications.sentinel"          "$(jq -r 'if .notifications.sentinel == false then "false" elif .notifications.sentinel == true then "true" else "true" end' "$prefs_path")"
+  printf '%-32s %s\n' "notifications.staleness_alerts"  "$(jq -r 'if .notifications.staleness_alerts == false then "false" elif .notifications.staleness_alerts == true then "true" else "true" end' "$prefs_path")"
   printf '%-32s %s <%s>\n' "git_identity (name <email>)" \
     "$(jq -r '.git_identity.name // ""'  "$prefs_path")" \
     "$(jq -r '.git_identity.email // ""' "$prefs_path")"

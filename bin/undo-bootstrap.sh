@@ -81,7 +81,8 @@ emit_refused() {
     --arg target "$target" \
     --arg manifest "$manifest" \
     --arg reason "$1" \
-    '{status:"refused", target:$target, manifest_path:(if $manifest=="" then null else $manifest end | tostring), refused_reason:$reason}'
+    '{status:"refused", target:$target, manifest_path:(if $manifest=="" then null else $manifest end), refused_reason:$reason}
+     | with_entries(select(.value != null))'
   exit 1
 }
 
@@ -275,6 +276,21 @@ while (( i >= 0 )); do
       fi
 
       if [[ "$pre_existed" == "true" && -n "$blob" ]]; then
+        # Blob-name guard for hostile manifests. `$blob` is read straight
+        # from a repo-local manifest an attacker could ship; legit blobs are
+        # always bare `NNNN.bin` basenames (boot-record.sh writes them via
+        # printf '%04d.bin'). A crafted value like `../../../../etc/passwd`
+        # would otherwise make the cp/sha-read reach outside pre-state. Pin
+        # to the exact basename grammar, then belt-and-braces with an
+        # under-pre-state assertion.
+        if ! [[ "$blob" =~ ^[0-9]{4}\.bin$ ]]; then
+          skip "write" "$path" "pre-state blob name is not a bare NNNN.bin basename — refusing to restore: $blob"
+          continue
+        fi
+        if ! nyann::assert_path_under_target "$pre_state" "$pre_state/$blob" "blob" >/dev/null 2>&1; then
+          skip "write" "$path" "pre-state blob resolves outside pre-state — refusing to restore: $blob"
+          continue
+        fi
         # Restore from blob.
         if ! $effective_dry_run; then
           [[ -f "$pre_state/$blob" ]] || { skip "write" "$path" "pre-state blob missing: $blob"; continue; }

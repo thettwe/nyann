@@ -100,6 +100,23 @@ bin/release.sh --version 1.0.0 --yes --push --bump-manifests --gh-release
 
 If anything fails between commit and tag, see "Recovery" below.
 
+### Flag constraints
+
+- **`--push` enables the CI gate by default.** Because a pushed tag is consumed by the marketplace, `--push` auto-enables `--wait-for-checks` when the origin is a GitHub remote and `gh` is authenticated, blocking the tag step until HEAD's PR checks pass. It degrades gracefully — no open PR, or no authenticated gh, proceeds with a warning rather than failing (so the one-shot above still works from any host). Pass `--no-wait-for-checks` to push without a gate, or `--wait-for-checks` explicitly for strict gating (no PR / no checks / no gh becomes fatal).
+- **`--bump-manifests` is stable-version-only.** It is fatal on a prerelease version (`release.sh:147-148`): the prerelease path skips the release commit, so the bumps would be silently dropped. Cut the stable version with `--bump-manifests`, or run a prerelease without it.
+- **`--gh-release` requires `--push`.** `release.sh:151-152` makes this fatal — the GitHub release attaches to the pushed tag, so the tag must ship first.
+
+### Exit codes
+
+`release.sh` uses distinct non-zero exit codes so callers / CI can tell apart the failure modes (the JSON on stdout carries `next_steps[]` recovery commands for each):
+
+| Code | Meaning |
+|---|---|
+| `0` | Success (or a `noop` when there are no commits since the last tag). |
+| `2` | Preview-before-mutate: `--yes` is required to confirm. Emitted after rendering the CHANGELOG block when run without `--yes` (`release.sh:470`). Also used by the `--wait-for-checks` CI gate when checks fail / time out and no tag is created. |
+| `3` | Push failed (`release.sh:640`). The local tag and release commit exist but did not reach `origin`. Re-push manually — see "Recovery" below. |
+| `4` | `gh release create` failed (`release.sh:648`). The tag is pushed but the GitHub release the user asked for is missing. Push failures (exit 3) take precedence. |
+
 The pre-`v1.5.0` ritual (manual edits to `plugin.json` + `marketplace.json` + `CHANGELOG.md` + a separate `gh release create`) still works — `--bump-manifests` and `--gh-release` are opt-in. Use the legacy ritual when the active profile has no `release.bump_files[]` declared.
 
 ## Post-release verification

@@ -95,12 +95,27 @@ diff_result=$(jq -n \
 def array_diff(a; b):
   { added: (b - a), removed: (a - b) };
 
+# Walk `path` (array of keys) reporting whether every step exists.
+# Returns {present, value}. Using `has` at each level instead of
+# `getpath // null` keeps a genuinely-absent field distinct from a
+# present `null`/`false` — `//` treats both `false` and `null` as empty,
+# which silently turned `false → true` into `from: null` and made
+# present-false look identical to absent.
+def probe(root; path):
+  reduce path[] as $k ({present: true, node: root};
+    if .present and (.node | type) == "object" and (.node | has($k))
+    then {present: true, node: (.node[$k])}
+    else {present: false, node: null}
+    end)
+  | {present, value: .node};
+
 def scalar_change(section; key):
-  (section + "." + key) as $path |
-  ($f | getpath($path | split(".")) // null) as $fv |
-  ($t | getpath($path | split(".")) // null) as $tv |
-  if $fv == $tv then null
-  else {field: key, from: $fv, to: $tv}
+  ((section + "." + key) | split(".")) as $path |
+  probe($f; $path) as $from |
+  probe($t; $path) as $to |
+  # Identical only when both sides agree on presence AND value.
+  if ($from.present == $to.present) and ($from.value == $to.value) then null
+  else {field: key, from: $from.value, to: $to.value}
   end;
 
 # Stack changes.

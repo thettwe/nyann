@@ -564,6 +564,16 @@ Three-tier resolution: user > team > starter. Profiles are data, never code
 - 23 eval specs for trigger discrimination + output quality
 - Public-surface count locks (skills, commands, profiles, schemas)
 
+[1.12.0]: https://github.com/thettwe/nyann/releases/tag/v1.12.0
+[1.11.0]: https://github.com/thettwe/nyann/releases/tag/v1.11.0
+[1.10.0]: https://github.com/thettwe/nyann/releases/tag/v1.10.0
+[1.9.0]: https://github.com/thettwe/nyann/releases/tag/v1.9.0
+[1.8.0]: https://github.com/thettwe/nyann/releases/tag/v1.8.0
+[1.7.0]: https://github.com/thettwe/nyann/releases/tag/v1.7.0
+[1.6.0]: https://github.com/thettwe/nyann/releases/tag/v1.6.0
+[1.5.1]: https://github.com/thettwe/nyann/releases/tag/v1.5.1
+[1.5.0]: https://github.com/thettwe/nyann/releases/tag/v1.5.0
+[1.4.0]: https://github.com/thettwe/nyann/releases/tag/v1.4.0
 [1.3.0]: https://github.com/thettwe/nyann/releases/tag/v1.3.0
 [1.2.1]: https://github.com/thettwe/nyann/releases/tag/v1.2.1
 [1.2.0]: https://github.com/thettwe/nyann/releases/tag/v1.2.0

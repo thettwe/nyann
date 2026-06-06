@@ -141,13 +141,16 @@ SH
   echo "$out" | jq -r '.next_steps[]' | grep -F -e "gh auth login"
 }
 
-@test "--gh-release: gh release create fails → outcome:failed + next_steps recovery" {
+@test "--gh-release: gh release create fails → outcome:failed + next_steps recovery + non-zero exit" {
   repo=$(make_pushable_repo)
   make_mock_gh_release_create fail
 
+  # A failed gh release must surface a distinct non-zero exit (4), not pass as 0
+  # — the tag is pushed but the requested GitHub release is missing.
   out=$(bash "$RELEASE" --target "$repo" --version 0.2.0 --yes --push --gh-release \
-    --gh "$TMP/mock/gh" 2>/dev/null)
+    --gh "$TMP/mock/gh" 2>/dev/null) && rc=0 || rc=$?
 
+  [ "$rc" -eq 4 ]
   [ "$(echo "$out" | jq -r '.gh_release.outcome')" = "failed" ]
   echo "$out" | jq -r '.gh_release.error' | grep -F -e "simulated error"
   echo "$out" | jq -r '.next_steps[]' | grep -F -e "gh release create"

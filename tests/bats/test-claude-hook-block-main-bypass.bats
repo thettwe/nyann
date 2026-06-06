@@ -108,3 +108,60 @@ teardown() { rm -rf "$TMP"; }
   run bash "$HOOK" "git -C \"$MAIN_REPO\" push origin main"
   [ "$status" -eq 2 ]
 }
+
+# ---- fallback path (python3 absent) must NOT fail open -----------------------
+# The python parser handles --no-verify positionally. When python3 is
+# missing the script drops to a grep-based fallback. Previously that
+# fallback checked --no-verify against the WHOLE command string, so a
+# decoy clause (`echo --no-verify`, `git log --no-verify`) flipped the
+# escape hatch and the commit on main slipped through. These tests pin
+# the fallback to the SAME clause-scoped semantics.
+
+# Build a sandbox PATH that has every tool the script needs (git, jq,
+# bash, sed, grep, cat, …) but deliberately omits python3, forcing the
+# fallback branch.
+_make_nopython_path() {
+  local sandbox="$TMP/nopython-bin"
+  mkdir -p "$sandbox"
+  local tool
+  for tool in git jq bash sed grep cat printf head tr mktemp env dirname; do
+    local src
+    src="$(command -v "$tool" 2>/dev/null || true)"
+    [ -n "$src" ] && ln -sf "$src" "$sandbox/$tool"
+  done
+  printf '%s' "$sandbox"
+}
+
+@test "fallback (no python3): \`echo --no-verify; git commit\` on main does NOT bypass" {
+  cd "$MAIN_REPO"
+  local nopy
+  nopy="$(_make_nopython_path)"
+  PATH="$nopy" run bash "$HOOK" 'echo "--no-verify"; git commit -m "bypass"'
+  # Sanity: ensure python3 really was unreachable for the run.
+  ! PATH="$nopy" command -v python3 >/dev/null 2>&1
+  [ "$status" -eq 2 ]
+}
+
+@test "fallback (no python3): \`git log --no-verify; git commit\` on main does NOT bypass" {
+  cd "$MAIN_REPO"
+  local nopy
+  nopy="$(_make_nopython_path)"
+  PATH="$nopy" run bash "$HOOK" 'git log --no-verify; git commit -m "bypass"'
+  [ "$status" -eq 2 ]
+}
+
+@test "fallback (no python3): \`git commit --no-verify\` still honours escape hatch" {
+  cd "$MAIN_REPO"
+  local nopy
+  nopy="$(_make_nopython_path)"
+  PATH="$nopy" run bash "$HOOK" 'git commit --no-verify -m "emergency"'
+  [ "$status" -eq 0 ]
+}
+
+@test "fallback (no python3): plain \`git commit\` on main still blocks" {
+  cd "$MAIN_REPO"
+  local nopy
+  nopy="$(_make_nopython_path)"
+  PATH="$nopy" run bash "$HOOK" 'git commit -m "x"'
+  [ "$status" -eq 2 ]
+}

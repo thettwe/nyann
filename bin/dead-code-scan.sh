@@ -48,7 +48,7 @@ if $staged_only; then
       '{target:$t, scanned_at:$ts, summary:{total:0, high_confidence:0, medium_confidence:0}, findings:[]}'
     exit 0
   fi
-  files=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
+  files=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
 else
   files=$(find . -type f -not -path './.git/*' 2>/dev/null)
 fi

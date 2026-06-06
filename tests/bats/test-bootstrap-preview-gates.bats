@@ -232,3 +232,53 @@ JSON
     --stack "$TMP/stack.json"
   [ "$status" -eq 0 ]
 }
+
+# ---- symlink refusal on preview_blob cp paths ------------------------------
+# Regression: the .gitignore and CLAUDE.md cp-from-blob paths lacked the
+# symlink guard the .editorconfig path has. A pre-planted symlink at the
+# destination would let cp write through it, escaping the target.
+
+@test "symlinked .gitignore destination is refused, not written through" {
+  # Pre-plant a symlink pointing outside the repo.
+  outside="$TMP/outside-gitignore"
+  echo "ORIGINAL-OUTSIDE" > "$outside"
+  ln -s "$outside" "$REPO/.gitignore"
+  # Blob the plan's preview_blob points to.
+  blob="$TMP/gi-blob"
+  echo "node_modules" > "$blob"
+  cat > "$TMP/plan.json" <<JSON
+{"writes":[{"path":".gitignore","action":"merge","bytes":0,"preview_blob":"$blob","current_bytes":0}],"commands":[],"remote":[]}
+JSON
+  run bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$PROFILE" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -Fq "refusing to write .gitignore via symlink"
+  # The file outside the repo must be untouched.
+  [ "$(cat "$outside")" = "ORIGINAL-OUTSIDE" ]
+}
+
+@test "symlinked CLAUDE.md destination is refused, not written through" {
+  outside="$TMP/outside-claude"
+  echo "ORIGINAL-OUTSIDE" > "$outside"
+  ln -s "$outside" "$REPO/CLAUDE.md"
+  blob="$TMP/cm-blob"
+  echo "# nyann router" > "$blob"
+  cat > "$TMP/plan.json" <<JSON
+{"writes":[{"path":"CLAUDE.md","action":"merge","bytes":0,"preview_blob":"$blob","current_bytes":0}],"commands":[],"remote":[]}
+JSON
+  run bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$PROFILE" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -Fq "refusing to write CLAUDE.md via symlink"
+  [ "$(cat "$outside")" = "ORIGINAL-OUTSIDE" ]
+}

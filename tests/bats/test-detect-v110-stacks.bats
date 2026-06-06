@@ -298,3 +298,22 @@ EOF
     | jq -r '.suggestions[0].name')
   [ "$top" = "bun-app" ]
 }
+
+@test "bun.lock (text lockfile, Bun 1.2+) → package_manager = bun, not npm" {
+  # Regression: detection used to check only the legacy binary
+  # bun.lockb. Bun 1.2+ defaults to a text `bun.lock`, so a modern Bun
+  # project with only `bun.lock` was mis-reported as npm.
+  echo '{}' > "$TMP/package.json"
+  : > "$TMP/bun.lock"
+  result=$(brief_detect "$TMP")
+  [ "$(echo "$result" | jq -r '.pm')" = "bun" ]
+}
+
+@test "bun.lock text lockfile loses to pnpm-lock.yaml (precedence preserved)" {
+  # bun.lock sits below pnpm/yarn in precedence, matching bun.lockb.
+  echo '{}' > "$TMP/package.json"
+  : > "$TMP/bun.lock"
+  : > "$TMP/pnpm-lock.yaml"
+  result=$(brief_detect "$TMP")
+  [ "$(echo "$result" | jq -r '.pm')" = "pnpm" ]
+}

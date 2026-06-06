@@ -139,14 +139,22 @@ action="preview"
 diff_summary="no change (preview only)"
 if $apply; then
   readme="README.md"
-  # Follow symlinks — see gen-readme-badges.sh for rationale.
-  if [[ -L "$readme" ]]; then
+  # Follow symlinks — see gen-readme-badges.sh for rationale. Fully
+  # canonicalize the chain (loop until not a symlink) so a 2-hop link
+  # isn't severed at the intermediate hop; macOS lacks `readlink -f`.
+  hops=0
+  while [[ -L "$readme" ]]; do
+    if (( hops++ > 40 )); then
+      nyann::die "README.md symlink chain too deep (possible loop); refusing to write."
+    fi
     readme_target=$(readlink "$readme")
     case "$readme_target" in
       /*) readme="$readme_target" ;;
       *)  readme="$(dirname "$readme")/$readme_target" ;;
     esac
-  fi
+  done
+  # Guard against a symlink resolving OUTSIDE the target tree.
+  readme=$(nyann::assert_path_under_target "$target" "$readme" "README write path")
   if [[ ! -f "$readme" ]]; then
     printf '%s\n' "$rendered" > "$readme"
     action="write"
@@ -159,19 +167,34 @@ if $apply; then
     if ! grep -Fq "$marker_end" "$readme"; then
       nyann::die "README.md has an orphaned marker_start without a matching marker_end; refusing to truncate. Repair the file manually then re-run --apply."
     fi
+    # Refuse when the START marker appears more than once (duplicated
+    # block, or the marker quoted in prose / a code fence) — the block
+    # boundaries are then ambiguous and rewriting would risk deleting
+    # content between occurrences. We do NOT refuse on a duplicate END
+    # marker: a single start plus a stray end mention is unambiguous
+    # (the state machine closes at the first end AFTER the start).
+    if (( $(grep -Fc "$marker_start" "$readme") > 1 )); then
+      nyann::die "README.md contains the start marker more than once; refusing to rewrite (would risk data loss). Remove the duplicate marker then re-run --apply."
+    fi
     # BSD awk rejects multi-line -v vars; spool body to file and load via getline.
+    #
+    # Single-shot state machine: act on only the FIRST start marker and
+    # the first end marker after it. `done` latches once the block is
+    # replaced so later marker-substring lines print verbatim; the end
+    # marker is honored only while inside the active block (skip==1) so
+    # an end-marker substring before the start marker stays as content.
     body_tmp=$(mktemp -t nyann-body.XXXXXX)
     printf '%s' "$rendered" > "$body_tmp"
     tmp=$(mktemp -t nyann-readme.XXXXXX)
     awk -v ms="$marker_start" -v me="$marker_end" -v bf="$body_tmp" '
       BEGIN {
-        skip=0
+        skip=0; done=0
         while ((getline line < bf) > 0) {
           body = body (body == "" ? "" : "\n") line
         }
       }
-      index($0, ms) { print body; skip=1; next }
-      index($0, me) { skip=0; next }
+      !done && index($0, ms) { print body; skip=1; done=1; next }
+      skip && index($0, me)  { skip=0; next }
       !skip { print }
     ' "$readme" > "$tmp"
     mv "$tmp" "$readme"
@@ -179,8 +202,11 @@ if $apply; then
     action="write"
     diff_summary="replaced existing stack-icon block"
   else
+    # Terminate with exactly one trailing newline so the prepend path
+    # and the awk replace path produce byte-identical output even when
+    # the original README lacked a trailing newline (idempotent --apply).
     tmp=$(mktemp -t nyann-readme.XXXXXX)
-    printf '%s\n\n%s' "$rendered" "$(cat "$readme")" > "$tmp"
+    printf '%s\n\n%s\n' "$rendered" "$(cat "$readme")" > "$tmp"
     mv "$tmp" "$readme"
     action="write"
     diff_summary="inserted stack-icon block at top of README"

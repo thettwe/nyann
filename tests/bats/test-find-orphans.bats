@@ -115,3 +115,44 @@ MD
   echo "elapsed=${elapsed}s" >&2
   [ "$elapsed" -lt 30 ]
 }
+
+# ---- BUG E: substring matching masks orphans -------------------------------
+# Reference detection used `index($0, terms[i])` (unanchored substring), so
+# a doc whose basename is a substring of another *referenced* filename was
+# treated as referenced and never flagged. e.g. `arch.md` is a substring of
+# the referenced `search.md`, so a true orphan `arch.md` was hidden. The fix
+# requires a word-char boundary (`[A-Za-z0-9_-]`) on both sides of the term;
+# `/` and `.` remain boundaries so real path/basename references still match.
+
+@test "substring-named true orphan is reported (arch.md not masked by referenced search.md)" {
+  sub="$TMP/substr"
+  mkdir -p "$sub/docs"
+  cat > "$sub/CLAUDE.md" <<'MD'
+# Project
+- See [search](./docs/search.md) for details.
+MD
+  echo "# search" > "$sub/docs/search.md"
+  echo "# arch"   > "$sub/docs/arch.md"
+  run bash "$FIND" --target "$sub"
+  [ "$status" -eq 0 ]
+  # arch.md is a TRUE orphan — its name is a substring of the referenced
+  # `search.md`, but nothing actually references arch.md.
+  echo "$output" | jq -r '.orphans[].path' | grep -qx "docs/arch.md"
+  # search.md is genuinely referenced, so it must NOT be an orphan.
+  ! echo "$output" | jq -r '.orphans[].path' | grep -qx "docs/search.md"
+}
+
+@test "boundary match still recognises ./-prefixed path references (no false orphan)" {
+  ref="$TMP/refcheck"
+  mkdir -p "$ref/docs"
+  cat > "$ref/CLAUDE.md" <<'MD'
+# Project
+- [architecture](./docs/architecture.md)
+MD
+  echo "# Architecture" > "$ref/docs/architecture.md"
+  run bash "$FIND" --target "$ref"
+  [ "$status" -eq 0 ]
+  # architecture.md is referenced via a `./`-prefixed path; it must not be
+  # flagged just because the boundary check tightened.
+  [ "$(echo "$output" | jq '.orphans | length')" -eq 0 ]
+}

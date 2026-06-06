@@ -144,6 +144,37 @@ while IFS= read -r -d '' f; do
        -v terms_str="$terms_str" \
        -v sep="$US" \
        '
+       # is_boundary(c): true when c is NOT a "word" char (alnum, `_`, `-`).
+       # The term must be flanked on both sides by such a boundary (or by
+       # the start/end of the line) to count as a reference. Plain
+       # substring matching (the old `index()`) reported false positives:
+       # a doc whose basename is a substring of another referenced name
+       # (e.g. `arch.md` inside `search.md`) was treated as referenced,
+       # masking real orphans. `/` and `.` are deliberately boundaries so a
+       # path reference like `./docs/architecture.md` still matches the
+       # `architecture.md` basename term and the `docs/architecture.md`
+       # relative-path term — only a word char gluing the term into a
+       # larger identifier (the `search.md` case) disqualifies a match.
+       function is_boundary(c) {
+         return (c !~ /[A-Za-z0-9_-]/)
+       }
+       # term_referenced(line, term): true when `term` occurs in `line`
+       # delimited by boundaries on both ends. Scans every occurrence —
+       # an early one with a bad right boundary must not hide a later
+       # well-delimited one.
+       function term_referenced(line, term,   tl, pos, start, before, after, idx) {
+         tl = length(term)
+         start = 1
+         while ((idx = index(substr(line, start), term)) > 0) {
+           pos = start + idx - 1
+           before = (pos == 1) ? "" : substr(line, pos - 1, 1)
+           after  = substr(line, pos + tl, 1)
+           if ((pos == 1 || is_boundary(before)) && (after == "" || is_boundary(after)))
+             return 1
+           start = pos + 1
+         }
+         return 0
+       }
        BEGIN {
          n = split(terms_str, terms, sep)
          marker_len = length(marker)
@@ -157,7 +188,7 @@ while IFS= read -r -d '' f; do
        }
        !is_self {
          for (i = 1; i <= n; i++) {
-           if (terms[i] != "" && index($0, terms[i]) > 0) { found = 1; exit }
+           if (terms[i] != "" && term_referenced($0, terms[i])) { found = 1; exit }
          }
        }
        END { exit (found ? 0 : 1) }

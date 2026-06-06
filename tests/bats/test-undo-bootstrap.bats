@@ -117,6 +117,10 @@ JSON
   [ "$status" -eq 1 ]
   echo "$output" | jq -e '.status == "refused"' >/dev/null
   echo "$output" | jq -e '.refused_reason | test("no boot records")' >/dev/null
+  # BUG E: manifest_path must not be emitted as the literal string "null".
+  # When unresolved it is omitted entirely (real JSON, schema-valid).
+  echo "$output" | jq -e 'has("manifest_path") | not' >/dev/null
+  [[ "$output" != *'"manifest_path": "null"'* ]]
 }
 
 @test "refused on cross-target manifest" {
@@ -293,6 +297,38 @@ JSON
   echo "$output" | jq -e '[.skipped[] | select(.kind=="write" and .path=="../../etc/passwd" and (.reason | test("escapes target")))] | length >= 1' >/dev/null
 }
 
+@test "manifest with traversal pre_state_blob is refused (no out-of-repo file leaks into repo)" {
+  # Reviewer-flagged P2 (BUG D): the restore cp reads $pre_state/$blob where
+  # $blob comes from the repo-local manifest. A hostile manifest with a
+  # `../`-escaping pre_state_blob could copy an arbitrary user-readable file
+  # into the repo tree. Legit blobs are always bare NNNN.bin basenames.
+  bootstrap_with_gitignore_merge
+  manifest="$(find "$REPO/memory/.nyann/bootstraps" -name manifest.json | head -1)"
+
+  # Plant a "secret" outside the repo whose bytes must NOT end up in the repo.
+  secret="$TMP/secret.txt"
+  echo "TOP-SECRET-CONTENT" > "$secret"
+
+  # The blob path is resolved as "$pre_state/$blob"; craft a traversal that
+  # reaches $secret from the pre-state dir. Use a legit in-repo target path so
+  # only the blob guard (not the path guard) is exercised.
+  pre_state="$(dirname "$manifest")/pre-state"
+  rel_to_secret="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$secret" "$pre_state")"
+
+  jq --arg blob "$rel_to_secret" \
+    '.actions += [{kind:"write", category:"gitignore", path:"leaked.txt", action:"create", pre_existed:true, pre_state_blob:$blob, pre_state_sha256:"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", reversible:true}]' \
+    "$manifest" > "$manifest.new"
+  mv "$manifest.new" "$manifest"
+
+  run bash "$UNDO" --target "$REPO" --yes --force
+  [ "$status" -eq 0 ]
+  # The hostile blob must be skipped (bare-basename guard).
+  echo "$output" | jq -e '[.skipped[] | select(.kind=="write" and .path=="leaked.txt" and (.reason | test("NNNN.bin|outside pre-state")))] | length >= 1' >/dev/null
+  # The secret's content must NOT have been written into the repo.
+  [ ! -f "$REPO/leaked.txt" ]
+  ! grep -rqF "TOP-SECRET-CONTENT" "$REPO" 2>/dev/null
+}
+
 @test "--scope= (empty value) does not crash under set -u" {
   bootstrap_with_gitignore_merge
   # Empty scope value used to die with `raw[@]: unbound variable`.
@@ -308,6 +344,121 @@ JSON
   bootstrap_with_gitignore_merge
   manifest="$(find "$REPO/memory/.nyann/bootstraps" -name manifest.json | head -1)"
   jq -e '[.actions[] | select(.kind=="write" and .path==".gitignore" and .action=="merge")] | length >= 1' "$manifest" >/dev/null
+}
+
+@test "undo removes IaC wrapper scripts orphaned in .nyann/hooks/iac/" {
+  # Regression: install_iac_phase copies wrapper scripts into
+  # .nyann/hooks/iac/, but bootstrap registered neither the dir nor the
+  # files for snapshot — undo left all five behind (broken reversal).
+  cat > "$TMP/profile.json" <<'JSON'
+{"name":"terraform","version":1,"archetype":"infra","stack":{"primary_language":"hcl","framework":"terraform"},"branching":{"strategy":"github-flow","base_branches":["main"]},"hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},"conventions":{"commit_format":"conventional","commit_scopes":[]},"extras":{"editorconfig":false,"github_templates":false,"gitignore":false},"documentation":{"claude_md_mode":"off","doc_targets":[],"scaffold_set":[]},"ci":{"enabled":false}}
+JSON
+  cat > "$TMP/stack.json" <<'JSON'
+{"primary_language": "hcl", "secondary_languages": [], "frameworks": ["terraform"], "package_managers": [], "is_monorepo": false, "claude_md_hints": [], "archetype": "infra"}
+JSON
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[],"commands":[],"remote":[]}
+JSON
+  bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$TMP/profile.json" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json" >/dev/null 2>&1
+
+  # All five wrapper scripts should have been written.
+  [ -f "$REPO/.nyann/hooks/iac/terraform-fmt.sh" ]
+  [ -f "$REPO/.nyann/hooks/iac/terraform-validate.sh" ]
+  [ -f "$REPO/.nyann/hooks/iac/tflint.sh" ]
+  [ -f "$REPO/.nyann/hooks/iac/tfsec.sh" ]
+  [ -f "$REPO/.nyann/hooks/iac/terraform-docs.sh" ]
+
+  # Manifest must record them as create actions so undo can reverse them.
+  manifest="$(find "$REPO/memory/.nyann/bootstraps" -name manifest.json | head -1)"
+  jq -e '[.actions[] | select(.kind=="write" and (.path | test("\\.nyann/hooks/iac/")))] | length == 5' "$manifest" >/dev/null
+
+  run bash "$UNDO" --target "$REPO" --yes --force
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.status == "undone"' >/dev/null
+  # Every IaC wrapper script must be gone.
+  [ ! -f "$REPO/.nyann/hooks/iac/terraform-fmt.sh" ]
+  [ ! -f "$REPO/.nyann/hooks/iac/terraform-validate.sh" ]
+  [ ! -f "$REPO/.nyann/hooks/iac/tflint.sh" ]
+  [ ! -f "$REPO/.nyann/hooks/iac/tfsec.sh" ]
+  [ ! -f "$REPO/.nyann/hooks/iac/terraform-docs.sh" ]
+}
+
+@test "undo removes commitlint.config.js even when hook-lists are empty" {
+  # Regression: install_jsts_phase always writes commitlint.config.js when
+  # --jsts runs (bootstrap fires it for any TS/JS repo), but the file was
+  # only snapshotted when the profile enumerated eslint/prettier/commitlint.
+  # A TS profile with empty hook lists wrote it but never snapshotted it,
+  # so undo orphaned it.
+  cat > "$REPO/package.json" <<'JSON'
+{"name":"ts-empty","version":"0.0.1","main":"index.js","scripts":{},"devDependencies":{"typescript":"^5.0.0"}}
+JSON
+  cat > "$TMP/profile.json" <<'JSON'
+{"name":"typescript","version":1,"stack":{"primary_language":"typescript"},"branching":{"strategy":"github-flow","base_branches":["main"]},"hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},"conventions":{"commit_format":"conventional","commit_scopes":[]},"extras":{"editorconfig":false,"github_templates":false,"gitignore":false},"documentation":{"claude_md_mode":"off","doc_targets":[],"scaffold_set":[]},"ci":{"enabled":false}}
+JSON
+  cat > "$TMP/stack.json" <<'JSON'
+{"primary_language": "typescript", "secondary_languages": [], "frameworks": [], "package_managers": ["npm"], "is_monorepo": false, "claude_md_hints": [], "archetype": "library"}
+JSON
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[],"commands":[],"remote":[]}
+JSON
+  bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$TMP/profile.json" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json" >/dev/null 2>&1
+
+  # jsts phase needs node; skip the assertion path if the file wasn't written
+  # (node-missing env), since the bug only manifests when the file is written.
+  if [ ! -f "$REPO/commitlint.config.js" ]; then
+    skip "commitlint.config.js not written (node missing in this env)"
+  fi
+
+  manifest="$(find "$REPO/memory/.nyann/bootstraps" -name manifest.json | head -1)"
+  jq -e '[.actions[] | select(.kind=="write" and .path=="commitlint.config.js")] | length >= 1' "$manifest" >/dev/null
+
+  run bash "$UNDO" --target "$REPO" --yes --force
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.status == "undone"' >/dev/null
+  [ ! -f "$REPO/commitlint.config.js" ]
+}
+
+@test "commitlint.config.js is reversed under --scope hooks (not docs)" {
+  # Regression: _br_category_for had no commitlint.config.js case, so it
+  # defaulted to 'docs' and --scope hooks skipped it.
+  cat > "$REPO/package.json" <<'JSON'
+{"name":"ts-empty","version":"0.0.1","main":"index.js","scripts":{},"devDependencies":{"typescript":"^5.0.0"}}
+JSON
+  cat > "$TMP/profile.json" <<'JSON'
+{"name":"typescript","version":1,"stack":{"primary_language":"typescript"},"branching":{"strategy":"github-flow","base_branches":["main"]},"hooks":{"pre_commit":[],"commit_msg":[],"pre_push":[]},"conventions":{"commit_format":"conventional","commit_scopes":[]},"extras":{"editorconfig":false,"github_templates":false,"gitignore":false},"documentation":{"claude_md_mode":"off","doc_targets":[],"scaffold_set":[]},"ci":{"enabled":false}}
+JSON
+  cat > "$TMP/stack.json" <<'JSON'
+{"primary_language": "typescript", "secondary_languages": [], "frameworks": [], "package_managers": ["npm"], "is_monorepo": false, "claude_md_hints": [], "archetype": "library"}
+JSON
+  cat > "$TMP/plan.json" <<'JSON'
+{"writes":[],"commands":[],"remote":[]}
+JSON
+  bash "$BOOTSTRAP" \
+    --target "$REPO" \
+    --plan "$TMP/plan.json" \
+    --plan-sha256 "$(plan_sha "$TMP/plan.json")" \
+    --profile "$TMP/profile.json" \
+    --doc-plan "$TMP/docplan.json" \
+    --stack "$TMP/stack.json" >/dev/null 2>&1
+
+  if [ ! -f "$REPO/commitlint.config.js" ]; then
+    skip "commitlint.config.js not written (node missing in this env)"
+  fi
+
+  manifest="$(find "$REPO/memory/.nyann/bootstraps" -name manifest.json | head -1)"
+  jq -e '[.actions[] | select(.kind=="write" and .path=="commitlint.config.js" and .category=="hooks")] | length >= 1' "$manifest" >/dev/null
 }
 
 @test "git-init action is always skipped" {

@@ -73,7 +73,7 @@ current_version=""
 log_range=""
 
 # Always resolve current version from tags, regardless of --from.
-latest_tag=$(git -C "$target" tag --list "${tag_prefix}*" --sort=-v:refname | head -n1)
+latest_tag=$(git -C "$target" -c versionsort.suffix=- tag --list "${tag_prefix}*" --sort=-v:refname | head -n1)
 if [[ -n "$latest_tag" ]]; then
   current_version="${latest_tag#"$tag_prefix"}"
 fi

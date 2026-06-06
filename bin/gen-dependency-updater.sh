@@ -93,6 +93,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# A --directory placed AFTER the last --ecosystem has no ecosystem to
+# pair with: it stays buffered in _pending_directory and is silently
+# dropped. Warn so the operator notices the typo rather than getting a
+# config that ignores their intended directory.
+if [[ -n "$_pending_directory" ]]; then
+  nyann::warn "trailing --directory '$_pending_directory' has no following --ecosystem; ignored"
+fi
+
 # --- validate ----------------------------------------------------------------
 
 case "$updater" in

@@ -58,8 +58,11 @@ detect_jsts() {
   fi
 
   # Package manager: lock file precedence (pnpm > yarn > bun > npm).
-  # Lock file precedence: pnpm-lock.yaml > yarn.lock > bun.lockb >
-  # package-lock.json, following ecosystem convention.
+  # Lock file precedence: pnpm-lock.yaml > yarn.lock > bun.lock(b) >
+  # package-lock.json, following ecosystem convention. Both Bun
+  # lockfiles are checked: `bun.lockb` (legacy binary, Bun <1.2) and
+  # `bun.lock` (text, the Bun 1.2+ default) — a project on modern Bun
+  # ships only `bun.lock` and must not fall through to the npm default.
   if [[ -f "$path/pnpm-lock.yaml" ]]; then
     package_manager='"pnpm"'
     signal_lock=1
@@ -72,6 +75,10 @@ detect_jsts() {
     package_manager='"bun"'
     signal_lock=1
     add_reason "Found bun.lockb → package_manager = bun"
+  elif [[ -f "$path/bun.lock" ]]; then
+    package_manager='"bun"'
+    signal_lock=1
+    add_reason "Found bun.lock (text lockfile) → package_manager = bun"
   elif [[ -f "$path/package-lock.json" ]]; then
     package_manager='"npm"'
     signal_lock=1

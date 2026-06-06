@@ -85,6 +85,53 @@ for ((i = 0; i < count; i++)); do
 
   [[ -d "$cache_dir/.git" ]] || continue
 
+  # Resolve cache_dir + fetch ONCE per source, BEFORE the per-profile
+  # loop. The fetch used to sit inside the `for pf` loop, so a source
+  # with N cached profiles incurred N identical network fetches per
+  # drift check. The remote ref doesn't change between profiles within
+  # one run, so a single fetch suffices; the per-profile work below is
+  # just local `git show FETCH_HEAD:…`.
+  #
+  # Re-resolve cache_dir before `git -C` to close the TOCTOU window
+  # since the path_under_target check (above).
+  resolved_cache=""
+  if ! $offline; then
+    : > "$drift_err"
+    resolved_cache=$(nyann::path_under_target "$cache_root" "$cache_dir") \
+      || resolved_cache=""
+    if [[ -z "$resolved_cache" ]]; then
+      unreachable_json=$(jq --arg s "$name" --arg err "cache_dir escapes cache_root (re-check)" \
+        '. + [{source:$s, error:$err}]' <<<"$unreachable_json")
+      continue
+    fi
+    # Same defensive git config as sync-team-profiles.sh: block ext::
+    # transport, neutralise hooks, disable submodule recursion. See
+    # sync-team-profiles.sh for rationale.
+    git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
+              -c protocol.file.allow=user \
+              -c core.hooksPath=/dev/null -c submodule.recurse=false)
+    # Hard-cap the fetch. check-team-staleness.sh runs this as a
+    # background monitor that "must never block"; an un-timed fetch
+    # against a stalled remote would hang it forever. Prefer GNU/BSD
+    # `timeout` (or macOS `gtimeout`); if neither exists, degrade
+    # gracefully by bounding git's own HTTP transfer via the low-speed
+    # knobs (abort if <1 byte/s for 10s) rather than leaving it un-capped.
+    fetch=(git "${git_safe[@]}" -C "$resolved_cache" fetch --quiet --depth=1 --no-recurse-submodules origin -- "$ref")
+    if command -v timeout >/dev/null 2>&1; then
+      fetch=(timeout --kill-after=3s 10s "${fetch[@]}")
+    elif command -v gtimeout >/dev/null 2>&1; then
+      fetch=(gtimeout --kill-after=3s 10s "${fetch[@]}")
+    else
+      export GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=10
+    fi
+    if ! "${fetch[@]}" 2>"$drift_err"; then
+      # Redact embedded tokens from error text before logging.
+      err_msg=$(nyann::redact_url "$(head -c 500 "$drift_err" | tr '\n' ' ')")
+      unreachable_json=$(jq --arg s "$name" --arg err "$err_msg" '. + [{source:$s, error:$err}]' <<<"$unreachable_json")
+      continue  # bail this source, try the next
+    fi
+  fi
+
   # Walk cached profiles.
   shopt -s nullglob
   for pf in "$cache_dir"/profiles/*.json "$cache_dir"/*.json; do
@@ -98,30 +145,6 @@ for ((i = 0; i < count; i++)); do
       ok_json=$(jq --arg s "$name" --arg p "$pname" --arg h "$cached_hash" \
         '. + [{source:$s, name:$p, namespaced:($s+"/"+$p), cached_hash:$h}]' <<<"$ok_json")
       continue
-    fi
-
-    # Fetch remote (shallow, minimal) and compare.
-    # Re-resolve cache_dir before `git -C` to close the TOCTOU window
-    # since the path_under_target check (above).
-    : > "$drift_err"
-    resolved_cache=$(nyann::path_under_target "$cache_root" "$cache_dir") \
-      || resolved_cache=""
-    if [[ -z "$resolved_cache" ]]; then
-      unreachable_json=$(jq --arg s "$name" --arg err "cache_dir escapes cache_root (re-check)" \
-        '. + [{source:$s, error:$err}]' <<<"$unreachable_json")
-      break
-    fi
-    # Same defensive git config as sync-team-profiles.sh: block ext::
-    # transport, neutralise hooks, disable submodule recursion. See
-    # sync-team-profiles.sh for rationale.
-    git_safe=(-c protocol.allow=user -c protocol.ext.allow=never \
-              -c protocol.file.allow=user \
-              -c core.hooksPath=/dev/null -c submodule.recurse=false)
-    if ! git "${git_safe[@]}" -C "$resolved_cache" fetch --quiet --depth=1 --no-recurse-submodules origin -- "$ref" 2>"$drift_err"; then
-      # Redact embedded tokens from error text before logging.
-      err_msg=$(nyann::redact_url "$(head -c 500 "$drift_err" | tr '\n' ' ')")
-      unreachable_json=$(jq --arg s "$name" --arg err "$err_msg" '. + [{source:$s, error:$err}]' <<<"$unreachable_json")
-      break  # bail this source, try the next
     fi
 
     # Relative path inside the repo for the profile.

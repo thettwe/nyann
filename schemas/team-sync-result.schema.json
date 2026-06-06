@@ -63,6 +63,37 @@
           "error": { "type": "string" }
         }
       }
+    },
+    "updates_available": {
+      "type": "array",
+      "description": "Present only on the --check-updates path: one changelog entry per pinned source that is behind its latest available ref. Each item mirrors the team-profile-changelog element shape (kept inline rather than $ref'd so validation stays offline — the $id base would otherwise resolve the relative ref to a network URL).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_name", "pinned_at", "latest", "commits_behind", "changed_profiles", "commit_log"],
+        "properties": {
+          "source_name":     { "type": "string" },
+          "pinned_at":       { "type": "string", "description": "Current pinned ref (SHA or tag)." },
+          "latest":          { "type": "string", "description": "Latest available ref on the remote." },
+          "commits_behind":  { "type": "integer", "minimum": 0 },
+          "changed_profiles": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Profile filenames that changed between pinned and latest."
+          },
+          "commit_log": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sha":     { "type": "string" },
+                "subject": { "type": "string" }
+              }
+            },
+            "description": "Commits between pinned and latest (newest first)."
+          }
+        }
+      }
     }
   }
 }

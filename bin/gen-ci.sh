@@ -83,14 +83,74 @@ node_version=$(jq -r '.node_version // "20"' <<<"$ci_json")
 python_version=$(jq -r '.python_version // "3.12"' <<<"$ci_json")
 go_version=$(jq -r '.go_version // "1.22"' <<<"$ci_json")
 
-# Package manager specific commands
+# --- Validate profile-sourced fields before interpolation ---------------------
+# package_manager and the *_version fields come from a (possibly remote)
+# team-profile JSON and get spliced into the CI YAML's `run:`/version fields.
+# An unvalidated value carrying a newline + `- run: …` would inject an extra
+# step. The profile _schema.json constrains these (enum + numeric-dotted
+# pattern) but gen-ci.sh never re-validates its --profile input, so enforce
+# it here — same guard the per-workspace matrix path already applies. On a
+# bad value, fall back to the safe default rather than interpolating.
+
+# package_manager: must be one of the identifiers the install case below
+# (and detect-stack/*.sh) knows about. Anything else → safe default ("npm",
+# matching the jq fallback above and the generic install behaviour).
 case "$pkg_mgr" in
-  pnpm)  install_cmd="pnpm install --frozen-lockfile" ;;
-  yarn)  install_cmd="yarn install --frozen-lockfile" ;;
-  bun)   install_cmd="bun install --frozen-lockfile" ;;
-  pip)   install_cmd="pip install -r requirements.txt" ;;
-  uv)    install_cmd="pip install uv && uv pip install -r requirements.txt" ;;
-  *)     install_cmd="npm ci" ;;
+  pnpm|yarn|bun|npm|pip|uv|poetry|pipenv|pub|cargo|go|gomod|bundler|composer|maven|gradle|mix|deno|dotnet|spm) ;;
+  *)
+    nyann::warn "package_manager '$pkg_mgr' is not a known identifier — falling back to npm"
+    pkg_mgr="npm"
+    ;;
+esac
+
+# Version fields: strict numeric-dotted grammar (mirrors _schema.json's
+# `^[0-9]+(\.[0-9]+)*$`). A non-matching value → revert to the default.
+for _vv in node_version python_version go_version; do
+  case "$_vv" in
+    node_version)   _vd="20" ;;
+    python_version) _vd="3.12" ;;
+    go_version)     _vd="1.22" ;;
+  esac
+  if ! [[ "${!_vv}" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+    nyann::warn "${_vv} '${!_vv}' is not a valid version — falling back to ${_vd}"
+    printf -v "$_vv" '%s' "$_vd"
+  fi
+done
+
+# Package manager specific commands. Identifiers mirror the full set
+# detect-stack emits (bin/detect-stack/*.sh); a non-JS manager falling
+# through to `npm ci` would produce a top-level CI workflow that fails
+# at install. The generic.yml template is used for unknown languages,
+# so the no-op sentinel keeps that path green.
+case "$pkg_mgr" in
+  pnpm)     install_cmd="pnpm install --frozen-lockfile" ;;
+  yarn)     install_cmd="yarn install --frozen-lockfile" ;;
+  bun)      install_cmd="bun install --frozen-lockfile" ;;
+  npm)      install_cmd="npm ci" ;;
+  pip)      install_cmd="pip install -r requirements.txt" ;;
+  uv)       install_cmd="pip install uv && uv pip install -r requirements.txt" ;;
+  poetry)   install_cmd="poetry install" ;;
+  pipenv)   install_cmd="pipenv install --dev" ;;
+  pub)      install_cmd="flutter pub get" ;;
+  cargo)    install_cmd="cargo fetch" ;;
+  go|gomod) install_cmd="go mod download" ;;
+  bundler)  install_cmd="bundle install" ;;
+  composer) install_cmd="composer install" ;;
+  maven)    install_cmd="mvn -B dependency:go-offline" ;;
+  gradle)   install_cmd="./gradlew dependencies" ;;
+  mix)      install_cmd="mix deps.get" ;;
+  deno)     install_cmd="deno cache --reload ." ;;
+  dotnet)   install_cmd="dotnet restore" ;;
+  spm)      install_cmd="swift package resolve" ;;
+  *)
+    case "$lang" in
+      typescript|javascript) install_cmd="npm ci" ;;
+      python)                install_cmd="pip install -r requirements.txt" ;;
+      go)                    install_cmd="go mod download" ;;
+      rust)                  install_cmd="cargo fetch" ;;
+      *)                     install_cmd="echo no install configured" ;;
+    esac
+    ;;
 esac
 
 # Lint commands derived from hooks
@@ -231,27 +291,32 @@ if [[ "$dry_run" == "true" ]]; then
       printf '# nyann:governance:end\n'
     fi
   fi
-  exit 0
+  # NB: no `exit 0` here. The per-workspace matrix section below has its
+  # own dry-run preview (preview-before-mutate); exiting here would make
+  # that preview dead code and hide ci-workspaces.yml from --dry-run. The
+  # write sections below are guarded on $dry_run so nothing is mutated.
 fi
 
-write_workflow "$ci_path" "$CI_MARKER_START" "$CI_MARKER_END" "$workflow"
+if [[ "$dry_run" != "true" ]]; then
+  write_workflow "$ci_path" "$CI_MARKER_START" "$CI_MARKER_END" "$workflow"
 
-# --- Governance workflow (--governance) --------------------------------------
+  # --- Governance workflow (--governance) ------------------------------------
 
-if $governance; then
-  gov_template_file="${templates_dir}/governance-check.yml"
-  [[ -f "$gov_template_file" ]] || nyann::die "governance template not found: $gov_template_file"
+  if $governance; then
+    gov_template_file="${templates_dir}/governance-check.yml"
+    [[ -f "$gov_template_file" ]] || nyann::die "governance template not found: $gov_template_file"
 
-  gov_workflow=$(cat "$gov_template_file")
-  gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
-  if [[ -n "$path_filters" ]]; then
-    gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
-  else
-    gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/}"
+    gov_workflow=$(cat "$gov_template_file")
+    gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
+    if [[ -n "$path_filters" ]]; then
+      gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
+    else
+      gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/}"
+    fi
+
+    gov_path="$target/.github/workflows/governance-check.yml"
+    write_workflow "$gov_path" "# nyann:governance:start" "# nyann:governance:end" "$gov_workflow"
   fi
-
-  gov_path="$target/.github/workflows/governance-check.yml"
-  write_workflow "$gov_path" "# nyann:governance:start" "# nyann:governance:end" "$gov_workflow"
 fi
 
 # --- Per-workspace matrix CI (v1.9.0) ----------------------------------------
@@ -337,14 +402,27 @@ if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
 
       # Resolve language version from workspace CI config
       ws_version=""
+      ws_version_default=""
       case "$ws_lang" in
-        typescript|javascript) ws_version=$(jq -r '.node_version // "20"' <<<"$ws_ci") ;;
-        python)                ws_version=$(jq -r '.python_version // "3.12"' <<<"$ws_ci") ;;
-        go)                    ws_version=$(jq -r '.go_version // "1.22"' <<<"$ws_ci") ;;
+        typescript|javascript) ws_version=$(jq -r '.node_version // "20"' <<<"$ws_ci");   ws_version_default="20" ;;
+        python)                ws_version=$(jq -r '.python_version // "3.12"' <<<"$ws_ci"); ws_version_default="3.12" ;;
+        go)                    ws_version=$(jq -r '.go_version // "1.22"' <<<"$ws_ci");    ws_version_default="1.22" ;;
         rust)                  ws_version="stable" ;;
         dart)                  ws_version=$(jq -r '.dart_version // "stable"' <<<"$ws_ci") ;;
         *)                     ws_version="latest" ;;
       esac
+
+      # Numeric-version guard for the JSON-sourced node/python/go versions.
+      # ws_ci comes from a (possibly remote) profile; an injected value must
+      # not reach the matrix `version:` field. The YAML-safe filter below
+      # catches quotes/newlines, but enforce the strict numeric-dotted
+      # grammar (_schema.json's `^[0-9]+(\.[0-9]+)*$`) here too so a
+      # malformed-but-quote-free version reverts to the default rather than
+      # silently shipping. stable/latest sentinels are exempt (not JSON).
+      if [[ -n "$ws_version_default" ]] && ! [[ "$ws_version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+        nyann::warn "workspace $ws_name: version '$ws_version' is not valid — falling back to $ws_version_default"
+        ws_version="$ws_version_default"
+      fi
 
       # Resolve install command.
       # For JS workspaces without a workspace-local package manager,
@@ -356,17 +434,53 @@ if [[ -n "$workspace_configs_path" && -f "$workspace_configs_path" ]]; then
           typescript|javascript) ws_pm="$root_pm" ;;
         esac
       fi
+      # Map the detect-stack package_manager identifier to its install
+      # command. The full identifier set is enumerated in
+      # bin/detect-stack/*.sh (bun, bundler, cargo, composer, deno,
+      # dotnet, go, gradle, maven, mix, npm, pip, pipenv, pnpm, poetry,
+      # pub, spm, uv, yarn). Defaulting non-JS managers to `npm ci`
+      # (the previous catch-all) shipped a CI workflow that failed at
+      # install on every non-JS workspace.
+      #
+      # Sentinels must stay quote-free: the YAML safety filter below
+      # (:430) rejects single quotes and skips the whole workspace, so a
+      # quoted no-op sentinel silently drops non-JS workspaces from the
+      # matrix — producing an empty `matrix.include` GitHub rejects.
       ws_install=""
       case "$ws_pm" in
-        pnpm)    ws_install="pnpm install --frozen-lockfile" ;;
-        yarn)    ws_install="yarn install --frozen-lockfile" ;;
-        bun)     ws_install="bun install --frozen-lockfile" ;;
-        pip)     ws_install="pip install -r requirements.txt" ;;
-        uv)      ws_install="pip install uv && uv pip install -r requirements.txt" ;;
-        pub)     ws_install="flutter pub get" ;;
-        cargo)   ws_install="cargo fetch" ;;
-        "")      ws_install="echo 'no install'" ;;
-        *)       ws_install="npm ci" ;;
+        pnpm)     ws_install="pnpm install --frozen-lockfile" ;;
+        yarn)     ws_install="yarn install --frozen-lockfile" ;;
+        bun)      ws_install="bun install --frozen-lockfile" ;;
+        npm)      ws_install="npm ci" ;;
+        pip)      ws_install="pip install -r requirements.txt" ;;
+        uv)       ws_install="pip install uv && uv pip install -r requirements.txt" ;;
+        poetry)   ws_install="poetry install" ;;
+        pipenv)   ws_install="pipenv install --dev" ;;
+        pub)      ws_install="flutter pub get" ;;
+        cargo)    ws_install="cargo fetch" ;;
+        go|gomod) ws_install="go mod download" ;;
+        bundler)  ws_install="bundle install" ;;
+        composer) ws_install="composer install" ;;
+        maven)    ws_install="mvn -B dependency:go-offline" ;;
+        gradle)   ws_install="./gradlew dependencies" ;;
+        mix)      ws_install="mix deps.get" ;;
+        deno)     ws_install="deno cache --reload ." ;;
+        dotnet)   ws_install="dotnet restore" ;;
+        spm)      ws_install="swift package resolve" ;;
+        "")       ws_install="echo no install configured" ;;
+        *)
+          # Genuinely unknown package manager: fall back per-language
+          # where we can, otherwise a quote-free no-op. Never default to
+          # `npm ci` for a non-JS workspace.
+          case "$ws_lang" in
+            typescript|javascript) ws_install="npm ci" ;;
+            python)                ws_install="pip install -r requirements.txt" ;;
+            go)                    ws_install="go mod download" ;;
+            rust)                  ws_install="cargo fetch" ;;
+            dart)                  ws_install="flutter pub get" ;;
+            *)                     ws_install="echo no install configured" ;;
+          esac
+          ;;
       esac
 
       # Resolve lint command. Sentinel intentionally avoids embedded quotes
