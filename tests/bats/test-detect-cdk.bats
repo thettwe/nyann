@@ -164,9 +164,9 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 0 ]
 }
 
-@test "aws-cdk-app profile: infra archetype, aws-cdk framework, npm pm, pinned iac.tool" {
+@test "aws-cdk-app profile: infra archetype, cdk framework, npm pm, pinned aws-cdk iac.tool" {
   jq -e '.archetype == "infra"'             "$REPO_ROOT/profiles/aws-cdk-app.json"
-  jq -e '.stack.framework == "aws-cdk"'     "$REPO_ROOT/profiles/aws-cdk-app.json"
+  jq -e '.stack.framework == "cdk"'         "$REPO_ROOT/profiles/aws-cdk-app.json"
   jq -e '.stack.primary_language == "typescript"' "$REPO_ROOT/profiles/aws-cdk-app.json"
   jq -e '.stack.package_manager == "npm"'   "$REPO_ROOT/profiles/aws-cdk-app.json"
   jq -e '.iac.tool == "aws-cdk"'            "$REPO_ROOT/profiles/aws-cdk-app.json"
