@@ -37,7 +37,7 @@
 
 ## Supported stacks
 
-**Working hooks, branching, commits, and docs across 26 stacks.** Nyann detects yours automatically and applies the right profile — branching strategy, commit conventions, language-specific hooks (Husky, pre-commit.com, lefthook, …) wired up to run on day one, and archetype-aware documentation scaffolding. All profiles default to Conventional Commits + GitHub Flow.
+**Working hooks, branching, commits, and docs across 31 stacks.** Nyann detects yours automatically and applies the right profile — branching strategy, commit conventions, language-specific hooks (Husky, pre-commit.com, lefthook, …) wired up to run on day one, and archetype-aware documentation scaffolding. All profiles default to Conventional Commits + GitHub Flow.
 
 | Stack | Profile | Linting | Formatting | Package Manager |
 |---|---|---|---|---|
@@ -67,6 +67,11 @@
 | NestJS | `nestjs-service` | ESLint | Prettier | npm / pnpm |
 | C/C++ CMake | `cpp-cmake` | clang-tidy | clang-format | - |
 | Terraform (monorepo) | `terraform-monorepo` | tflint, tfsec, terraform validate | terraform fmt | - |
+| AWS CDK | `aws-cdk-app` | ESLint, cdk synth | Prettier | npm / pnpm / yarn / bun |
+| Pulumi | `pulumi-app` | pulumi preview | - | - |
+| Kubernetes / Kustomize | `kubernetes-app` | kubeconform, kube-linter, kustomize build | - | - |
+| Helm chart | `helm-chart` | helm lint, helm template | - | - |
+| Ansible | `ansible-playbook` | ansible-lint, yamllint, syntax-check | - | - |
 | Any / Unknown | `default` | - | - | - |
 
 All profiles also include `block-main` (prevent direct commits to main) and `gitleaks` (secret scanning) hooks.
@@ -358,7 +363,7 @@ bin/                   # 87 top-level shell scripts + 39 extracted modules + 1 p
 commands/              # 37 Claude Code slash-command registrations
 evals/                 # 24 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse + UserPromptSubmit hooks
-profiles/              # 27 starter profiles (+ _schema.json)
+profiles/              # 32 starter profiles (+ _schema.json)
 schemas/               # 62 JSON Schemas for every exchanged shape
 skills/                # 37 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs (incl. iac), husky, docs, CI, memory
