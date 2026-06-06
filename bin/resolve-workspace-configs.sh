@@ -58,14 +58,67 @@ done
 stack=$(cat "$stack_file")
 profile=$(cat "$profile_file")
 
+# --- IaC units as workspaces (v1.13.0 I7) ------------------------------------
+# Fold the descriptor's iac.units[] into the workspace list so the existing
+# per-workspace machinery — versioning ESPECIALLY (per-unit version + the
+# per-workspace release path from D1) — can key off real IaC unit paths. We
+# feed the SAME .workspaces[] channel every downstream consumer already reads,
+# so no new branch is needed here per-entry; an IaC unit becomes a workspace
+# with { path, primary_language: iac.language, framework: iac.tool,
+# package_manager: null }.
+#
+# Deliberately MINIMAL surface (per the I7 recon's landmine notes):
+#   - ROOT units (path ".") are EXCLUDED. A "." path trips the path-safety
+#     guards in gen-ci.sh / scaffold-docs.sh and a repo-root unit is not a
+#     sub-workspace anyway — including it would yield a silently-dropped or
+#     malformed matrix entry. Versioning still sees the root unit via the
+#     descriptor's iac.units[] directly; it does not need a workspace shim.
+#   - Synthesized entries carry only language DEFAULTS (hcl/yaml → [] hooks,
+#     which is the safe no-op default) plus whatever a profile EXPLICITLY
+#     assigns via an exact-path / wildcard override. We do NOT force per-unit
+#     CI or docs — those stay opt-in through profile workspace overrides, so a
+#     bare IaC unit produces inert (not wrong) CI/docs, exactly as the recon
+#     recommends.
+#   - Dedup against any real (JS/TS) workspace by path so a unit that already
+#     IS a workspace is not duplicated.
+iac_language=$(jq -r '.iac.language // "unknown"' <<<"$stack")
+[[ -z "$iac_language" || "$iac_language" == "null" ]] && iac_language="unknown"
+iac_tool=$(jq -c '.iac.tool // null' <<<"$stack")
+
 is_monorepo=$(jq -r '.is_monorepo // false' <<<"$stack")
-if [[ "$is_monorepo" != "true" ]]; then
+
+base_workspaces=$(jq -c '.workspaces // []' <<<"$stack")
+
+# Synthesize workspace entries from iac.units[], skipping root units and any
+# path already present in the base workspace list. Empty array if no iac block.
+iac_workspaces=$(jq -c \
+  --arg lang "$iac_language" \
+  --argjson tool "$iac_tool" \
+  --argjson base "$base_workspaces" \
+  '
+  ( [ $base[].path ] ) as $have
+  | ( .iac.units // [] )
+  | map(select(.path != "." and (.path as $p | $have | index($p) | not)))
+  | map({
+      path: .path,
+      primary_language: $lang,
+      framework: $tool,
+      package_manager: null
+    })
+  ' <<<"$stack")
+
+# Combine base (real) workspaces with the synthesized IaC ones.
+workspaces=$(jq -nc --argjson base "$base_workspaces" --argjson iac "$iac_workspaces" \
+  '$base + $iac')
+ws_count=$(jq 'length' <<<"$workspaces")
+
+# Proceed when this is a real monorepo OR we synthesized IaC workspaces. An
+# IaC-only repo is not is_monorepo, but its units still warrant per-workspace
+# resolution (the early-exit gate must not slam shut on them).
+if [[ "$is_monorepo" != "true" ]] && (( ws_count == 0 )); then
   echo '[]'
   exit 0
 fi
-
-workspaces=$(jq -c '.workspaces // []' <<<"$stack")
-ws_count=$(jq 'length' <<<"$workspaces")
 
 if (( ws_count == 0 )); then
   echo '[]'

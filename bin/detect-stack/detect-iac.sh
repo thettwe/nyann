@@ -75,17 +75,12 @@ PY
   printf '%s' "$val"
 }
 
-# _iac_unit_append JSON_VAR KIND PATH NAME [VERSION] — append a unit object to
-# the named jq-array variable. VERSION omitted/empty → JSON null.
-_iac_unit_append() {
-  local _var="$1" _kind="$2" _path="$3" _name="$4" _ver="${5-}"
-  local _ver_json='null'
-  [[ -n "$_ver" ]] && _ver_json="$(jq -n --arg v "$_ver" '$v')"
-  local _cur="${!_var}"
-  printf -v "$_var" '%s' \
-    "$(jq --arg k "$_kind" --arg p "$_path" --arg n "$_name" --argjson v "$_ver_json" \
-        '. + [{kind:$k, path:$p, name:$n, version:$v}]' <<<"$_cur")"
-}
+# Unit objects ({kind,path,name,version[,depends_on]}) are now built by the
+# deep discovery module (detect-stack/discover-iac-units.sh, sourced below via
+# nyann::discover_iac_units) rather than appended inline here — that module owns
+# the fuller unit set + the depends_on graph. detect-iac.sh keeps only the
+# coarse tool classification plus the lockfile/var_file scans discovery does not
+# produce.
 
 # _iac_str_append JSON_VAR VALUE — append a string to the named jq-array var.
 _iac_str_append() {
@@ -93,6 +88,23 @@ _iac_str_append() {
   local _cur="${!_var}"
   printf -v "$_var" '%s' "$(jq --arg s "$_val" '. + [$s]' <<<"$_cur")"
 }
+
+# Deep per-tool unit + dependency-graph discovery (v1.13.0 I7). Sourced here so
+# nyann::discover_iac_units is available to ENRICH IAC_UNITS_JSON after a tool is
+# classified — superseding the inline root-only globbing below with the fuller
+# unit set (deep monorepo subdir discovery) and depends_on edges.
+#
+# Resolve our own dir from BASH_SOURCE rather than relying on _detect_dir: the
+# normal chain (detect-stack.sh → detect-archetype.sh) sets _detect_dir, but the
+# discover-iac-units.sh standalone guard sources THIS file directly (to reuse
+# _iac_yaml_key), with no _detect_dir in scope. The `declare -F` guard also
+# prevents a circular re-source in that standalone path (discover-iac-units.sh
+# defines nyann::discover_iac_units before sourcing us).
+if ! declare -F nyann::discover_iac_units >/dev/null 2>&1; then
+  _iac_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=./discover-iac-units.sh
+  source "${_iac_self_dir}/discover-iac-units.sh"
+fi
 
 nyann::detect_iac() {
   local target="${1-.}"
@@ -116,24 +128,10 @@ nyann::detect_iac() {
     IAC_FRAMEWORK="helm"
     IAC_TOOL="helm"
     IAC_LANGUAGE="yaml"
-    # version / appVersion from Chart.yaml; subcharts under charts/*/Chart.yaml.
-    local _chart_ver
-    _chart_ver=$(_iac_yaml_key "$target/Chart.yaml" version)
-    local _chart_name
-    _chart_name=$(_iac_yaml_key "$target/Chart.yaml" name)
-    [[ -z "$_chart_name" ]] && _chart_name="$(basename "$target")"
-    _iac_unit_append IAC_UNITS_JSON chart "." "$_chart_name" "$_chart_ver"
-    local _sub
-    for _sub in "$target"/charts/*/Chart.yaml; do
-      [[ -f "$_sub" ]] || continue
-      local _sub_dir _sub_rel _sub_name _sub_ver
-      _sub_dir="$(dirname "$_sub")"
-      _sub_rel="charts/$(basename "$_sub_dir")"
-      _sub_name=$(_iac_yaml_key "$_sub" name)
-      [[ -z "$_sub_name" ]] && _sub_name="$(basename "$_sub_dir")"
-      _sub_ver=$(_iac_yaml_key "$_sub" version)
-      _iac_unit_append IAC_UNITS_JSON chart "$_sub_rel" "$_sub_name" "$_sub_ver"
-    done
+    # Units (root chart + subcharts + dependencies) come from the deep
+    # discovery pass — it supersedes the inline root-only globbing and adds
+    # depends_on edges from each Chart.yaml `dependencies:`. Sets IAC_UNITS_JSON.
+    nyann::discover_iac_units "$target" helm >/dev/null
     [[ -f "$target/Chart.lock" ]] && _iac_str_append IAC_LOCKFILES_JSON "Chart.lock"
     return 0
   fi
@@ -149,15 +147,9 @@ nyann::detect_iac() {
     IAC_FRAMEWORK="kubernetes"
     IAC_TOOL="kustomize"
     IAC_LANGUAGE="yaml"
-    local _ov
-    for _ov in "$target"/overlays/*/kustomization.yaml "$target"/overlays/*/kustomization.yml; do
-      [[ -f "$_ov" ]] || continue
-      local _ov_dir _ov_rel _ov_name
-      _ov_dir="$(dirname "$_ov")"
-      _ov_name="$(basename "$_ov_dir")"
-      _ov_rel="overlays/$_ov_name"
-      _iac_unit_append IAC_UNITS_JSON overlay "$_ov_rel" "$_ov_name"
-    done
+    # Overlay units (+ base depends_on edges) via deep discovery; supersedes
+    # the inline overlays/* glob and walks monorepo subdir roots too.
+    nyann::discover_iac_units "$target" kustomize >/dev/null
     return 0
   fi
 
@@ -189,8 +181,11 @@ nyann::detect_iac() {
     IAC_FRAMEWORK="terraform"
     IAC_TOOL="terraform"
     IAC_LANGUAGE="hcl"
-    # Lock + var files for downstream drift / plan subsystems. I7 fills the
-    # full units[] graph; here we record the obvious top-level signals.
+    # I7: fill the full units[] graph (modules + environment stacks, with
+    # depends_on edges from local `module "x" { source = "./.." }` references).
+    # Sets IAC_UNITS_JSON. Lock + var files (NOT produced by discovery) are
+    # still scanned inline below for downstream drift / plan subsystems.
+    nyann::discover_iac_units "$target" terraform >/dev/null
     local _lf _vf
     while IFS= read -r _lf; do
       [[ -z "$_lf" ]] && continue
@@ -219,21 +214,12 @@ nyann::detect_iac() {
       "go "*|*" go "*|*"go run"*) IAC_LANGUAGE="go" ;;
       *)                        IAC_LANGUAGE="" ;;
     esac
-    # Glob-based stack discovery: lib/*-stack.{ts,py,go,cs} + bin/*.{ts,py}.
-    # Iterate the glob expansion DIRECTLY (no inner `for _f in $_g`): glob
-    # results are not word-split, so a stack filename containing spaces is
-    # preserved as one word; an unmatched pattern stays literal and is
-    # skipped by the `-f` guard. (Detection is repo-ROOT only here; deep
-    # monorepo subdir discovery is v1.13.0 I7's job — see docs/roadmap.)
-    local _f _name
-    for _f in "$target"/lib/*-stack.ts "$target"/lib/*-stack.py \
-              "$target"/lib/*-stack.go "$target"/lib/*-stack.cs \
-              "$target"/bin/*.ts "$target"/bin/*.py; do
-      [[ -f "$_f" ]] || continue
-      _name="$(basename "$_f")"
-      _name="${_name%.*}"
-      _iac_unit_append IAC_UNITS_JSON stack "${_f#"$target"/}" "$_name"
-    done
+    # Stack units via deep discovery: lib/*-stack.{ts,py,go,cs} + bin/*.{ts,py}
+    # at the repo root AND conventional monorepo subdir roots (v1.13.0 I7 lifts
+    # the prior root-only limit). Back-compat: root-only fixtures yield
+    # identical path/name. CDK cross-stack edges live in program code and are
+    # not parseable here, so stacks carry no depends_on. Sets IAC_UNITS_JSON.
+    nyann::discover_iac_units "$target" aws-cdk >/dev/null
     return 0
   fi
 
@@ -255,18 +241,18 @@ nyann::detect_iac() {
       dotnet) IAC_LANGUAGE="csharp" ;;
       *)      IAC_LANGUAGE="" ;;
     esac
-    # Stacks: Pulumi.<stack>.yaml (exclude the project file). Each stack
-    # config can carry secure: secrets, so record it as a var-file too.
-    local _sf _base _stack
+    # Stack units via deep discovery (root + monorepo subdir roots). No
+    # depends_on (StackReference lives in program code). Sets IAC_UNITS_JSON.
+    nyann::discover_iac_units "$target" pulumi >/dev/null
+    # var_files: each Pulumi.<stack>.yaml can carry secure: secrets, so record
+    # it as a secret-scan target. Discovery emits units only, not var_files, so
+    # this scan stays inline (root-level, matching the prior contract/tests).
+    local _sf _base
     for _sf in "$target"/Pulumi.*.yaml "$target"/Pulumi.*.yml; do
       [[ -f "$_sf" ]] || continue
       _base="$(basename "$_sf")"
       # Skip the project manifest itself.
       [[ "$_base" == "Pulumi.yaml" || "$_base" == "Pulumi.yml" ]] && continue
-      _stack="${_base#Pulumi.}"
-      _stack="${_stack%.yaml}"
-      _stack="${_stack%.yml}"
-      _iac_unit_append IAC_UNITS_JSON stack "$_base" "$_stack"
       _iac_str_append IAC_VAR_FILES_JSON "$_base"
     done
     return 0
@@ -301,22 +287,10 @@ nyann::detect_iac() {
     IAC_FRAMEWORK="ansible"
     IAC_TOOL="ansible"
     IAC_LANGUAGE="yaml"
-    local _rd _rname
-    for _rd in "$target"/roles/*/; do
-      [[ -d "$_rd" ]] || continue
-      _rname="$(basename "$_rd")"
-      _iac_unit_append IAC_UNITS_JSON role "roles/$_rname" "$_rname"
-    done
-    local _pb _pbname
-    for _pb in "$target"/*.yml "$target"/*.yaml; do
-      [[ -f "$_pb" ]] || continue
-      if grep -Eq '^[[:space:]]*-?[[:space:]]*hosts:' "$_pb" 2>/dev/null \
-         && grep -Eq '^[[:space:]]*(tasks|roles):' "$_pb" 2>/dev/null; then
-        _pbname="$(basename "$_pb")"
-        _pbname="${_pbname%.*}"
-        _iac_unit_append IAC_UNITS_JSON playbook "$(basename "$_pb")" "$_pbname"
-      fi
-    done
+    # Role + playbook units via deep discovery (root + monorepo subdir roots),
+    # with depends_on edges from role meta/main.yml `dependencies:` and each
+    # playbook's referenced `roles:`. Sets IAC_UNITS_JSON.
+    nyann::discover_iac_units "$target" ansible >/dev/null
     return 0
   fi
 
