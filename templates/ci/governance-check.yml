@@ -21,10 +21,11 @@ jobs:
 
       - name: Install nyann
         run: |
-          # NYANN_VERSION should track releases — ideally the release process
-          # stamps this default (like gen-claudemd does); until then bump the
-          # literal on each release to match .claude-plugin/plugin.json.
-          git clone --depth 1 --branch v${NYANN_VERSION:-1.12.0} https://github.com/thettwe/nyann.git /tmp/nyann
+          # The pinned default is stamped by gen-ci.sh from the installed
+          # nyann's .claude-plugin/plugin.json at generation time, so it
+          # tracks the release that produced this workflow. Override per-run
+          # via the NYANN_VERSION env var.
+          git clone --depth 1 --branch v${NYANN_VERSION:-__NYANN_VERSION__} https://github.com/thettwe/nyann.git /tmp/nyann
 
       - name: Install jq
         run: |

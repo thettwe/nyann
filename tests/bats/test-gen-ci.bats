@@ -266,3 +266,13 @@ YML
   plugin_ver=$(jq -r '.version' "${REPO_ROOT}/.claude-plugin/plugin.json")
   [[ "$output" == *"v\${NYANN_VERSION:-${plugin_ver}}"* ]]
 }
+
+@test "governance template uses the version placeholder, not a hardcoded literal" {
+  # The pin must be stamped by gen-ci.sh from plugin.json so it can't drift.
+  # A reintroduced hardcoded default (e.g. v${NYANN_VERSION:-1.2.3}) regresses
+  # the staleness bug — guard against it at the template level.
+  run grep -F '__NYANN_VERSION__' "${REPO_ROOT}/templates/ci/governance-check.yml"
+  [ "$status" -eq 0 ]
+  run grep -Eq 'NYANN_VERSION:-[0-9]+\.[0-9]+\.[0-9]+' "${REPO_ROOT}/templates/ci/governance-check.yml"
+  [ "$status" -ne 0 ]
+}
