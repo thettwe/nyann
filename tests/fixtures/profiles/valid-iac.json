@@ -1,0 +1,42 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "valid-iac",
+  "description": "v1.13.0 IaC foundation fixture: a coherent terraform/opentofu infra profile that exercises the additive profile-schema surface — the opentofu package_manager (the one enum addition), a free-string framework holding an IaC tool name, and the optional top-level iac block with module + stack units and a version pin.",
+  "schemaVersion": 1,
+  "archetype": "infra",
+  "stack": {
+    "primary_language": "hcl",
+    "framework": "terraform",
+    "package_manager": "opentofu"
+  },
+  "branching": {
+    "strategy": "trunk-based",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": ["block-main", "gitleaks"],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "claude_md": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": ["architecture", "runbook", "deployment"],
+    "storage_strategy": "local",
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3
+  },
+  "iac": {
+    "tool": "terraform",
+    "units": [
+      { "kind": "module", "path": "modules/vpc", "name": "vpc", "version": "1.2.0" },
+      { "kind": "stack", "path": "environments/prod", "name": "prod" }
+    ]
+  }
+}

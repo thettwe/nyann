@@ -1,0 +1,25 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-iac-extra-prop",
+  "description": "v1.13.0 negative control: an unknown key inside the iac block (here a descriptor-only field, language) must be rejected by additionalProperties:false. Guards against a future relaxation that drops the strict-properties lock.",
+  "schemaVersion": 1,
+  "archetype": "infra",
+  "stack": {
+    "primary_language": "hcl",
+    "framework": "terraform",
+    "package_manager": "opentofu"
+  },
+  "branching": {
+    "strategy": "trunk-based",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": ["block-main"],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "iac": {
+    "tool": "terraform",
+    "language": "hcl"
+  }
+}

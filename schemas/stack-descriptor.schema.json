@@ -149,6 +149,58 @@
           }
         }
       }
+    },
+    "iac": {
+      "$comment": "v1.13.0 — Infrastructure-as-Code descriptor block. Generalizes detect-iac.sh's flat signals into one shape so detection, hooks, drift, plan/apply, and per-unit versioning all read from a single source. Optional — emitted only for infra repos; absent on every non-IaC descriptor, so legacy descriptors still validate.",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Detected Infrastructure-as-Code shape: the driving tool, its language, the discovered deployable/versionable units, and the lock/var files downstream drift and plan/apply subsystems read.",
+      "properties": {
+        "tool": {
+          "type": "string",
+          "enum": ["terraform", "opentofu", "aws-cdk", "pulumi", "kubernetes", "kustomize", "helm", "ansible"]
+        },
+        "language": {
+          "$comment": "CDK/Pulumi are polyglot — the language is read from the project config (cdk.json app field, Pulumi runtime:), not assumed from the tool.",
+          "type": "string",
+          "enum": ["hcl", "typescript", "python", "go", "csharp", "yaml"]
+        },
+        "units": {
+          "type": "array",
+          "description": "Discovered deployable/versionable units (modules, stacks, charts, overlays, playbooks, roles). version is null when the unit isn't independently versioned.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "path", "name"],
+            "properties": {
+              "kind":    {
+                "type": "string",
+                "enum": ["module", "stack", "chart", "overlay", "playbook", "role"]
+              },
+              "path":    { "type": "string", "minLength": 1 },
+              "name":    { "type": "string", "minLength": 1 },
+              "version": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "type": "string" }
+                ]
+              },
+              "depends_on": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "lockfiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "var_files": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
     }
   }
 }

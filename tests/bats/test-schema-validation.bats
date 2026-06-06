@@ -524,6 +524,101 @@ JSON
   echo "$output" | grep -Fq "producer exited 1"
 }
 
+# --- StackDescriptor iac block (v1.13.0 — no producer emits it yet) ---------
+# detect-stack.sh does not yet serialize an `iac` key (the IaC signals are
+# folded into archetype/framework/primary_language today). These cases pin
+# the optional, additive `iac` block contract directly so the per-tool
+# detector work in I2–I6 can start emitting it against a known shape.
+# Hand-rolled fixtures keep base fields within the *current* descriptor
+# enums so we exercise only the new block, not the pre-existing hcl/infra
+# enum gaps tracked by the detector-population features.
+
+@test "stack-descriptor schema: descriptor with full iac block validates" {
+  cat > "$TMP/desc.json" <<'JSON'
+{
+  "primary_language": "typescript",
+  "secondary_languages": ["python"],
+  "framework": null,
+  "package_manager": null,
+  "is_monorepo": true,
+  "monorepo_tool": null,
+  "workspaces": [],
+  "has_git": true,
+  "git_is_empty_repo": false,
+  "has_claude_md": false,
+  "existing_precommit_config": "none",
+  "existing_ci": "none",
+  "contributor_count": 1,
+  "has_changelog": false,
+  "has_semver_tags": false,
+  "confidence": 0.9,
+  "reasoning": ["iac detected"],
+  "iac": {
+    "tool": "aws-cdk",
+    "language": "typescript",
+    "units": [
+      { "kind": "stack", "path": "lib/api-stack", "name": "api", "version": "1.2.0", "depends_on": ["lib/base-stack"] },
+      { "kind": "stack", "path": "lib/base-stack", "name": "base", "version": null }
+    ],
+    "lockfiles": ["package-lock.json"],
+    "var_files": []
+  }
+}
+JSON
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/stack-descriptor.schema.json" "$TMP/desc.json"
+}
+
+@test "stack-descriptor schema: legacy descriptor WITHOUT iac still validates" {
+  cat > "$TMP/desc.json" <<'JSON'
+{
+  "primary_language": "typescript",
+  "secondary_languages": [],
+  "framework": "next",
+  "package_manager": "pnpm",
+  "is_monorepo": false,
+  "monorepo_tool": null,
+  "workspaces": [],
+  "has_git": true,
+  "git_is_empty_repo": false,
+  "has_claude_md": false,
+  "existing_precommit_config": "none",
+  "existing_ci": "github-actions",
+  "contributor_count": 1,
+  "has_changelog": true,
+  "has_semver_tags": true,
+  "confidence": 0.8,
+  "reasoning": ["package.json present"]
+}
+JSON
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/stack-descriptor.schema.json" "$TMP/desc.json"
+}
+
+@test "stack-descriptor schema: rejects an unknown iac.tool" {
+  cat > "$TMP/desc.json" <<'JSON'
+{
+  "primary_language": "unknown",
+  "secondary_languages": [],
+  "framework": null,
+  "package_manager": null,
+  "is_monorepo": false,
+  "monorepo_tool": null,
+  "workspaces": [],
+  "has_git": true,
+  "git_is_empty_repo": false,
+  "has_claude_md": false,
+  "existing_precommit_config": "none",
+  "existing_ci": "none",
+  "contributor_count": 0,
+  "has_changelog": false,
+  "has_semver_tags": false,
+  "confidence": 0.0,
+  "reasoning": [],
+  "iac": { "tool": "cloudformation" }
+}
+JSON
+  ! "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/stack-descriptor.schema.json" "$TMP/desc.json"
+}
+
 # --- Every schema is itself a valid JSON Schema -----------------------------
 # Guards against a malformed schema (bad metaschema, dangling $ref) shipping
 # unnoticed. check-jsonschema --check-metaschema validates each schema

@@ -83,7 +83,7 @@
         "package_manager": {
           "oneOf": [
             { "type": "null" },
-            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix"] }
+            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix", "opentofu"] }
           ]
         }
       }
@@ -619,6 +619,51 @@
         "pr":      { "$ref": "#/$defs/GuardList" },
         "release": { "$ref": "#/$defs/GuardList" },
         "ship":    { "$ref": "#/$defs/GuardList" }
+      }
+    },
+    "iac": {
+      "$comment": "v1.13.0 — optional Infrastructure-as-Code pinning block. Mirrors the stack-descriptor iac shape so a profile can pin the tool and declare which repo-relative paths are deployable units when auto-discovery (detect-iac.sh / discover-iac-units.sh) is ambiguous. Additive and fully optional: absent on non-infra profiles; presence overrides nothing for repos that ignore it.",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Infrastructure-as-Code overrides. Pins the IaC tool and/or declares deployable units so per-unit versioning, drift, and doc routing key off real paths instead of guessing.",
+      "properties": {
+        "tool": {
+          "type": "string",
+          "enum": ["terraform", "opentofu", "aws-cdk", "pulumi", "kubernetes", "kustomize", "helm", "ansible"]
+        },
+        "units": {
+          "type": "array",
+          "description": "Deployable/versionable units declared by the operator. Each maps a kind + repo-relative path to a logical name; version is an optional pin.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "path", "name"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["module", "stack", "chart", "overlay", "playbook", "role"]
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.][A-Za-z0-9._/-]*$",
+                "not": { "pattern": "(^|/)\\.{1,2}(/|$)" },
+                "maxLength": 256,
+                "description": "Repo-relative path to the unit (e.g. 'modules/vpc'). Must not start with '-' (option injection); the `not` clause rejects '.'/'..' path segments (traversal), matching release.bump_files[].path."
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$",
+                "description": "Lowercase-kebab logical identifier for the unit. Same shape as the top-level profile `name`."
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+                "maxLength": 64,
+                "description": "Optional pinned version of the unit (e.g. a Helm chart version or module ref). Free-form within a safe charset."
+              }
+            }
+          }
+        }
       }
     }
   },

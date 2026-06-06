@@ -86,6 +86,37 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+# v1.13.0 IaC foundation: the optional top-level `iac` block, the
+# `opentofu` package manager, and IaC tool names as free-string
+# frameworks (terraform/aws-cdk/helm/...) must all validate additively —
+# and the iac block's enums + additionalProperties:false must REJECT
+# malformed input, so a future schema relaxation surfaces immediately.
+
+@test "fixture: valid-iac → exit 0 (iac block + opentofu pm + free-string framework)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/valid-iac.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: terraform-monorepo.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/terraform-monorepo.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "fixture: invalid-iac-tool → exit 4 (iac.tool outside enum)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-iac-tool.json"
+  [ "$status" -eq 4 ]
+}
+
+@test "fixture: invalid-iac-extra-prop → exit 4 (unknown key in iac block)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-iac-extra-prop.json"
+  [ "$status" -eq 4 ]
+}
+
+@test "fixture: invalid-iac-unit-kind → exit 4 (units[].kind outside enum)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-iac-unit-kind.json"
+  [ "$status" -eq 4 ]
+}
+
 @test "fixture: invalid-missing-stack → exit 4 + stack error" {
   run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-missing-stack.json"
   [ "$status" -eq 4 ]
