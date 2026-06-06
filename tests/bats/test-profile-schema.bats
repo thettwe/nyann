@@ -102,6 +102,50 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+# v1.13.0 (I8): the 6 IaC profiles each carry an iac.drift_check block with
+# per-tool detector defaults. All must validate after the additive schema
+# change (the drift_check object inside iac.properties).
+
+@test "starter: aws-cdk-app.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/aws-cdk-app.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: pulumi-app.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/pulumi-app.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: kubernetes-app.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/kubernetes-app.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: helm-chart.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/helm-chart.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "starter: ansible-playbook.json → exit 0" {
+  run bash "$VALIDATE" "${REPO_ROOT}/profiles/ansible-playbook.json"
+  [ "$status" -eq 0 ]
+}
+
+# v1.13.0 (I8): the optional iac.drift_check block — master enabled + four
+# flat per-detector booleans + scanned_files[] — must validate additively,
+# and additionalProperties:false must REJECT unknown / typo'd detector flags
+# so a future schema relaxation surfaces immediately.
+
+@test "fixture: valid-iac-drift-check → exit 0 (full drift_check block)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/valid-iac-drift-check.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "fixture: invalid-iac-drift-check-prop → exit 4 (unknown key in drift_check)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-iac-drift-check-prop.json"
+  [ "$status" -eq 4 ]
+}
+
 @test "fixture: invalid-iac-tool → exit 4 (iac.tool outside enum)" {
   run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-iac-tool.json"
   [ "$status" -eq 4 ]

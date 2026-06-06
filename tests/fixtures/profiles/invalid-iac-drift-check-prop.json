@@ -1,0 +1,42 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-iac-drift-check-prop",
+  "description": "v1.13.0 (I8) negative control: an unknown key inside iac.drift_check (here a misspelled 'secret_in_vars' detector flag) must be rejected by additionalProperties:false. Guards against a future relaxation that would silently accept typo'd / unknown detector toggles.",
+  "schemaVersion": 1,
+  "archetype": "infra",
+  "stack": {
+    "primary_language": "hcl",
+    "framework": "terraform",
+    "package_manager": null
+  },
+  "branching": {
+    "strategy": "trunk-based",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": ["block-main"],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "claude_md": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": ["architecture"],
+    "storage_strategy": "local",
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3
+  },
+  "iac": {
+    "tool": "terraform",
+    "drift_check": {
+      "enabled": true,
+      "secret_in_vars": true
+    }
+  }
+}

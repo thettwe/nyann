@@ -27,6 +27,8 @@ if ! command -v shellcheck >/dev/null 2>&1; then
 else
   shell_files=(
     bin/*.sh
+    bin/iac-drift/*.sh
+    bin/guards/*.sh
     templates/hooks/pre-commit
     templates/hooks/commit-msg
     templates/husky/pre-commit

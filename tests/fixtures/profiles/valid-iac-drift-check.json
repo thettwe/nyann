@@ -1,0 +1,46 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "valid-iac-drift-check",
+  "description": "v1.13.0 (I8) positive fixture: the optional iac.drift_check block with the master enabled flag, all four flat per-detector boolean toggles, and an explicit scanned_files override. Exercises the additive iac-drift governance surface added in I8.",
+  "schemaVersion": 1,
+  "archetype": "infra",
+  "stack": {
+    "primary_language": "hcl",
+    "framework": "terraform",
+    "package_manager": null
+  },
+  "branching": {
+    "strategy": "trunk-based",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": ["block-main", "gitleaks"],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "claude_md": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": ["architecture", "runbook", "deployment"],
+    "storage_strategy": "local",
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3
+  },
+  "iac": {
+    "tool": "terraform",
+    "drift_check": {
+      "enabled": true,
+      "unpinned_refs": true,
+      "missing_lockfile": true,
+      "secrets_in_vars": true,
+      "version_lag": false,
+      "scanned_files": ["environments/prod/main.tf", "environments/prod/prod.tfvars"]
+    }
+  }
+}

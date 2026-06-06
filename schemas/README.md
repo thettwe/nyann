@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (63)
+## Schemas in this directory (64)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -86,6 +86,7 @@ identifier consumers can pin against.
 | `commit-hygiene.schema.json` | `bin/commit-hygiene.sh` | `skills/commit/SKILL.md` |
 | `dead-code-scan.schema.json` | `bin/dead-code-scan.sh` | `bin/commit-hygiene.sh`, `bin/pre-action-guard.sh` |
 | `docs-drift-report.schema.json` | `bin/docs-drift-scan.sh` | `skills/doctor/SKILL.md` (advisory section in the planned doctor integration), `bin/retrofit.sh --scope docs-drift` (planned auto-fix path) |
+| `iac-drift-report.schema.json` | `bin/iac-drift-scan.sh` (orchestrates `bin/iac-drift/{unpinned-refs,missing-lockfile,secrets-in-vars,version-lag}.sh`) | `bin/doctor.sh` (IAC DRIFT sibling probe), `bin/guards/{unpinned-iac-refs,committed-secrets}.sh`, `skills/doctor/SKILL.md` |
 | `docs-staleness.schema.json` | `bin/docs-staleness.sh` | `bin/session-triage.sh` (folds into the session-start summary), `skills/doctor/SKILL.md` (planned doctor integration) |
 | `guard-result.schema.json` | `bin/pre-action-guard.sh` | `skills/commit/SKILL.md`, `skills/pr/SKILL.md`, `skills/release/SKILL.md`, `skills/ship/SKILL.md` |
 | `notification.schema.json` | `bin/ci-sentinel.sh` | `bin/read-notifications.sh`, `bin/session-triage.sh` |
