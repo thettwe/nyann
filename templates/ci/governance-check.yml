@@ -24,7 +24,7 @@ jobs:
           # NYANN_VERSION should track releases — ideally the release process
           # stamps this default (like gen-claudemd does); until then bump the
           # literal on each release to match .claude-plugin/plugin.json.
-          git clone --depth 1 --branch v${NYANN_VERSION:-1.12.0} https://github.com/thettwe/nyann.git /tmp/nyann
+          git clone --depth 1 --branch v${NYANN_VERSION:-1.12.1} https://github.com/thettwe/nyann.git /tmp/nyann
 
       - name: Install jq
         run: |
