@@ -75,10 +75,14 @@ if [[ "$archetype" == "unknown" ]]; then
       framework="\"$IAC_FRAMEWORK\""
       _fw="$IAC_FRAMEWORK"
     fi
-    # When the detected primary language is unknown but we're in an HCL repo,
-    # promote it to hcl so downstream consumers don't crash on enum validation.
-    if [[ "$primary_language" == "unknown" && "$IAC_FRAMEWORK" == "terraform" ]]; then
-      primary_language="hcl"
+    # When the detected primary language is unknown, promote it to the IaC
+    # tool's language (hcl for terraform, yaml for helm/kustomize/k8s/ansible,
+    # the inferred polyglot language for cdk/pulumi) so downstream consumers
+    # don't crash on enum validation. For CDK/Pulumi the language may already
+    # be a concrete code language (e.g. detect_python set python) — only
+    # promote when nothing was detected.
+    if [[ "$primary_language" == "unknown" && -n "${IAC_LANGUAGE:-}" ]]; then
+      primary_language="$IAC_LANGUAGE"
     fi
   fi
 fi

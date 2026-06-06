@@ -594,10 +594,22 @@ nyann::archetype_scaffold_map() {
         'glossary:docs/glossary.md'
       ;;
     infra)
-      # IaC monorepo (Terraform / CDK / Pulumi / Helm / Kustomize). Same
-      # scaffold set as web-app — architecture, runbook, deployment, ADRs,
-      # glossary. (A per-module docs/modules/ index was considered but is
-      # not generated; terraform-docs already emits per-module READMEs.)
+      # IaC repo (Terraform / OpenTofu / AWS CDK / Pulumi / Kubernetes /
+      # Kustomize / Helm / Ansible). Scaffold set mirrors web-app —
+      # architecture, runbook, deployment, ADRs, glossary — which covers
+      # every IaC tool.
+      #
+      # A conditional `stacks` doc index for CDK/Pulumi (spec I2/I3, analogous
+      # to terraform's per-module READMEs) was considered and deliberately
+      # NOT added here: `stacks` is a brand-new scaffold type that the doc
+      # materializer does not yet understand. Shipping it would require (1) a
+      # new templates/docs/stacks.tmpl, (2) a main-block `if` arm + a
+      # per-workspace `case` arm in bin/scaffold-docs.sh, and (3) adding
+      # "stacks" to BOTH scaffold_types enums in profiles/_schema.json —
+      # otherwise scaffold-docs.sh silently skips it and a profile that lists
+      # it fails validation. That scaffold-docs.sh work is out of the
+      # shared-core scope, so the type is omitted rather than half-wired.
+      # (terraform-docs / cdk synth already emit per-unit READMEs in practice.)
       printf '%s\n' \
         'architecture:docs/architecture.md' \
         'runbook:docs/runbook.md' \

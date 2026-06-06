@@ -72,7 +72,7 @@
       "properties": {
         "primary_language": {
           "type": "string",
-          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "hcl", "unknown"]
+          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "hcl", "yaml", "unknown"]
         },
         "framework": {
           "oneOf": [

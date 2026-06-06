@@ -679,6 +679,26 @@ if [[ -f "$profile_path" ]]; then
 fi
 
 hook_extra_args=()
+# When the IaC phase is enabled, tell install-hooks WHICH tool so it
+# materializes the right per-tool hook set + pre-commit config. Without
+# this, install-hooks defaults --iac-tool to terraform, so a Helm/CDK/K8s/
+# Ansible repo would silently get the terraform hook set. Read the tool
+# from the detected stack descriptor first, then fall back to a profile
+# pin; leave it unset (terraform default) when unknown.
+case " ${hook_phases[*]} " in
+  *" --iac "*)
+    iac_tool=""
+    if [[ -n "$stack_path" && -f "$stack_path" ]]; then
+      iac_tool=$(jq -r '.iac.tool // ""' "$stack_path")
+    fi
+    if [[ -z "$iac_tool" && -f "$profile_path" ]]; then
+      iac_tool=$(jq -r '.iac.tool // ""' "$profile_path")
+    fi
+    if [[ -n "$iac_tool" ]]; then
+      hook_extra_args+=(--iac-tool "$iac_tool")
+    fi
+    ;;
+esac
 if [[ -n "$ws_configs_file" && -f "$ws_configs_file" ]]; then
   hook_extra_args+=(--workspace-configs "$ws_configs_file")
 fi

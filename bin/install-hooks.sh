@@ -18,10 +18,15 @@
 #             Requires python3; emits a skipped record otherwise.
 #   --go      pre-commit.com + dnephin/pre-commit-golang + golangci-lint.
 #   --rust    pre-commit.com + doublify/pre-commit-rust (fmt + clippy).
-#   --iac     pre-commit.com + Terraform hooks (fmt/validate/tflint/tfsec/
-#             terraform-docs). Copies the soft-skipping wrapper scripts
-#             into .nyann/hooks/iac/ inside the target repo so they
-#             work without nyann itself being on PATH.
+#   --iac     pre-commit.com + IaC hooks for the tool named by --iac-tool
+#             (default terraform: fmt/validate/tflint/tfsec/terraform-docs).
+#             Other tools (aws-cdk/pulumi/kubernetes/kustomize/helm/ansible)
+#             materialize their own per-tool hook set under a subdir. Copies
+#             the soft-skipping wrapper scripts into .nyann/hooks/iac/ inside
+#             the target repo so they work without nyann itself being on PATH.
+#   --iac-tool <tool>  Select the IaC tool for --iac. One of:
+#             terraform|opentofu|aws-cdk|pulumi|kubernetes|kustomize|helm|
+#             ansible. Defaults to terraform.
 #   --pre-push   native .git/hooks/pre-push wired up from
 #                profile.hooks.pre_push[]. Caller passes --pre-push-hooks
 #                <csv> + --pre-push-test-cmd <cmd>; supported well-known
@@ -56,6 +61,12 @@ install_python=false
 install_go=false
 install_rust=false
 install_iac=false
+# Which IaC tool's hook set the --iac phase materializes. Defaults to
+# terraform for back-compat: a bare `--iac` (the historical invocation)
+# installs the Terraform hooks exactly as before. bootstrap.sh passes the
+# detected iac.tool here (terraform|opentofu|aws-cdk|pulumi|kubernetes|
+# kustomize|helm|ansible).
+iac_tool="terraform"
 no_install_hook=false
 workspace_configs=""
 commit_scopes_file=""
@@ -73,6 +84,8 @@ while [[ $# -gt 0 ]]; do
     --go)              install_go=true; shift ;;
     --rust)            install_rust=true; shift ;;
     --iac)             install_iac=true; shift ;;
+    --iac-tool)        iac_tool="${2:-}"; shift 2 ;;
+    --iac-tool=*)      iac_tool="${1#--iac-tool=}"; shift ;;
     --pre-push)        install_pre_push=true; shift ;;
     --pre-push-hooks)  pre_push_hooks="${2:-}"; shift 2 ;;
     --pre-push-hooks=*) pre_push_hooks="${1#--pre-push-hooks=}"; shift ;;
@@ -543,7 +556,7 @@ install_rust_phase() {
   install_precommit_from_template "$precommit_template_root/rust.yaml" "rust-hooks"
 }
 
-# --- IaC phase (pre-commit.com + Terraform fmt/validate/tflint/tfsec/docs) ---
+# --- IaC phase (pre-commit.com + per-tool hook set) --------------------------
 #
 # Unlike --go/--rust which lean on third-party pre-commit hook repos, the IaC
 # hooks are local-language scripts that each soft-skip when their tool isn't
@@ -552,28 +565,105 @@ install_rust_phase() {
 # into .nyann/hooks/iac/ inside the target repo so the pre-commit config
 # can reference them with a stable relative path that survives nyann being
 # unavailable on the user's PATH later.
+#
+# The phase dispatches on $iac_tool (the detected iac.tool). Terraform /
+# OpenTofu keep the historical FLAT layout (templates/hooks/iac/*.sh →
+# .nyann/hooks/iac/*.sh) so a bare `--iac` behaves exactly as before. Every
+# other tool ships under a per-tool SUBDIR (templates/hooks/iac/<dir>/*.sh →
+# .nyann/hooks/iac/<dir>/*.sh) — the per-tool phase creates those template
+# files; this dispatcher only selects + copies them and picks the matching
+# pre-commit config. Note iac.tool uses the long form `aws-cdk`; detect-iac.sh
+# also emits the short `cdk` tag in the descriptor's framework field, so the
+# dispatcher normalizes both to the cdk hook set.
+
+# nyann::_iac_hook_spec TOOL — echo three TAB-separated fields describing the
+# hook set for an IaC tool:
+#   <subdir>\t<space-separated script basenames>\t<pre-commit template file>
+# <subdir> is "-" for the flat terraform/opentofu layout (a literal sentinel
+# rather than an empty field, so a leading-TAB read doesn't collapse it). The
+# per-tool phases own the listed template files + pre-commit configs; this
+# table is the single place the dispatcher learns their agreed paths.
+_iac_hook_spec() {
+  case "$1" in
+    terraform|opentofu)
+      printf '%s\t%s\t%s\n' "-" \
+        "terraform-fmt.sh terraform-validate.sh tflint.sh tfsec.sh terraform-docs.sh" \
+        "iac.yaml" ;;
+    aws-cdk|cdk)
+      printf '%s\t%s\t%s\n' "cdk" \
+        "cdk-synth-check.sh cdk-diff.sh" \
+        "iac-cdk.yaml" ;;
+    pulumi)
+      printf '%s\t%s\t%s\n' "pulumi" \
+        "pulumi-preview-check.sh" \
+        "iac-pulumi.yaml" ;;
+    kubernetes|kustomize)
+      printf '%s\t%s\t%s\n' "k8s" \
+        "kubeconform.sh kube-linter.sh kustomize-build-check.sh" \
+        "iac-k8s.yaml" ;;
+    helm)
+      printf '%s\t%s\t%s\n' "helm" \
+        "helm-lint.sh helm-template-check.sh" \
+        "iac-helm.yaml" ;;
+    ansible)
+      printf '%s\t%s\t%s\n' "ansible" \
+        "ansible-lint.sh yamllint.sh ansible-syntax-check.sh" \
+        "iac-ansible.yaml" ;;
+    *)
+      return 1 ;;
+  esac
+}
 
 install_iac_phase() {
+  local spec subdir files precommit_tmpl
+  if ! spec="$(_iac_hook_spec "$iac_tool")"; then
+    nyann::warn "iac phase skipped: unknown iac tool '$iac_tool'"
+    emit_skipped iac-hooks "unknown iac tool: $iac_tool"
+    return 0
+  fi
+  IFS=$'\t' read -r subdir files precommit_tmpl <<<"$spec"
+  # Translate the "-" sentinel back to the flat layout.
+  [[ "$subdir" == "-" ]] && subdir=""
+
+  # Source dir: flat templates/hooks/iac for terraform, else per-tool subdir.
   local src="${_script_dir}/../templates/hooks/iac"
-  local dst="$target/.nyann/hooks/iac"
+  local dst_rel=".nyann/hooks/iac"
+  if [[ -n "$subdir" ]]; then
+    src="$src/$subdir"
+    dst_rel="$dst_rel/$subdir"
+  fi
+
   if [[ ! -d "$src" ]]; then
+    # The per-tool phase ships these template dirs; if absent (e.g. only the
+    # shared-core landed so far), skip cleanly rather than half-install.
     nyann::warn "iac phase skipped: template dir missing ($src)"
     emit_skipped iac-hooks "template dir missing"
     return 0
   fi
-  if ! nyann::safe_mkdir_under_target "$target" ".nyann/hooks/iac" >/dev/null; then
-    nyann::warn "iac phase skipped: cannot create .nyann/hooks/iac"
+  if ! nyann::safe_mkdir_under_target "$target" "$dst_rel" >/dev/null; then
+    nyann::warn "iac phase skipped: cannot create $dst_rel"
     emit_skipped iac-hooks "mkdir refused"
     return 0
   fi
+
+  local dst="$target/$dst_rel"
   local f
-  for f in terraform-fmt.sh terraform-validate.sh tflint.sh tfsec.sh terraform-docs.sh; do
+  for f in $files; do
     if [[ -f "$src/$f" ]]; then
       cp "$src/$f" "$dst/$f"
       chmod +x "$dst/$f" 2>/dev/null || true
     fi
   done
-  install_precommit_from_template "$precommit_template_root/iac.yaml" "iac-hooks"
+
+  # Pick the per-tool pre-commit config when present; fall back to the
+  # terraform iac.yaml so a tool whose config hasn't landed yet still gets
+  # the shared gitleaks + block-main guards.
+  local tmpl="$precommit_template_root/$precommit_tmpl"
+  if [[ ! -f "$tmpl" ]]; then
+    nyann::warn "iac pre-commit template missing ($tmpl); falling back to iac.yaml"
+    tmpl="$precommit_template_root/iac.yaml"
+  fi
+  install_precommit_from_template "$tmpl" "iac-hooks"
 }
 
 # --- shared pre-commit.com install helper ------------------------------------

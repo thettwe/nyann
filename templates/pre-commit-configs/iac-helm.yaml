@@ -1,0 +1,35 @@
+# nyann template v1 — Helm / IaC pre-commit.com config
+# Wires `helm lint` and a `helm template` render-check as local hooks that
+# delegate to the per-tool scripts under .nyann/hooks/iac/helm/. Each script
+# soft-skips when the `helm` CLI is missing, so an absent binary downgrades to
+# a no-op rather than blocking the commit. Merge-safe: install-hooks.sh merges
+# by repo URL. install-hooks.sh --iac --iac-tool helm installs this config.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+
+      - id: helm-lint
+        name: helm lint
+        entry: .nyann/hooks/iac/helm/helm-lint.sh
+        language: script
+        files: (Chart\.yaml|values\.yaml|templates/.*\.(ya?ml|tpl))$
+        pass_filenames: false
+
+      - id: helm-template-check
+        name: helm template (render check)
+        entry: .nyann/hooks/iac/helm/helm-template-check.sh
+        language: script
+        files: (Chart\.yaml|values\.yaml|templates/.*\.(ya?ml|tpl))$
+        pass_filenames: false

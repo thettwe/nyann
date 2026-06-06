@@ -1,0 +1,32 @@
+# nyann template v1 — AWS CDK / IaC pre-commit.com config.
+# Wires the CDK synth check (and an advisory diff) as local hooks that delegate
+# to the scripts under templates/hooks/iac/cdk/ (installed to
+# .nyann/hooks/iac/cdk/). Each script soft-skips when the `cdk` CLI is missing,
+# so a contributor without the AWS CDK toolkit gets a warning rather than a
+# blocked commit. Merge-safe: install-hooks.sh merges by repo URL.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+
+      - id: cdk-synth-check
+        name: cdk synth --quiet (template builds cleanly)
+        entry: .nyann/hooks/iac/cdk/cdk-synth-check.sh
+        language: script
+        # CDK apps are polyglot; gate on the project/lock manifests plus the
+        # source extensions CDK code commonly ships in. cdk.json is the
+        # canonical marker, but stack edits won't touch it, so include the
+        # language sources too.
+        files: (^cdk\.json$|^cdk\.context\.json$|\.(ts|js|py|go|cs)$)
+        pass_filenames: false
