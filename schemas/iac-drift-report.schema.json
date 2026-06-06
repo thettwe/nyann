@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/iac-drift-report/v1.json",
+  "title": "IacDriftReport",
+  "description": "Output of bin/iac-drift-scan.sh — aggregated IaC drift findings across unpinned-refs, missing-lockfile, secrets-in-vars, and version-lag detectors. Filesystem + git only; no network, no cloud CLI.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "scanned_files", "summary", "findings"],
+  "properties": {
+    "target":        { "type": "string" },
+    "scanned_at":    { "type": "string", "format": "date-time" },
+    "scanned_files": { "type": "array", "items": { "type": "string" } },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "by_severity", "by_kind"],
+      "properties": {
+        "total":       { "type": "integer", "minimum": 0 },
+        "by_severity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "critical": { "type": "integer", "minimum": 0 },
+            "high":     { "type": "integer", "minimum": 0 },
+            "medium":   { "type": "integer", "minimum": 0 },
+            "low":      { "type": "integer", "minimum": 0 }
+          }
+        },
+        "by_kind":     { "type": "object" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "file", "severity", "message"],
+        "properties": {
+          "kind":        { "type": "string", "enum": ["unpinned-ref", "missing-lockfile", "secret-in-vars", "version-lag"] },
+          "file":        { "type": "string" },
+          "line":        { "type": "integer", "minimum": 1 },
+          "severity":    { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+          "message":     { "type": "string" },
+          "current":     { "type": "string", "description": "Current value found in the IaC file (redacted for secrets)." },
+          "expected":    { "type": "string", "description": "Expected value (e.g., a pinned tag/SHA, latest git tag, present lockfile)." },
+          "fix_hint":    { "type": "string" }
+        }
+      }
+    }
+  }
+}
