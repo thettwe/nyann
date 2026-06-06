@@ -60,6 +60,13 @@ stack_json="$(cat "$stack_path")"
 lang=$(jq -r '.primary_language // "unknown"' <<<"$stack_json")
 templates_dir="${_script_dir}/../templates/ci"
 
+# nyann's own version, stamped into the governance workflow's clone pin so a
+# generated governance-check.yml tracks the release that produced it (instead
+# of a hardcoded literal that goes stale). Read from the installed plugin
+# manifest; fall back to `main` only if it can't be resolved (broken install).
+nyann_version=$(jq -r '.version // empty' "${_script_dir}/../.claude-plugin/plugin.json" 2>/dev/null || true)
+[[ -n "$nyann_version" ]] || { nyann::warn "gen-ci: could not resolve nyann version for the governance pin; falling back to 'main'"; nyann_version="main"; }
+
 case "$lang" in
   typescript|javascript) template_file="${templates_dir}/typescript.yml" ;;
   python)                template_file="${templates_dir}/python.yml" ;;
@@ -279,6 +286,7 @@ if [[ "$dry_run" == "true" ]]; then
     gov_template_file="${templates_dir}/governance-check.yml"
     if [[ -f "$gov_template_file" ]]; then
       gov_workflow=$(cat "$gov_template_file")
+      gov_workflow="${gov_workflow//__NYANN_VERSION__/$nyann_version}"
       gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
       if [[ -n "$path_filters" ]]; then
         gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
@@ -307,6 +315,7 @@ if [[ "$dry_run" != "true" ]]; then
     [[ -f "$gov_template_file" ]] || nyann::die "governance template not found: $gov_template_file"
 
     gov_workflow=$(cat "$gov_template_file")
+    gov_workflow="${gov_workflow//__NYANN_VERSION__/$nyann_version}"
     gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
     if [[ -n "$path_filters" ]]; then
       gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
