@@ -12,6 +12,11 @@ Build / lint / test commands:
 - `claude plugin validate .` manifest validation
 - `evals/run.sh` skill-level trigger + output-quality evals (run locally; not a PR gate)
 
+## Commit & PR conventions
+
+- **Never add Claude Code attribution.** No `🤖 Generated with [Claude Code]` line and no `Co-Authored-By: Claude` trailer — in commit messages **or** PR/issue bodies. (`includeCoAuthoredBy: false` handles commit trailers, but PR body text is hand-authored, so this rule covers it.)
+- Conventional Commits; release titles are version-only (e.g. `v1.6.0`), detail in the body.
+
 ## Architecture & conventions
 
 Detailed docs (Project Memory):
