@@ -1,3 +1,10 @@
+## [1.12.1] — 2026-06-06
+
+### Fixes
+
+- pre-release hardening — correctness, security, contracts, docs (#29) (00f379d)
+
+[1.12.1]: https://github.com/thettwe/nyann/releases/tag/v1.12.1
 ## [1.12.0] — 2026-05-31
 
 ### Theme: Proactive Awareness
