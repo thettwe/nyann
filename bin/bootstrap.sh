@@ -284,7 +284,7 @@ _br_category_for() {
     CLAUDE.md|docs/*|memory/*|*/docs/*|*/memory/*)
                                          echo "docs" ;;
     .github/*)                           echo "github" ;;
-    .git/hooks/*|.husky/*|.pre-commit-config.yaml|package.json|Cargo.toml|lefthook.yml)
+    .git/hooks/*|.husky/*|.pre-commit-config.yaml|package.json|Cargo.toml|lefthook.yml|commitlint.config.js|.nyann/hooks/iac/*)
                                          echo "hooks" ;;
     *)                                   echo "docs" ;;
   esac
@@ -304,6 +304,12 @@ nyann::br_snapshot hooks ".pre-commit-config.yaml"
 nyann::br_snapshot hooks "package.json"
 nyann::br_snapshot hooks "Cargo.toml"
 nyann::br_snapshot hooks "lefthook.yml"
+# install_jsts_phase always writes commitlint.config.js when --jsts runs
+# (bootstrap fires --jsts for any typescript/javascript repo), regardless
+# of whether the profile's hook-lists enumerate eslint/prettier/commitlint.
+# Snapshot it unconditionally so undo can reverse it even when the plan
+# never declared it in writes[].
+nyann::br_snapshot hooks "commitlint.config.js"
 # Register the hook directories for post-mutation diff. Snapshot above
 # only catches files that existed pre-bootstrap; install-hooks materialises
 # .git/hooks/pre-commit, .husky/pre-commit, etc. on a fresh repo, so
@@ -311,6 +317,10 @@ nyann::br_snapshot hooks "lefthook.yml"
 # actions for any newly-present files.
 nyann::br_register_post_dir hooks ".git/hooks"
 nyann::br_register_post_dir hooks ".husky"
+# install_iac_phase copies wrapper scripts into .nyann/hooks/iac/ on a
+# fresh repo. Without registering the dir, those files are never snapshotted
+# and undo orphans them. Post-dir scan emits create actions for each.
+nyann::br_register_post_dir hooks ".nyann/hooks/iac"
 
 # --- step 3: plan writes (create / merge / overwrite) ------------------------
 # NOTE: bootstrap.sh is a dispatcher; file content is produced by specialized
@@ -395,6 +405,7 @@ if [[ -n "$gitignore_templates" ]]; then
   ' "$plan_path")
   if [[ -n "$gi_blob" && -f "$gi_blob" ]]; then
     nyann::log "using preview_blob for .gitignore: $gi_blob"
+    [[ -L "$target/.gitignore" ]] && nyann::die "refusing to write .gitignore via symlink: $target/.gitignore"
     maybe_run cp -- "$gi_blob" "$target/.gitignore"
   else
     maybe_run "${_script_dir}/gitignore-combiner.sh" --target "$target/.gitignore" --templates "$gitignore_templates"
@@ -762,6 +773,7 @@ else
   ' "$plan_path")
   if [[ -n "$cm_blob" && -f "$cm_blob" ]]; then
     nyann::log "using preview_blob for CLAUDE.md: $cm_blob"
+    [[ -L "$target/CLAUDE.md" ]] && nyann::die "refusing to write CLAUDE.md via symlink: $target/CLAUDE.md"
     maybe_run cp -- "$cm_blob" "$target/CLAUDE.md"
   else
     claudemd_extra_args=()

@@ -111,6 +111,42 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -ne 0 ]
 }
 
+# --- boolean false handling (Bug C) ---
+# scalar_change used `getpath(...) // null`; jq's `//` treats `false` as
+# empty, so `false // null → null`. That made `false → true` report
+# `from: null`, and made present-`false` indistinguishable from absent.
+# These lock the corrected presence-aware behaviour.
+
+@test "ci.enabled false→true is reported as from:false to:true" {
+  command -v uvx >/dev/null 2>&1 || command -v check-jsonschema >/dev/null 2>&1 \
+    || skip "no schema validator available"
+  UR="$TMP/ur"; mkdir -p "$UR/profiles"
+  jq '.ci = {"enabled": false}' "${REPO_ROOT}/profiles/python-cli.json" > "$UR/profiles/ci-false.json"
+  jq '.ci = {"enabled": true}'  "${REPO_ROOT}/profiles/python-cli.json" > "$UR/profiles/ci-true.json"
+  bash "$DIFF" ci-false ci-true --user-root "$UR" --plugin-root "$REPO_ROOT" > "$TMP/out.json" 2>/dev/null
+  jq -e '.sections.ci[] | select(.field == "enabled") | .from == false and .to == true' "$TMP/out.json" >/dev/null
+}
+
+@test "ci.enabled absent vs present-false are distinguished (not collapsed to identical)" {
+  command -v uvx >/dev/null 2>&1 || command -v check-jsonschema >/dev/null 2>&1 \
+    || skip "no schema validator available"
+  UR="$TMP/ur"; mkdir -p "$UR/profiles"
+  jq 'del(.ci)'                 "${REPO_ROOT}/profiles/python-cli.json" > "$UR/profiles/ci-absent.json"
+  jq '.ci = {"enabled": false}' "${REPO_ROOT}/profiles/python-cli.json" > "$UR/profiles/ci-false.json"
+  bash "$DIFF" ci-absent ci-false --user-root "$UR" --plugin-root "$REPO_ROOT" > "$TMP/out.json" 2>/dev/null
+  # A genuine change: absent (null) → false must NOT be hidden as identical.
+  jq -e '.sections.ci[] | select(.field == "enabled") | .from == null and .to == false' "$TMP/out.json" >/dev/null
+}
+
+@test "ci.enabled false→false is identical (no spurious change)" {
+  command -v uvx >/dev/null 2>&1 || command -v check-jsonschema >/dev/null 2>&1 \
+    || skip "no schema validator available"
+  UR="$TMP/ur"; mkdir -p "$UR/profiles"
+  jq '.ci = {"enabled": false}' "${REPO_ROOT}/profiles/python-cli.json" > "$UR/profiles/ci-false.json"
+  bash "$DIFF" ci-false ci-false --user-root "$UR" --plugin-root "$REPO_ROOT" > "$TMP/out.json" 2>/dev/null
+  [ "$(jq '.sections.ci | length' "$TMP/out.json")" -eq 0 ]
+}
+
 # --- schema validation ---
 
 @test "output validates against profile-diff schema" {

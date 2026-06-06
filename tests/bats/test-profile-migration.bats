@@ -36,3 +36,25 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -ne 0 ]
   echo "$output" | grep -Fq 'unknown schemaVersion'
 }
+
+@test "--in-place preserves the original file mode (Bug E)" {
+  # Regression (Bug E): the old `mv "$tmp" "$path"` moved a mktemp file
+  # (mode 600, fresh inode) over the target, silently downgrading a 644
+  # profile to 600. Writing back through the original inode keeps perms.
+  cp "${REPO_ROOT}/profiles/default.json" "$TMP/p.json"
+  chmod 644 "$TMP/p.json"
+  run bash "$MIGRATE" --in-place "$TMP/p.json"
+  [ "$status" -eq 0 ]
+  # POSIX `stat` differs across BSD/GNU; ls -l's permission column is portable.
+  perms=$(ls -l "$TMP/p.json" | cut -c1-10)
+  [ "$perms" = "-rw-r--r--" ]
+}
+
+@test "--in-place preserves the file inode (no replace-by-rename)" {
+  cp "${REPO_ROOT}/profiles/default.json" "$TMP/p.json"
+  before=$(ls -i "$TMP/p.json" | awk '{print $1}')
+  run bash "$MIGRATE" --in-place "$TMP/p.json"
+  [ "$status" -eq 0 ]
+  after=$(ls -i "$TMP/p.json" | awk '{print $1}')
+  [ "$before" = "$after" ]
+}

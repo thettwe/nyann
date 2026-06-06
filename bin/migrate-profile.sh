@@ -92,7 +92,13 @@ if ! "${_script_dir}/validate-profile.sh" "$tmp" >"$migrate_err" 2>&1; then
 fi
 
 if $in_place; then
-  mv "$tmp" "$path"
+  # Write back through the existing inode rather than `mv`-ing the
+  # mktemp file over it. mktemp creates mode 600 with a fresh inode, so
+  # `mv` would silently downgrade a 644 profile to 600 and break any
+  # hardlinks. Copying the validated bytes into the original file keeps
+  # its mode, owner, and inode intact.
+  cat "$tmp" > "$path"
+  rm -f "$tmp"
   nyann::log "migrated $path to schemaVersion $CURRENT"
 else
   cat "$tmp"

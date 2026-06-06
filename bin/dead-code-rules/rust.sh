@@ -25,6 +25,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
   # `use a::b::Foo;` or `use a::b::Foo as Bar;`
   if [[ "$line" =~ ^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]+[A-Za-z0-9_:]+::([A-Za-z_][A-Za-z0-9_]*)([[:space:]]+as[[:space:]]+([A-Za-z_][A-Za-z0-9_]*))?\; ]]; then
+    # `pub use` is a re-export = public API surface, not dead code.
+    [[ -n "${BASH_REMATCH[1]}" ]] && continue
     last="${BASH_REMATCH[2]}"
     alias="${BASH_REMATCH[4]}"
     local_name="${alias:-$last}"
@@ -34,6 +36,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   fi
   # `use a::b::{Foo, Bar as Baz};`
   if [[ "$line" =~ ^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]+[A-Za-z0-9_:]+::\{([^}]+)\}\; ]]; then
+    # `pub use` is a re-export = public API surface, not dead code.
+    [[ -n "${BASH_REMATCH[1]}" ]] && continue
     body="${BASH_REMATCH[2]}"
     IFS=','
     for raw in $body; do

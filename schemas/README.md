@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (62)
+## Schemas in this directory (63)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -49,7 +49,7 @@ identifier consumers can pin against.
 | `gh-integration-result.schema.json` | `bin/gh-integration.sh` | `bin/bootstrap.sh`, `bin/retrofit.sh`, skill layer |
 | `glossary-draft.schema.json` | `bin/scaffold-glossary.sh --json` | `bin/scaffold-docs.sh`, skill layer |
 | `governance-ci-result.schema.json` | `bin/doctor-ci.sh` | governance-check workflow, `skills/gen-ci/SKILL.md` |
-| `health-score.schema.json` | `bin/compute-health-score.sh` | `bin/persist-health-score.sh`, `bin/doctor.sh` |
+| `health-score.schema.json` | `bin/persist-health-score.sh` (writes `memory/health.json`) | `bin/doctor.sh`, `bin/health-trend.sh` |
 | `health-trend.schema.json` | `bin/health-trend.sh` | `skills/doctor/SKILL.md` |
 | `hotfix-result.schema.json` | `bin/hotfix.sh` | `skills/hotfix/SKILL.md` |
 | `link-check-report.schema.json` | `bin/check-links.sh` | `bin/compute-drift.sh` |
@@ -82,7 +82,7 @@ identifier consumers can pin against.
 | `workspace-configs.schema.json` | `bin/resolve-workspace-configs.sh` | `bin/bootstrap.sh`, `bin/gen-codeowners.sh` |
 | `workspace-release-result.schema.json` | `bin/release/release-workspace.sh` | `bin/release.sh --workspace`, `skills/release/SKILL.md` |
 | `pr-risk-score.schema.json` | `bin/pr-risk-score.sh` | `bin/ship.sh`, `skills/ship/SKILL.md` |
-| `team-profile-changelog.schema.json` | `bin/sync-team-profiles.sh --check-updates` | `skills/sync-team-profiles/SKILL.md` |
+| `team-profile-changelog.schema.json` | element shape of `team-sync-result`'s `updates_available[]` (nested by `bin/sync-team-profiles.sh --check-updates`; mirrored inline in `team-sync-result.schema.json`) | `skills/sync-team-profiles/SKILL.md` |
 | `commit-hygiene.schema.json` | `bin/commit-hygiene.sh` | `skills/commit/SKILL.md` |
 | `dead-code-scan.schema.json` | `bin/dead-code-scan.sh` | `bin/commit-hygiene.sh`, `bin/pre-action-guard.sh` |
 | `docs-drift-report.schema.json` | `bin/docs-drift-scan.sh` | `skills/doctor/SKILL.md` (advisory section in the planned doctor integration), `bin/retrofit.sh --scope docs-drift` (planned auto-fix path) |
@@ -92,6 +92,7 @@ identifier consumers can pin against.
 | `readme-badge-block.schema.json` | `bin/gen-readme-badges.sh`, `bin/gen-readme-stack-icons.sh` | `bin/scaffold-docs.sh`, `bin/retrofit.sh` |
 | `sentinel-state.schema.json` | `bin/ci-sentinel.sh` (state cache) | `bin/ci-sentinel.sh` (next-poll dedup) |
 | `session-triage.schema.json` | `bin/session-triage.sh` (reserved JSON variant) | future `--json` consumer |
+| `derived-codeowners.schema.json` | `bin/derive-codeowners.sh` | `bin/gen-codeowners.sh --derived-owners` |
 
 ### Cross-referenced schemas (live elsewhere)
 

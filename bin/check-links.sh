@@ -104,7 +104,24 @@ if [[ ${#sources[@]} -gt 0 ]]; then
     # heredoc + < competes for fd 0 (shellcheck SC2261).
     links_raw=$(python3 - "$sources_tsv" <<'PY'
 import re, sys
-pattern = re.compile(r'\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+# Two link forms:
+#   [text](TARGET "title")  — inline link; TARGET may itself contain
+#                             balanced parens (gen-claudemd percent-encodes
+#                             them, but user-authored docs write literal
+#                             `./file(1).md`). The old `[^)\s]+` target group
+#                             truncated at the first `)`, so `./file(1).md`
+#                             extracted as `./file(1` and falsely reported
+#                             broken. `paren_link` allows balanced parens in
+#                             the target by alternating "non-paren runs" with
+#                             "(...)" groups.
+#   [text](<TARGET>)        — angle-bracket form; TARGET runs to the closing
+#                             `>` so it may contain spaces and parens freely.
+angle_link = re.compile(r'\[[^\]]*\]\(\s*<([^>]*)>\s*(?:"[^"]*")?\)')
+paren_link = re.compile(
+    r'\[[^\]]*\]\('
+    r'((?:[^()\s]|\([^()]*\))+)'   # target: non-paren runs or balanced (...)
+    r'(?:\s+"[^"]*")?'             # optional "title"
+    r'\)')
 records_path = sys.argv[1]
 with open(records_path, 'rb') as recfh:
     blob = recfh.read()
@@ -120,7 +137,13 @@ for i in range(0, len(parts) - 1, 2):
             text = f.read()
     except OSError:
         continue
-    for m in pattern.findall(text):
+    # Angle-bracket targets first (their `>` terminator removes ambiguity),
+    # then the balanced-paren inline form. A target captured by the angle
+    # form would also be (mis)matched by the paren form, so emit angle
+    # matches and let the paren regex pick up the rest; duplicates across
+    # the two only arise for distinct link syntaxes, which can't overlap on
+    # the same source span.
+    for m in angle_link.findall(text) + paren_link.findall(text):
         # Tabs in href are not legal markdown link targets; skip if any
         # leak through to keep the TSV contract clean.
         if '\t' in m or '\n' in m:
@@ -162,6 +185,20 @@ if [[ -n "$links_raw" ]]; then
         # Internal file. Strip any ?query or #anchor suffix before statting.
         path="${link%%#*}"
         path="${path%%\?*}"
+        # Percent-decode the path before resolving on disk. gen-claudemd
+        # deliberately percent-encodes link targets via
+        # nyann::safe_md_link_target (space→%20, `(`→%28, `)`→%29, and
+        # safe_md_cell can emit %23 for `#`), so the on-disk name is the
+        # *decoded* form. Statting the raw `./target%20file.md` would miss
+        # the real `target file.md` and flag gen-claudemd's own output as
+        # broken. Decode the four sequences nyann emits (case-insensitive
+        # hex); leave any other `%XX` untouched so a literal `%` in a real
+        # filename isn't mangled.
+        path=$(printf '%s' "$path" | sed \
+          -e 's/%20/ /g' \
+          -e 's/%28/(/g' \
+          -e 's/%29/)/g' \
+          -e 's/%23/#/g')
         # Resolve relative to source file's directory.
         src_dir="$(dirname "$src")"
         if [[ "$src_dir" == "." ]]; then

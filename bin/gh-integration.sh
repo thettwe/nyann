@@ -135,6 +135,16 @@ strategy=$(jq -r '.branching.strategy' "$tmp_profile")
 enable=$(jq -r 'if .github.enable_branch_protection == false then "false" else "true" end' "$tmp_profile")
 # shellcheck disable=SC2034
 required_reviews=$(jq -r '.github.require_pr_reviews // 1' "$tmp_profile")
+# Defense-in-depth: require_pr_reviews flows into apply-protection.sh's
+# `(( current_rr > required_reviews ))` arithmetic and into make_body's
+# `--argjson rr`. A non-numeric profile value (currently only shielded
+# incidentally by jq's coercion ordering) would make that arithmetic
+# error or splice a bad token into the PUT body. Pin it to digits here;
+# fall back to the schema default (1) on anything else.
+if ! [[ "$required_reviews" =~ ^[0-9]+$ ]]; then
+  nyann::warn "require_pr_reviews '$required_reviews' is not numeric — falling back to 1"
+  required_reviews=1
+fi
 # shellcheck disable=SC2034
 required_checks_csv=$(jq -r '.github.require_status_checks // [] | join(",")' "$tmp_profile")
 # shellcheck disable=SC2034

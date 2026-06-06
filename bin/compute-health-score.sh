@@ -43,7 +43,7 @@ jq -e . <<<"$drift_json" >/dev/null 2>&1 || nyann::die "invalid JSON input"
 # Misconfigured file: -4 per item
 # Non-compliant commit: -1 per commit (cap -15)
 # Broken link: -5 per link
-# CLAUDE.md warn: -3; error: -10
+# CLAUDE.md warn: -3; absent: -3; error: -10
 # Orphan doc: -2 per file
 # Stale doc: -1 per file
 # Subsystem error: -2 per error
@@ -63,9 +63,12 @@ jq '
   ($dr.documentation.claude_md // {}) as $claude_md |
   ($dr.documentation.subsystem_errors // [] | length) as $subsystem_errors |
 
+  # `absent` (no router file at all) is deducted like `warn` so the score
+  # never reports 100/100 while doctor is warning about a missing CLAUDE.md.
   (($claude_md.status // "ok") as $st |
    if $st == "error" then -10
    elif $st == "warn" then -3
+   elif $st == "absent" then -3
    else 0 end) as $claude_md_deduction |
 
   # Individual deductions

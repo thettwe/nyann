@@ -109,6 +109,27 @@ teardown() { rm -rf "$TMP"; }
   v=$(jq -r .schemaVersion "$USER_ROOT/preferences.json"); [ "$v" -eq 2 ]
 }
 
+@test "--check exits 2 when no preferences exist (human mode)" {
+  # Documented contract: exit 2 — no preferences.json found yet.
+  run bash "$REPO_ROOT/bin/setup.sh" --check --user-root "$USER_ROOT"
+  [ "$status" -eq 2 ]
+  echo "$output" | grep -q "not configured"
+}
+
+@test "--check exits 2 when no preferences exist (json mode)" {
+  run bash "$REPO_ROOT/bin/setup.sh" --check --json --user-root "$USER_ROOT"
+  [ "$status" -eq 2 ]
+  echo "$output" | jq -e '.status == "not_configured"'
+}
+
+@test "--check exits 0 when preferences exist" {
+  mkdir -p "$USER_ROOT/profiles" "$USER_ROOT/cache"
+  echo '{"schemaVersion":2}' > "$USER_ROOT/preferences.json"
+  run bash "$REPO_ROOT/bin/setup.sh" --check --json --user-root "$USER_ROOT"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.status == "configured"'
+}
+
 @test "prefs_schema_version returns 0 when missing" {
   v=$(bash -c "source '$REPO_ROOT/bin/_lib.sh'; NYANN_USER_ROOT='$USER_ROOT' nyann::prefs_schema_version")
   [ "$v" = "0" ]

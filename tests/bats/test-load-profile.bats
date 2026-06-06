@@ -67,6 +67,27 @@ teardown() { rm -rf "$TMP"; }
   [[ "$out" == *"user profile shadows starter"* ]]
 }
 
+# ---- validation failure surfaces diagnostics + exit 4 (Bug A) ---------------
+
+@test "invalid profile prints validation diagnostic and exits 4" {
+  # Regression (Bug A): load-profile.sh sources _lib.sh which sets
+  # `set -o errexit`. The old bare `validate-profile.sh ...` statement
+  # made set -e abort BEFORE the diagnostics/exit-4 ran, so callers got a
+  # bare non-zero code with no message. Guarding with `if !` restores the
+  # documented behaviour: print validator output, exit 4.
+  command -v uvx >/dev/null 2>&1 || command -v check-jsonschema >/dev/null 2>&1 \
+    || skip "no schema validator available"
+  # Start from a real starter, then break a required-typed field so it
+  # parses as JSON but fails schema validation (forces the validator down
+  # its failure path rather than jq's malformed-JSON path).
+  jq '.branching.strategy = 12345' "${REPO_ROOT}/profiles/python-cli.json" \
+    > "$UR/profiles/broken.json"
+  run bash "$LOAD" broken --user-root "$UR"
+  [ "$status" -eq 4 ]
+  # The validator's diagnostic (not just a bare failure) must reach stderr.
+  echo "$output" | grep -Fq "failed validation"
+}
+
 # ---- emitted JSON still passes schema validation ----------------------------
 
 @test "loaded JSON (with _meta) re-validates against the profile schema" {

@@ -92,9 +92,17 @@ nyann::path_under_target() {
     resolved_base="$(cd "$(dirname "$existing")" && pwd -P)/$(basename "$existing")" || return 1
   fi
 
-  # Lexically normalize .. in the non-existent tail.
+  # Lexically normalize .. in the non-existent tail. Disable pathname
+  # expansion around the split: with IFS='/' the unquoted `$tail` is
+  # subject to BOTH word-splitting and globbing, so a segment containing
+  # `*`, `?`, or `[...]` would glob-expand against the filesystem and
+  # silently resolve to a different existing file — defeating the guard.
+  # Save/restore the caller's noglob state since the lib runs under each
+  # caller's shell options and must not leak `set -f`.
   local result="$resolved_base"
-  local oIFS="$IFS" seg
+  local oIFS="$IFS" seg noglob_was_set=0
+  [[ -o noglob ]] && noglob_was_set=1
+  set -f
   IFS='/'
   for seg in $tail; do
     case "$seg" in
@@ -104,6 +112,7 @@ nyann::path_under_target() {
     esac
   done
   IFS="$oIFS"
+  (( noglob_was_set )) || set +f
 
   # Special-case root: when target is "/", the second pattern becomes
   # the literal `//*`, which only matches strings starting with `//`,
@@ -153,11 +162,18 @@ nyann::safe_mkdir_under_target() {
   local target="$1" rel_dir="$2"
   local full="$target/$rel_dir"
   local walk="$target" seg
-  local ifs_save="$IFS"
+  local ifs_save="$IFS" noglob_was_set=0
+  # Disable globbing around the split: unquoted `$rel_dir` under IFS='/'
+  # would otherwise glob-expand a component containing `*`/`?`/`[...]`
+  # against the filesystem, so the symlink walk would inspect the wrong
+  # components. Restore the caller's prior noglob state (no leak).
+  [[ -o noglob ]] && noglob_was_set=1
+  set -f
   IFS='/'
   # shellcheck disable=SC2086
   set -- $rel_dir
   IFS="$ifs_save"
+  (( noglob_was_set )) || set +f
   for seg in "$@"; do
     [[ -z "$seg" ]] && continue
     walk="$walk/$seg"
@@ -578,10 +594,10 @@ nyann::archetype_scaffold_map() {
         'glossary:docs/glossary.md'
       ;;
     infra)
-      # IaC monorepo (Terraform / CDK / Pulumi / Helm / Kustomize). The
-      # 'modules' scaffold type is new for this archetype: it produces
-      # docs/modules/README.md as a per-module index template, materialized
-      # by scaffold-docs.sh.
+      # IaC monorepo (Terraform / CDK / Pulumi / Helm / Kustomize). Same
+      # scaffold set as web-app — architecture, runbook, deployment, ADRs,
+      # glossary. (A per-module docs/modules/ index was considered but is
+      # not generated; terraform-docs already emits per-module READMEs.)
       printf '%s\n' \
         'architecture:docs/architecture.md' \
         'runbook:docs/runbook.md' \

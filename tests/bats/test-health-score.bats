@@ -89,6 +89,29 @@ JSON
   [ "$score" -eq 0 ]
 }
 
+@test "claude_md warn → -3 (score 97)" {
+  make_drift '[]' '[]' '[]' '[]' '[]' '[]' '{"status":"warn"}' '[]'
+  run bash "$COMPUTE" --drift-report "$TMP/drift.json"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.score')" -eq 97 ]
+}
+
+@test "claude_md error → -10 (score 90)" {
+  make_drift '[]' '[]' '[]' '[]' '[]' '[]' '{"status":"error"}' '[]'
+  run bash "$COMPUTE" --drift-report "$TMP/drift.json"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.score')" -eq 90 ]
+}
+
+@test "claude_md absent → deducts (score < 100, not 100/100 while doctor warns)" {
+  make_drift '[]' '[]' '[]' '[]' '[]' '[]' '{"status":"absent"}' '[]'
+  run bash "$COMPUTE" --drift-report "$TMP/drift.json"
+  [ "$status" -eq 0 ]
+  score=$(echo "$output" | jq -r '.score')
+  [ "$score" -eq 97 ]
+  [ "$(echo "$output" | jq -r '.breakdown.claude_md')" -eq -3 ]
+}
+
 @test "breakdown includes all deduction types" {
   make_drift '[]' '[]' '[]' '[]' '[]' '[]' '{}' '[]'
   run bash "$COMPUTE" --drift-report "$TMP/drift.json"

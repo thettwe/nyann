@@ -40,6 +40,23 @@ make_feature_repo() {
   echo "$out" | jq -r '.refused_reason' | grep -F -e "long-lived"
 }
 
+@test "refuses on case-variant main (Main)" {
+  # Regression: on case-insensitive filesystems (macOS default)
+  # `git checkout Main` reports `Main` while pointing at refs/heads/main.
+  # Without case-folding the long-lived-branch refusal failed open and
+  # undo would rewrite history on real main.
+  repo=$(make_feature_repo)
+  ( cd "$repo" && git checkout -q -B Main )
+  [ "$(git -C "$repo" branch --show-current)" = "Main" ] || skip "platform normalised branch case"
+  before=$(git -C "$repo" rev-parse HEAD)
+  out=$(bash "$UNDO" --target "$repo" --yes 2>/dev/null || true)
+  after=$(git -C "$repo" rev-parse HEAD)
+  # History must be untouched.
+  [ "$before" = "$after" ]
+  [ "$(echo "$out" | jq -r '.status')" = "refused" ]
+  echo "$out" | jq -r '.refused_reason' | grep -F -e "long-lived"
+}
+
 @test "dry-run preview lists commits newest-first without mutating" {
   repo=$(make_feature_repo)
   before=$(git -C "$repo" rev-parse HEAD)

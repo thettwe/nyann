@@ -88,3 +88,26 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -ne 0 ]
   echo "$output" | grep -q "preferences not found"
 }
+
+@test "show renders a stored 'false' boolean as false, never as enabled" {
+  # `// true` would mask a disabled feature — regression guard. Disable a
+  # few booleans on disk and confirm the human table reflects the real value.
+  jq '.session_triage = false
+      | .gh_integration = false
+      | .notifications.sentinel = false
+      | .notifications.staleness_alerts = false' \
+    "$USER_ROOT/preferences.json" > "$USER_ROOT/preferences.json.tmp"
+  mv "$USER_ROOT/preferences.json.tmp" "$USER_ROOT/preferences.json"
+  run bash "$REPO_ROOT/bin/settings.sh" --user-root "$USER_ROOT" --show
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -Eq '^session_triage +false$'
+  echo "$output" | grep -Eq '^gh_integration +false$'
+  echo "$output" | grep -Eq '^notifications.sentinel +false$'
+  echo "$output" | grep -Eq '^notifications.staleness_alerts +false$'
+}
+
+@test "set with a key but no value gives the friendly error (not a shift abort)" {
+  run bash "$REPO_ROOT/bin/settings.sh" --user-root "$USER_ROOT" --set session_triage
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "requires a <value>"
+}

@@ -121,6 +121,65 @@ JSON
   echo "$result" | jq -e '.updates_available[0].commits_behind >= 1'
 }
 
+@test "--check-updates: commit_log never piped through head (BUG A structural guard)" {
+  # Regression (BUG A): the changelog used `git log … | head -20 | jq …
+  # || echo '[]'` under `set -o pipefail`. When git's output is large
+  # enough that it's still writing when head closes the pipe after 20
+  # lines, git takes SIGPIPE (141), the pipeline fails, and `|| echo
+  # '[]'` APPENDS `[]` after jq already wrote its array → a corrupt
+  # `<array>[]` value that kills the downstream `--argjson log` and,
+  # being inside `$(...)` under set -e, aborts the whole sync.
+  #
+  # The corruption is timing-dependent (git must still be writing when
+  # head exits), so reproducing it deterministically in a unit test is
+  # flaky. Assert the fix structurally instead: `git … log` must
+  # self-limit via `-n 20` (or `--max-count`) and must NOT be piped
+  # through `head`. The behavioural no-abort case is covered below.
+  ! grep -qE 'git .*log .*\| *head' "$SYNC"
+  grep -qE 'git .*log --oneline -n 20|git .*log .*--max-count' "$SYNC"
+}
+
+@test "--check-updates: many commits behind doesn't corrupt commit_log or abort sync" {
+  # Behavioural companion to the structural guard above. Even when the
+  # SIGPIPE race doesn't fire, sync must stay green and emit a valid,
+  # 20-capped commit_log array.
+  write_config "sha" "$FIRST_SHA"
+  bash "$SYNC" --user-root "$USER_ROOT" --force >/dev/null 2>&1
+
+  # Push many commits with long subjects to the remote. A handful of
+  # short commits won't trip the bug: git buffers the whole `--oneline`
+  # output into the 64KB pipe and exits 0 before `head` closes the pipe.
+  # The SIGPIPE only fires when git is STILL writing as head exits after
+  # 20 lines, so we need enough bytes (200 long-subject commits) to keep
+  # git's write side busy past head's early close.
+  local work="$TMP/work2-$$-$BATS_TEST_NUMBER"
+  git clone -q "$REMOTE" "$work"
+  git -C "$work" config user.email "test@test"
+  git -C "$work" config user.name "test"
+  local i pad
+  pad="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  for i in $(seq 1 200); do
+    echo "$i" > "$work/commit-$i.txt"
+    git -C "$work" add .
+    git -C "$work" commit -qm "chore: commit number $i with a long subject line $pad"
+  done
+  git -C "$work" push -q origin main
+
+  run bash "$SYNC" --user-root "$USER_ROOT" --check-updates
+  # Sync must NOT abort (buggy `… | head -20 | jq … || echo '[]'` under
+  # pipefail produced a corrupt `<array>[]` that killed --argjson and,
+  # inside `$(...)` under set -e, aborted the whole script).
+  [ "$status" -eq 0 ]
+  # commit_log must be a valid JSON array, capped at 20 entries.
+  echo "$output" | jq -e 'has("updates_available")'
+  echo "$output" | jq -e '.updates_available[0].commit_log | type == "array"'
+  echo "$output" | jq -e '.updates_available[0].commit_log | length == 20'
+  # commits_behind is bounded by the --check-updates shallow fetch depth
+  # (--depth=50), so assert "well past the 20-commit head boundary"
+  # rather than the full 200 — the key point is no corruption/abort.
+  echo "$output" | jq -e '.updates_available[0].commits_behind >= 20'
+}
+
 @test "--check-updates: no updates when already at latest" {
   write_config "sha" "$SECOND_SHA"
   bash "$SYNC" --user-root "$USER_ROOT" --force >/dev/null 2>&1

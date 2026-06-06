@@ -72,6 +72,24 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     fi
   done < <( printf '%s' "$line" | grep -oE 'npm run [a-zA-Z0-9:_-]+' )
 
+  # `make X` is ambiguous in prose ("make sense", "make sure"), so unlike
+  # the unambiguous `npm run` prefix we only treat it as a script-ref in a
+  # command context: inside a code span (backticks), after a `$ `/`> `
+  # prompt, or as the first command word on the line. Otherwise English
+  # prose in any repo with a Makefile produces false high-severity findings.
+  # Pull just the command-context substrings, then match `make X` within them.
+  cmd_context=$(
+    {
+      # backtick code spans: contents between paired backticks. The literal
+      # backtick belongs in the ERE pattern, not a command substitution.
+      # shellcheck disable=SC2016
+      printf '%s' "$line" | grep -oE '`[^`]*`'
+      # prompt-prefixed commands: text after `$ ` / `> `.
+      printf '%s' "$line" | grep -oE '(^|[[:space:]])[$>] +[^`]*'
+      # bare command at line start: `make ...` with no leading prose.
+      printf '%s' "$line" | grep -oE '^[[:space:]]*make [a-zA-Z0-9:_./-].*'
+    } 2>/dev/null
+  )
   while read -r m; do
     [[ -z "$m" ]] && continue
     s="${m#make }"; s="${s%% *}"
@@ -86,5 +104,5 @@ while IFS= read -r line || [[ -n "$line" ]]; do
             --arg hint "remove the reference or add '$s' to Makefile" \
             '{kind:$kind, file:$file, line:$line, severity:$severity, message:$message, current:$current, fix_hint:$hint}'
     fi
-  done < <( printf '%s' "$line" | grep -oE 'make [a-zA-Z0-9:_./-]+' )
+  done < <( printf '%s' "$cmd_context" | grep -oE 'make [a-zA-Z0-9:_./-]+' | sort -u )
 done < "$abs"

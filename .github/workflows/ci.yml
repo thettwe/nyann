@@ -130,8 +130,11 @@ jobs:
       - name: Bats
         run: bats tests/bats
 
-      - name: Output-quality evals (non-blocking)
-        continue-on-error: true
+      # The output-quality eval tier is deterministic (runs bin/ scripts
+      # end-to-end against fixtures, no live model) so it gates the merge.
+      # The trigger-case tier needs a live LLM and is reported as a
+      # skipped-with-reason by run.sh — it does not affect the exit code.
+      - name: Output-quality evals
         run: |
           set -e
           for f in evals/*.evals.json; do
@@ -139,3 +142,8 @@ jobs:
             ./evals/run.sh --file "$f"
             echo "::endgroup::"
           done
+
+      # A malformed plugin/marketplace manifest passes lint+bats but breaks
+      # at install time. Validate structure here so CI catches it first.
+      - name: Validate plugin manifest
+        run: bash tests/validate-manifest.sh

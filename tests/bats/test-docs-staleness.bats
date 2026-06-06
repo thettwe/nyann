@@ -100,6 +100,28 @@ commit_at() {
   echo "$out" | jq -e '.summary.stale_count >= 1'
 }
 
+@test "threshold-commits 0 rejected: falls back to default, schema-valid" {
+  # 0 would flag everything and violates the schema (minimum: 1). The guard
+  # must clamp it back to the default (5), not pass it through.
+  mkdir -p "$REPO/docs" "$REPO/src/auth"
+  echo "# auth" > "$REPO/docs/auth.md"
+  echo "let x;" > "$REPO/src/auth/foo.ts"
+  commit_at docs/auth.md "docs" 1
+  commit_at src/auth/foo.ts "feat" 0
+  out=$(bash "$REPO_ROOT/bin/docs-staleness.sh" --target "$REPO" --threshold-commits 0)
+  echo "$out" | jq -e '.thresholds.commits == 5'
+  echo "$out" | jq -e '.thresholds.commits >= 1'
+}
+
+@test "threshold-days 0 rejected: falls back to default" {
+  mkdir -p "$REPO/docs"
+  echo "# a" > "$REPO/docs/architecture.md"
+  commit_at docs/architecture.md "docs" 1
+  out=$(bash "$REPO_ROOT/bin/docs-staleness.sh" --target "$REPO" --threshold-days 0)
+  echo "$out" | jq -e '.thresholds.days == 30'
+  echo "$out" | jq -e '.thresholds.days >= 1'
+}
+
 @test "Output validates against docs-staleness schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

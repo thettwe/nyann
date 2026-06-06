@@ -88,6 +88,41 @@ teardown() { rm -rf "$TMP"; }
   [[ "$output" == *"cannot resolve"* ]]
 }
 
+# --- root forwarding (Bug D) ------------------------------------------------
+# switch-profile.sh called load-profile.sh bare, ignoring --user-root /
+# --plugin-root. In a non-default HOME (CI / sandbox / tests) it resolved a
+# different profile set than diff-profile.sh. These lock the forwarding.
+
+@test "--user-root is forwarded so a user-only profile resolves" {
+  UR="$TMP/ur"; mkdir -p "$UR/profiles"
+  # A profile that exists ONLY under the custom user-root. If --user-root
+  # weren't threaded to load-profile.sh, this name would fail to resolve.
+  jq '.name = "only-in-user-root"' "$REPO_ROOT/profiles/python-cli.json" \
+    > "$UR/profiles/only-in-user-root.json"
+  run --separate-stderr bash "$SWITCH" \
+    --from only-in-user-root --to python-cli \
+    --user-root "$UR" --plugin-root "$REPO_ROOT" \
+    --target "$REPO" --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.from_profile == "only-in-user-root"' >/dev/null
+}
+
+@test "without --user-root the user-only profile does NOT resolve" {
+  # Counterpart: same profile, but pointed at an empty default-shaped root
+  # via HOME so it can't be found — proving the previous test passes
+  # because of the forwarded flag, not an ambient copy.
+  UR="$TMP/ur"; mkdir -p "$UR/profiles"
+  jq '.name = "only-in-user-root"' "$REPO_ROOT/profiles/python-cli.json" \
+    > "$UR/profiles/only-in-user-root.json"
+  empty_home="$TMP/empty-home"; mkdir -p "$empty_home/.claude/nyann/profiles"
+  run env HOME="$empty_home" bash "$SWITCH" \
+    --from only-in-user-root --to python-cli \
+    --plugin-root "$REPO_ROOT" \
+    --target "$REPO" --dry-run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot resolve"* ]]
+}
+
 # --- Plan derivation lock ----------------------------------------------------
 # The writes[] handed to bootstrap MUST match what the new profile
 # actually opts into; if it's hardcoded (e.g. always claims CLAUDE.md +

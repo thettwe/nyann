@@ -75,6 +75,43 @@ JSON
   [ "$dir" = "down" ]
 }
 
+@test "concurrent persists both retain their entries (no lost update)" {
+  # Regression for the read→modify→write race: two persists running at
+  # once both read the same `existing`, and without the file lock the
+  # second `mv` clobbers the first writer's appended entry. With the
+  # nyann::lock guard, the writes serialize and both land. Seed 1 entry,
+  # fire two distinct concurrent persists, assert 3 total entries.
+  jq -n '{ scores: [
+    {"timestamp":"2025-01-01T00:00:00Z","score":80,"profile":"test","breakdown":{}}
+  ], trend: { direction: "stable", delta: 0, window_days: 7 } }' > "$REPO/memory/health.json"
+
+  # Distinct score files so the dedup (same ts+score) can't merge them,
+  # and distinct enough scores that both produce real appends.
+  cat > "$TMP/score-a.json" <<'JSON'
+{ "score": 91, "breakdown": { "missing": 0, "misconfigured": 0 } }
+JSON
+  cat > "$TMP/score-b.json" <<'JSON'
+{ "score": 73, "breakdown": { "missing": 0, "misconfigured": 0 } }
+JSON
+
+  bash "$PERSIST" --target "$REPO" --score "$TMP/score-a.json" --profile a >/dev/null 2>&1 &
+  pid_a=$!
+  bash "$PERSIST" --target "$REPO" --score "$TMP/score-b.json" --profile b >/dev/null 2>&1 &
+  pid_b=$!
+  wait "$pid_a"
+  wait "$pid_b"
+
+  count=$(jq '.scores | length' "$REPO/memory/health.json")
+  [ "$count" -eq 3 ]
+  # Both writers' entries survived — neither was clobbered.
+  has_a=$(jq '[.scores[] | select(.score == 91)] | length' "$REPO/memory/health.json")
+  has_b=$(jq '[.scores[] | select(.score == 73)] | length' "$REPO/memory/health.json")
+  [ "$has_a" -eq 1 ]
+  [ "$has_b" -eq 1 ]
+  # The lock directory was released, not left behind.
+  [ ! -e "$REPO/memory/health.json.lock" ]
+}
+
 @test "trend computation: stable when delta <=2" {
   jq -n '{ scores: [
     {"timestamp":"2025-01-01T00:00:00Z","score":90,"profile":"test","breakdown":{}},

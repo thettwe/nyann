@@ -90,6 +90,88 @@ EOF
   grep -q "Important content below that must survive" "$REPO/README.md"
 }
 
+@test "--apply refuses README with duplicate start marker (no data loss)" {
+  echo "MIT License" > "$REPO/LICENSE"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+
+<!-- nyann:badges:start -->
+![old](x)
+<!-- nyann:badges:end -->
+
+Content BETWEEN the two blocks must survive.
+
+<!-- nyann:badges:start -->
+![dup](y)
+<!-- nyann:badges:end -->
+
+Tail content.
+EOF
+  run bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "more than once"
+  # Nothing destroyed.
+  grep -q "Content BETWEEN the two blocks must survive" "$REPO/README.md"
+  grep -q "Tail content" "$REPO/README.md"
+}
+
+@test "--apply preserves an end-marker substring in prose before the block" {
+  echo "MIT License" > "$REPO/LICENSE"
+  cat > "$REPO/README.md" <<'EOF'
+# Project
+
+The closing marker is written `<!-- nyann:badges:end -->` in docs.
+
+<!-- nyann:badges:start -->
+![old](x)
+<!-- nyann:badges:end -->
+
+Tail content.
+EOF
+  bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r > /dev/null
+  # The prose line containing the end-marker substring (before the real
+  # block) must NOT be swallowed.
+  grep -q "The closing marker is written" "$REPO/README.md"
+  grep -q "Tail content" "$REPO/README.md"
+  # The real block got replaced with the new badge.
+  grep -q "License-MIT" "$REPO/README.md"
+  # Old body removed.
+  ! grep -q "old" "$REPO/README.md"
+}
+
+@test "--apply twice is byte-identical when README lacks trailing newline" {
+  echo "MIT License" > "$REPO/LICENSE"
+  printf '# Project\n\nNo trailing newline here.' > "$REPO/README.md"
+  bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r > /dev/null
+  sha1=$(shasum "$REPO/README.md" | cut -c1-40)
+  bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r > /dev/null
+  sha2=$(shasum "$REPO/README.md" | cut -c1-40)
+  [ "$sha1" = "$sha2" ]
+}
+
+@test "--apply follows a single-hop symlink and keeps it a symlink" {
+  echo "MIT License" > "$REPO/LICENSE"
+  printf '# Real\n' > "$REPO/real.md"
+  ( cd "$REPO" && ln -s real.md README.md )
+  bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r > /dev/null
+  # README.md stays a symlink; the real file got the badge block.
+  [ -L "$REPO/README.md" ]
+  grep -q "License-MIT" "$REPO/real.md"
+  grep -q "# Real" "$REPO/real.md"
+}
+
+@test "--apply refuses a README symlink pointing outside the target tree" {
+  echo "MIT License" > "$REPO/LICENSE"
+  outside="$TMP/outside.md"
+  printf '# Outside\n' > "$outside"
+  ( cd "$REPO" && ln -s "$outside" README.md )
+  run bash "$REPO_ROOT/bin/gen-readme-badges.sh" --target "$REPO" --apply --owner o --repo r
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "escapes target directory"
+  # The outside file was not touched.
+  ! grep -q "License-MIT" "$outside"
+}
+
 @test "Output validates against readme-badge-block schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

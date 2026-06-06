@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # Guard: staged diff contains no unresolved merge conflict markers.
 target="${1-$PWD}"
-# `git diff --cached` already shows staged contents. Filter for marker lines
-# only in added lines (prefix `+`) to avoid matching markers that already
-# existed verbatim (rare, but possible — markdown examples of conflicts).
-hits=$( cd "$target" && git diff --cached --no-color 2>/dev/null \
-  | grep -E '^\+(<<<<<<<|=======|>>>>>>>)' \
-  | wc -l | tr -d ' ' )
+# `git diff --cached` already shows staged contents. Match git's actual
+# conflict-marker form: `<<<<<<< <label>` / `>>>>>>> <label>` carry a trailing
+# space before the label, and a bare `=======` separator. A bare `=======`
+# alone is ambiguous (RST underlines, doc banners, changelogs) so we only count
+# separators when a real `<<<<<<< ` start marker is also present — that
+# combination is the unambiguous signal of an unresolved conflict.
+diff=$( cd "$target" && git diff --cached --no-color 2>/dev/null )
+starts=$( printf '%s\n' "$diff" | grep -cE '^\+<<<<<<< ' )
+ends=$( printf '%s\n' "$diff" | grep -cE '^\+>>>>>>> ' )
+if (( starts > 0 )); then
+  seps=$( printf '%s\n' "$diff" | grep -cE '^\+=======$' )
+else
+  seps=0
+fi
+hits=$(( starts + seps + ends ))
 if (( hits == 0 )); then
   jq -n --arg name "merge-conflict-markers" '{name:$name,pass:true,severity:"critical",message:"clean"}'
 else

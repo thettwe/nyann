@@ -119,7 +119,7 @@ bin/release.sh --target <cwd> --version <x.y.z> \
   [--strategy conventional-changelog|manual] \
   [--changelog <path>] [--tag-prefix <p>] \
   [--from <ref>] [--push] [--dry-run] [--yes] \
-  [--wait-for-checks] [--allow-no-pr] \
+  [--wait-for-checks] [--no-wait-for-checks] [--allow-no-pr] \
   [--wait-for-checks-timeout <sec>] \
   [--wait-for-checks-interval <sec>] \
   [--bump-manifests] [--gh-release] [--profile <path>]
@@ -142,12 +142,21 @@ Skip `--yes` handling for `--strategy manual` (no CHANGELOG write).
 says "push the tag" or "publish the release". For quieter flows, skip
 `--push` and let the user run `git push --follow-tags` themselves.
 
-`--wait-for-checks` looks up the PR for HEAD via
-`gh pr list --search <SHA>` and gates the tag step on that PR's CI
-via `bin/wait-for-pr-checks.sh`. Use when the user says "tag the
-release once CI is green" or "don't tag if CI is broken". Hard-fails
-on CI failure / timeout / unreachable gh — the user opted into
-gating.
+**CI gate by default:** because a pushed tag is consumed by the
+marketplace, `--push` enables the CI gate automatically when the origin
+is a GitHub remote and `gh` is authenticated. The auto-enabled gate
+degrades gracefully — a release cut on main with no open PR, or a host
+without authenticated gh, proceeds with a warning instead of failing.
+Pass `--no-wait-for-checks` to push without any gate (e.g. a repo whose
+CI genuinely lives elsewhere).
+
+`--wait-for-checks` resolves the PR by exact HEAD SHA (`headRefOid`)
+and gates the tag step on that PR's CI
+via `bin/wait-for-pr-checks.sh`. Passing it **explicitly** makes the
+gate strict: CI failure / timeout / unreachable gh / no PR all
+hard-fail (the auto-enabled default would instead degrade). Use the
+explicit form when the user says "tag the release once CI is green" or
+"don't tag if CI is broken".
 
 When **no PR matches HEAD** (legitimate for first-cut releases or
 local-only commits, but also a CI-bypass risk in squash/rebase

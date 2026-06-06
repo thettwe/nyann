@@ -26,9 +26,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   lineno=$((lineno + 1))
   # Toggle docstring state on lines that contain `"""`.
   if [[ "$line" == *'"""'* ]]; then
-    # Count occurrences to handle a single-line "..." docstring.
-    n=$(printf '%s\n' "$line" | tr -cd '"' | awk '{print length($0)/3}')
-    n=${n%.*}
+    # Count `"""` tokens specifically (not raw quote chars / 3) so a line
+    # like `sep = '"""'` doesn't toggle docstring state spuriously. Handles
+    # single-line `"""..."""` docstrings via the modulo.
+    n=$(printf '%s\n' "$line" | grep -o '"""' | wc -l)
+    n=${n//[[:space:]]/}
     in_doc=$(( (in_doc + n) % 2 ))
   fi
   (( in_doc )) && continue

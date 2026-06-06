@@ -58,10 +58,6 @@ done
 jq -n \
   --slurpfile base "$base_file" \
   --slurpfile overlay "$overlay_file" '
-  # Recursively walk overlay to find array-typed and null-typed paths
-  def array_paths:
-    path(.. | arrays | select(. == .)) | select(length > 0);
-
   # Deep merge with overlay-wins semantics
   ($base[0] | del(.extends) | del(._meta)) as $b |
   ($overlay[0] | del(.extends) | del(._meta)) as $o |
@@ -72,13 +68,25 @@ jq -n \
   # Fix arrays: overlay arrays must replace, not element-merge.
   # Walk all paths in overlay that point to arrays and set them
   # from the overlay value, overriding the element-merged result.
+  # This also restores any null ELEMENTS inside overlay arrays
+  # verbatim — the null-removal pass below is scoped to object keys
+  # so it never reaches array indices.
   reduce ($o | [paths(type == "array")] | .[]) as $p (
     $merged;
     setpath($p; $o | getpath($p))
   ) |
 
-  # Fix nulls: overlay keys explicitly set to null → remove from output.
-  reduce ($o | [paths(. == null)] | .[]) as $p (
+  # Fix nulls: overlay OBJECT members explicitly set to null → remove
+  # from output. A path whose final segment is a string addresses an
+  # object key; a numeric final segment addresses an array index — those
+  # are skipped so `delpaths` can never index-shift an overlay array
+  # (e.g. ["api",null,"auth"] must survive merge unchanged rather than
+  # being silently repaired into ["api","auth"]).
+  reduce (
+    $o
+    | [paths(. == null) | select(.[-1] | type == "string")]
+    | .[]
+  ) as $p (
     .;
     delpaths([$p])
   )

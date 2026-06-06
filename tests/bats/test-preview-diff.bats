@@ -248,6 +248,61 @@ JSON
   ! echo "$out_auto" | grep -q "line-40"
 }
 
+# --- unresolved-target misrepresentation guard -------------------------------
+
+@test "merge with existing target but unresolved path does not render a bare /dev/null create" {
+  # Regression: a merge entry whose render-plan reports current_bytes > 0
+  # (the target file really exists) but whose path can't be located —
+  # no --target, no NYANN_PREVIEW_TARGET, cwd != repo root — must NOT
+  # diff against /dev/null. Doing so dumps the whole merged blob as
+  # additions, making an append-merge look like a brand-new file while
+  # the header still claims "current N B". Preview must warn instead.
+  blob="$TMP/merged-blob"
+  printf '%s\n' .DS_Store node_modules > "$blob"
+
+  cat > "$TMP/plan.json" <<JSON
+{"writes":[{"path":".gitignore","action":"merge","bytes":0,"preview_blob":"$blob","current_bytes":42}],"commands":[],"remote":[]}
+JSON
+
+  # Run from $TMP (NOT $REPO) and pass no --target. The .gitignore path
+  # is unresolvable from here, but current_bytes says it exists.
+  out=$(cd "$TMP" && bash "${REPO_ROOT}/bin/preview.sh" --plan "$TMP/plan.json" 2>&1 1>/dev/null || true)
+
+  # No misleading "diff (current 42 B → merged)" header.
+  ! echo "$out" | grep -q "diff (current 42 B"
+  # No /dev/null full-file create dumped as additions.
+  ! echo "$out" | grep -q "/dev/null"
+  # Instead: a clear warning telling the operator to pass --target.
+  echo "$out" | grep -q "diff unavailable"
+  echo "$out" | grep -q -- "--target"
+}
+
+@test "merge with existing target still shows a partial diff when --target is passed" {
+  # Counterpart to the guard above: when --target DOES resolve the file,
+  # preview shows the real partial diff (not a full create), confirming
+  # the guard only fires on the unresolved case.
+  cat > "$REPO/.gitignore" <<'EOF'
+.DS_Store
+EOF
+  blob="$TMP/merged-blob"
+  printf '%s\n' .DS_Store node_modules > "$blob"
+  bytes=$(wc -c < "$REPO/.gitignore" | tr -d ' ')
+
+  cat > "$TMP/plan.json" <<JSON
+{"writes":[{"path":".gitignore","action":"merge","bytes":0,"preview_blob":"$blob","current_bytes":$bytes}],"commands":[],"remote":[]}
+JSON
+
+  out=$(cd "$TMP" && bash "${REPO_ROOT}/bin/preview.sh" \
+    --plan "$TMP/plan.json" --target "$REPO" 2>&1 1>/dev/null || true)
+
+  # Real diff header, no warning, no /dev/null base.
+  echo "$out" | grep -q "diff (current"
+  ! echo "$out" | grep -q "diff unavailable"
+  ! echo "$out" | grep -q "/dev/null"
+  # node_modules is the added line; .DS_Store is the unchanged context.
+  echo "$out" | grep -q "node_modules"
+}
+
 # --- TOCTOU: bootstrap consumes the blob, not the live repo state -----------
 
 @test "bootstrap copies .gitignore from preview_blob when present" {

@@ -18,9 +18,12 @@ fi
 staged_tf=$(git diff --cached --name-only --diff-filter=ACMR -- 'modules/*/**.tf' 2>/dev/null || true)
 [[ -n "$staged_tf" ]] || exit 0
 
-# Extract unique module directories (one path segment under modules/).
+# Derive the module directory of each staged .tf as the directory that
+# actually CONTAINS it (`dirname`), not a fixed two-segment depth. The
+# deep layout detect-iac.sh advertises (e.g. modules/aws/networking/main.tf)
+# would otherwise be missed when we assumed modules/<name> only.
 modules=$(printf '%s\n' "$staged_tf" \
-  | awk -F/ 'NF >= 3 && $1 == "modules" { print $1 "/" $2 }' \
+  | while IFS= read -r f; do [[ -n "$f" ]] && dirname "$f"; done \
   | sort -u)
 [[ -n "$modules" ]] || exit 0
 

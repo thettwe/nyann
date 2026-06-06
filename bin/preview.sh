@@ -156,7 +156,6 @@ if ! $json_out; then
     while IFS=$'\t' read -r path blob current_bytes; do
       [[ -z "$path" || -z "$blob" ]] && continue
       [[ ! -f "$blob" ]] && continue
-      printf '\n--- %s diff (current %s B → merged) ---\n' "$path" "$current_bytes"
       cur_file="/dev/null"
       # Resolution order:
       # 1. --target <path> when explicitly passed (recommended for
@@ -172,6 +171,20 @@ if ! $json_out; then
       elif [[ -f "$path" ]]; then
         cur_file="$path"
       fi
+      # Misrepresentation guard: the render-plan says the target already
+      # exists (current_bytes > 0) but we couldn't locate it on disk, so
+      # cur_file is still /dev/null. Diffing against /dev/null would print
+      # the ENTIRE merged blob as additions — a create — while the header
+      # claims "current N B → merged". That makes an append-merge look
+      # like a brand-new file. Warn loudly (tell the operator to pass
+      # --target) and skip the diff rather than render a lie. The size
+      # line already printed by the writes[] loop above conveys the bytes.
+      if [[ "$cur_file" == "/dev/null" && "${current_bytes:-0}" -gt 0 ]]; then
+        printf '\n--- %s diff unavailable ---\n' "$path"
+        nyann::warn "cannot locate current '$path' (target reports ${current_bytes} B) — pass --target <repo> to render an accurate diff; skipping to avoid showing a misleading full-file create"
+        continue
+      fi
+      printf '\n--- %s diff (current %s B → merged) ---\n' "$path" "$current_bytes"
       if [[ "$diff_mode" == "full" ]]; then
         diff -u "$cur_file" "$blob" 2>/dev/null || true
       else

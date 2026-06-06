@@ -87,7 +87,12 @@ Focused utilities that emit/consume JSON schemas.
 split into per-feature modules sourced by their parent:
 - `bin/release.sh` → `bin/release/{bump-manifests,ci-gate,collect-commits,detect-workspace-changes,github-release,push-release,release-workspace,render-changelog}.sh`
 - `bin/gh-integration.sh` → `bin/gh-integration/{apply-protection,audit-{branch-protection,codeowners,repo-settings,security,signing,tag-protection},_helpers}.sh`
-- `bin/detect-stack.sh` → `bin/detect-stack/{detect-{archetype,go-rust,hints,jsts,mobile-systems,python,v110-stacks},discover-workspaces,_detect-common}.sh`
+- `bin/detect-stack.sh` → `bin/detect-stack/{detect-{archetype,go-rust,hints,iac,jsts,mobile-systems,python,v110-stacks},discover-workspaces,_detect-common}.sh`
+
+Later releases added further per-feature module dirs sourced the same
+way: `bin/guards/` (pre-action guards), `bin/docs-drift/` (public-doc
+drift detectors), and `bin/dead-code-rules/` (per-language dead-code
+scanners).
 
 The parent script remains the public entry point. Modules are
 sourced (sharing scope) or executed (separate process) depending on

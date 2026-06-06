@@ -93,6 +93,54 @@ teardown() {
   [[ "$output" == *"plan write path 'x'"* ]]
 }
 
+@test "path_under_target: glob char '*' in tail is treated literally, not expanded" {
+  # Regression: with IFS='/', the unquoted split of the non-existent tail
+  # used to undergo pathname expansion. A decoy file sitting next to the
+  # candidate would get glob-matched, silently rewriting the canonical
+  # path to a DIFFERENT existing file and defeating the path-safety guard.
+  mkdir -p "$TMP/repo/x"
+  : > "$TMP/repo/x/decoy"
+  run "$HARNESS" nyann::path_under_target "$TMP/repo" "$TMP/repo/x/*"
+  [ "$status" -eq 0 ]
+  # Must return the literal `*` path, never the glob-matched decoy.
+  [[ "$output" == "$TMP/repo/x/*" ]]
+  [[ "$output" != *decoy* ]]
+}
+
+@test "path_under_target: glob char '?' in tail is treated literally" {
+  mkdir -p "$TMP/repo/y"
+  : > "$TMP/repo/y/a"
+  run "$HARNESS" nyann::path_under_target "$TMP/repo" "$TMP/repo/y/?"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$TMP/repo/y/?" ]]
+}
+
+@test "path_under_target: literal-glob candidate escaping target is still rejected" {
+  # The literal path (with `..`) resolves outside target → reject, and the
+  # glob must not be expanded into a match that would sneak it back in.
+  mkdir -p "$TMP/outside-glob"
+  : > "$TMP/outside-glob/hit"
+  run "$HARNESS" nyann::path_under_target "$TMP/repo" "$TMP/repo/../outside-glob/*"
+  [ "$status" -ne 0 ]
+}
+
+@test "path_under_target: caller's glob state is not leaked by the helper" {
+  # The helper runs under the caller's shell options; it must not leave
+  # `set -f` enabled when the caller had globbing on.
+  cat > "$TMP/leak-check.sh" <<EOF
+#!/usr/bin/env bash
+source "${REPO_ROOT}/bin/_lib.sh"
+set +o errexit
+set +f  # globbing ON (the common caller default)
+nyann::path_under_target "$TMP/repo" "$TMP/repo/probe/*" >/dev/null
+if [[ -o noglob ]]; then echo LEAKED; else echo CLEAN; fi
+EOF
+  chmod +x "$TMP/leak-check.sh"
+  run "$TMP/leak-check.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "CLEAN" ]]
+}
+
 @test "valid_profile_name: accepts lowercase kebab ids" {
   run "$HARNESS" nyann::valid_profile_name "team-acme"
   [ "$status" -eq 0 ]

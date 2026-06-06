@@ -116,6 +116,43 @@ EOF
   echo "$output" | jq -e '.guards[] | select(.name == "staged-files-exist") | .severity == "critical"'
 }
 
+@test "commit flow: bare ======= line (e.g. RST/changelog) does not block" {
+  # A doc file with a bare `=======` underline must not be mistaken for a
+  # merge-conflict separator — without a `<<<<<<< ` start marker it is benign.
+  cat > "$REPO/doc.rst" <<'EOF'
+Section Title
+=======
+body text
+EOF
+  ( cd "$REPO" && git add doc.rst )
+  run bash "$REPO_ROOT/bin/pre-action-guard.sh" --flow commit --target "$REPO"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.guards[] | select(.name == "merge-conflict-markers") | .pass == true'
+}
+
+@test "commit flow: real <<<<<<< conflict marker blocks" {
+  cat > "$REPO/c.txt" <<'EOF'
+hello
+<<<<<<< HEAD
+ours
+=======
+theirs
+>>>>>>> branch
+EOF
+  ( cd "$REPO" && git add c.txt )
+  run bash "$REPO_ROOT/bin/pre-action-guard.sh" --flow commit --target "$REPO"
+  [ "$status" -eq 3 ]
+  echo "$output" | jq -e '.guards[] | select(.name == "merge-conflict-markers") | .pass == false'
+}
+
+@test "release flow: clean-tree skips (not passes) in a non-git dir" {
+  nonrepo="$TMP/plain"
+  mkdir -p "$nonrepo"
+  run bash "$REPO_ROOT/bin/guards/clean-tree.sh" "$nonrepo"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skipped == true'
+}
+
 @test "guard-result JSON validates against schema" {
   if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
     skip "no schema validator"

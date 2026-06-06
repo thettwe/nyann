@@ -185,7 +185,13 @@ while IFS=$'\t' read -r name url ref interval last pin_strategy pin; do
       commits_behind=$(git -C "$cache_dir" rev-list --count "${current_sha}..FETCH_HEAD" 2>/dev/null || echo 0)
       changed_profiles=$(git -C "$cache_dir" diff --name-only "${current_sha}..FETCH_HEAD" -- 'profiles/*.json' '*.json' 2>/dev/null | \
         grep -v '_schema' | sort | jq -R . | jq -s . 2>/dev/null || echo '[]')
-      commit_log=$(git -C "$cache_dir" log --oneline "${current_sha}..FETCH_HEAD" 2>/dev/null | head -20 | \
+      # `-n 20` makes git self-limit and exit 0. Do NOT pipe through
+      # `head`: under `set -o pipefail`, head closing the pipe early
+      # SIGPIPEs git (exit 141), the pipeline fails, and `|| echo '[]'`
+      # then APPENDS `[]` after jq already wrote its array → a corrupt
+      # `<array>[]` value that kills the downstream `--argjson log` and,
+      # being inside `$(...)` under `set -e`, aborts the whole sync.
+      commit_log=$(git -C "$cache_dir" log --oneline -n 20 "${current_sha}..FETCH_HEAD" 2>/dev/null | \
         jq -R 'split(" ") | {sha: .[0], subject: (.[1:] | join(" "))}' | jq -s . 2>/dev/null || echo '[]')
       updates_available_json=$(jq \
         --arg src "$name" \
@@ -297,7 +303,13 @@ while IFS=$'\t' read -r name url ref interval last pin_strategy pin; do
         commits_behind=$(git -C "$cache_dir" rev-list --count "${current_sha}..FETCH_HEAD" 2>/dev/null || echo 0)
         changed_profiles=$(git -C "$cache_dir" diff --name-only "${current_sha}..FETCH_HEAD" -- 'profiles/*.json' '*.json' 2>/dev/null | \
           grep -v '_schema' | sort | jq -R . | jq -s . 2>/dev/null || echo '[]')
-        commit_log=$(git -C "$cache_dir" log --oneline "${current_sha}..FETCH_HEAD" 2>/dev/null | head -20 | \
+        # `-n 20` makes git self-limit and exit 0. Do NOT pipe through
+        # `head`: under `set -o pipefail`, head closing the pipe early
+        # SIGPIPEs git (exit 141), the pipeline fails, and `|| echo '[]'`
+        # then APPENDS `[]` after jq already wrote its array → a corrupt
+        # `<array>[]` value that kills the downstream `--argjson log` and,
+        # being inside `$(...)` under `set -e`, aborts the whole sync.
+        commit_log=$(git -C "$cache_dir" log --oneline -n 20 "${current_sha}..FETCH_HEAD" 2>/dev/null | \
           jq -R 'split(" ") | {sha: .[0], subject: (.[1:] | join(" "))}' | jq -s . 2>/dev/null || echo '[]')
         updates_available_json=$(jq \
           --arg src "$name" \
@@ -373,6 +385,17 @@ while IFS=$'\t' read -r name url ref interval last pin_strategy pin; do
     [[ -f "$pf" ]] || continue
     pname=$(basename "$pf" .json)
     [[ "$pname" == "_schema" ]] && continue
+    # Validate the profile *name* too — it comes from a remote repo's
+    # file listing. The source `name` was validated at read time, but a
+    # remote shipping e.g. `profiles/UPPER_Bad Name.json` would register
+    # a record load-profile.sh later refuses (it re-checks the name),
+    # leaving a permanently-unloadable "valid" entry. Mirror the
+    # source-name guard: report it invalid and skip registration.
+    if ! nyann::valid_profile_name "$pname"; then
+      invalid_json=$(jq --arg s "$name" --arg p "$pname" --arg path "$pf" \
+        '. + [{source:$s, name:$p, path:$path, kind:"invalid-name"}]' <<<"$invalid_json")
+      continue
+    fi
     if "${_script_dir}/validate-profile.sh" "$pf" >/dev/null 2>&1; then
       registered_json=$(jq --arg s "$name" --arg p "$pname" --arg path "$pf" '. + [{source:$s, name:$p, namespaced:($s+"/"+$p), path:$path}]' <<<"$registered_json")
     else

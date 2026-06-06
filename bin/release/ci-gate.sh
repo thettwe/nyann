@@ -56,8 +56,26 @@ if ! "$gh_bin" auth status >/dev/null 2>&1; then
 fi
 
 head_sha=$(git -C "$target" rev-parse HEAD)
-pr_list_json=$("$gh_bin" pr list --search "$head_sha" --state all --limit 1 --json number 2>/dev/null || echo '[]')
-pr_num=$(jq -r '.[0].number // empty' <<<"$pr_list_json" 2>/dev/null || true)
+branch=$(git -C "$target" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+# Resolve the PR by EXACT head SHA, not a free-text search. `gh pr list --search`
+# is a full-text query that can match a PR merely mentioning the SHA, or a stale
+# closed PR. Match on the branch's open PR whose headRefOid equals HEAD; fall back
+# to the commit→PR API which maps a SHA to the PRs it actually heads.
+pr_num=""
+if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  pr_list_json=$("$gh_bin" pr list --head "$branch" --state all --limit 10 \
+    --json number,headRefOid 2>/dev/null || echo '[]')
+  pr_num=$(jq -r --arg sha "$head_sha" \
+    'map(select(.headRefOid == $sha)) | .[0].number // empty' <<<"$pr_list_json" 2>/dev/null || true)
+fi
+
+if [[ -z "$pr_num" ]]; then
+  # Detached HEAD, or no branch PR matched: ask GitHub which PRs this commit heads.
+  api_json=$("$gh_bin" api "repos/{owner}/{repo}/commits/${head_sha}/pulls" 2>/dev/null || echo '[]')
+  pr_num=$(jq -r --arg sha "$head_sha" \
+    'map(select(.head.sha == $sha)) | .[0].number // empty' <<<"$api_json" 2>/dev/null || true)
+fi
 
 if [[ -z "$pr_num" ]]; then
   if $allow_no_pr; then

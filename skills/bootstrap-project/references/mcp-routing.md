@@ -183,7 +183,7 @@ still run when the user is offline.
 - User's chosen Notion parent isn't reachable (permissions) → ask for
   a different parent.
 - Plan contains mixed types but the user later wants to migrate →
-  deferred to v2 (post-v1.0, see TECH Appendix C). Don't promise it.
+  deferred to v2 (post-v1.0). Don't promise it.
 
 ## Boundaries
 

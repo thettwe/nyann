@@ -107,11 +107,27 @@ for (( i=0; i<move_count; i++ )); do
     continue
   fi
 
-  # Target must NOT exist
+  # Target must NOT exist — UNLESS it's the same file as the source.
+  # On a case-insensitive filesystem (default on macOS) a case-only
+  # rename (`ARCHITECTURE.md` → `architecture.md`) sees the destination
+  # as already "existing" because it's the very same inode. Refusing
+  # there would silently no-op the conformance feature on the
+  # maintainer's platform. Detect that case (same device+inode) and let
+  # it through as a two-step rename below; keep the genuine "different
+  # file already there" refusal intact.
+  case_only_rename=false
   if [[ -e "$target_abs" ]]; then
-    nyann::warn "skip: target already exists: $target_rel (won't overwrite)"
-    fail_count=$((fail_count + 1))
-    continue
+    # Identify by device+inode. BSD stat (macOS) uses `-f "%d:%i"`;
+    # GNU stat (Linux) uses `-c "%d:%i"`. Try BSD first, fall back to GNU.
+    src_id=$(stat -f "%d:%i" "$source_abs" 2>/dev/null || stat -c "%d:%i" "$source_abs" 2>/dev/null)
+    tgt_id=$(stat -f "%d:%i" "$target_abs" 2>/dev/null || stat -c "%d:%i" "$target_abs" 2>/dev/null)
+    if [[ -n "$src_id" && "$src_id" == "$tgt_id" ]]; then
+      case_only_rename=true
+    else
+      nyann::warn "skip: target already exists: $target_rel (won't overwrite)"
+      fail_count=$((fail_count + 1))
+      continue
+    fi
   fi
 
   # No symlinks
@@ -139,10 +155,43 @@ for (( i=0; i<move_count; i++ )); do
     continue
   fi
 
-  # Execute move
-  if $use_git; then
+  # Execute move. A case-only rename on a case-insensitive FS must go
+  # through a distinct intermediate name: a direct `mv a A` / `git mv a A`
+  # is a no-op there (the OS treats both names as the same path), so the
+  # final casing never takes. The temp name forces the rename to register,
+  # then the second leg lands the requested casing.
+  if $case_only_rename; then
+    tgt_dir_rel="$(dirname "$target_rel")"
+    tgt_leaf="$(basename "$target_rel")"
+    if [[ "$tgt_dir_rel" == "." ]]; then
+      tmp_rel=".nyann-caserename.$$.$tgt_leaf"
+    else
+      tmp_rel="$tgt_dir_rel/.nyann-caserename.$$.$tgt_leaf"
+    fi
+    tmp_abs="$target/$tmp_rel"
+    move_failed=false
+    if $use_git && git -C "$target" ls-files --error-unmatch "$source_rel" >/dev/null 2>&1; then
+      git -C "$target" mv -- "$source_rel" "$tmp_rel" >/dev/null 2>&1 \
+        && git -C "$target" mv -- "$tmp_rel" "$target_rel" >/dev/null 2>&1 \
+        || move_failed=true
+    else
+      mv "$source_abs" "$tmp_abs" 2>/dev/null \
+        && mv "$tmp_abs" "$target_abs" 2>/dev/null \
+        || move_failed=true
+    fi
+    if $move_failed; then
+      # Best-effort rollback: if the temp landed but the second leg failed,
+      # restore the original name so the file isn't stranded under the temp.
+      if [[ -e "$tmp_abs" && ! -e "$source_abs" ]]; then
+        mv "$tmp_abs" "$source_abs" 2>/dev/null || true
+      fi
+      nyann::warn "case-only rename failed: $source_rel → $target_rel"
+      fail_count=$((fail_count + 1))
+      continue
+    fi
+  elif $use_git; then
     if git -C "$target" ls-files --error-unmatch "$source_rel" >/dev/null 2>&1; then
-      git -C "$target" mv "$source_rel" "$target_rel" 2>&1 || {
+      git -C "$target" mv -- "$source_rel" "$target_rel" 2>&1 || {
         nyann::warn "git mv failed: $source_rel → $target_rel"
         fail_count=$((fail_count + 1))
         continue

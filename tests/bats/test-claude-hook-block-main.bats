@@ -41,6 +41,20 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -eq 2 ]
 }
 
+@test "on case-variant main (Main) + git commit → exit 2" {
+  # Regression: on case-insensitive filesystems (macOS default)
+  # `git checkout Main` checks out the same refs/heads/main but git
+  # reports `Main`. Without case-folding the guard failed open and the
+  # commit to main was allowed.
+  cd "$TMP"
+  git checkout -q -B Main
+  # Confirm git actually reports the mixed-case name (skip if the
+  # platform normalised it away — then there's nothing to regress on).
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "Main" ] || skip "platform normalised branch case"
+  run bash "$HOOK" 'git commit -m "feat: x"'
+  [ "$status" -eq 2 ]
+}
+
 @test "accepts Claude Code JSON stdin shape" {
   cd "$TMP"
   run bash -c "echo '{\"tool_input\":{\"command\":\"git commit -m \\\"feat: x\\\"\"}}' | bash '$HOOK'"

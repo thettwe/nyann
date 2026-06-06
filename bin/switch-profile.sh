@@ -4,6 +4,7 @@
 # Usage:
 #   switch-profile.sh --from <name> --to <name> --target <repo>
 #                     [--dry-run] [--json] [--yes]
+#                     [--user-root <dir>] [--plugin-root <dir>]
 #
 # Loads both profiles, computes the diff (hooks added/removed, branching
 # strategy change, extras toggled, conventions changed), and emits a
@@ -34,19 +35,28 @@ target=""
 dry_run=false
 json_output=false
 yes=false
+# Root overrides, threaded to load-profile.sh so a non-default HOME
+# (CI / sandbox / tests) resolves the same profile set diff-profile.sh
+# does. Without this, switch silently resolved a different profile set.
+user_root="${HOME}/.claude/nyann"
+plugin_root="$(cd "${_script_dir}/.." && pwd)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --from)       from_name="${2:-}"; shift 2 ;;
-    --from=*)     from_name="${1#--from=}"; shift ;;
-    --to)         to_name="${2:-}"; shift 2 ;;
-    --to=*)       to_name="${1#--to=}"; shift ;;
-    --target)     target="${2:-}"; shift 2 ;;
-    --target=*)   target="${1#--target=}"; shift ;;
-    --dry-run)    dry_run=true; shift ;;
-    --json)       json_output=true; shift ;;
-    --yes)        yes=true; shift ;;
-    -h|--help)    sed -n '3,21p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --from)          from_name="${2:-}"; shift 2 ;;
+    --from=*)        from_name="${1#--from=}"; shift ;;
+    --to)            to_name="${2:-}"; shift 2 ;;
+    --to=*)          to_name="${1#--to=}"; shift ;;
+    --target)        target="${2:-}"; shift 2 ;;
+    --target=*)      target="${1#--target=}"; shift ;;
+    --user-root)     user_root="${2:-}"; shift 2 ;;
+    --user-root=*)   user_root="${1#--user-root=}"; shift ;;
+    --plugin-root)   plugin_root="${2:-}"; shift 2 ;;
+    --plugin-root=*) plugin_root="${1#--plugin-root=}"; shift ;;
+    --dry-run)       dry_run=true; shift ;;
+    --json)          json_output=true; shift ;;
+    --yes)           yes=true; shift ;;
+    -h|--help)       sed -n '3,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
   esac
 done
@@ -63,9 +73,11 @@ target="$(cd "$target" && pwd)"
 # Letting stderr through turns "cannot resolve source profile: foo"
 # (useless) into the actual jsonschema diagnostic that pinpoints what
 # field is malformed.
-from_json=$("${_script_dir}/load-profile.sh" "$from_name") \
+from_json=$("${_script_dir}/load-profile.sh" "$from_name" \
+  --user-root "$user_root" --plugin-root "$plugin_root") \
   || nyann::die "cannot resolve source profile: $from_name"
-to_json=$("${_script_dir}/load-profile.sh" "$to_name") \
+to_json=$("${_script_dir}/load-profile.sh" "$to_name" \
+  --user-root "$user_root" --plugin-root "$plugin_root") \
   || nyann::die "cannot resolve target profile: $to_name"
 
 # --- Compute diff -----------------------------------------------------------

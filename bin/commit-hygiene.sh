@@ -52,7 +52,7 @@ fi
 # Heuristic: top-level segment of each staged file (modules/, src/, etc.).
 # When all staged paths agree on the same segment, that's the primary.
 # Workspaces in monorepos use the first non-trivial directory.
-staged_files=$(git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null || true)
+staged_files=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRD 2>/dev/null || true)
 scopes_raw=""
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
@@ -77,7 +77,7 @@ scope_suggestion=$(jq -n --argjson scopes "$scopes_json" --argjson primary "$pri
 
 # --- 2. Incomplete staging ---------------------------------------------------
 # Source<->test pairings and lockfile drift. Pure heuristic.
-modified_unstaged=$(git diff --name-only 2>/dev/null || true)
+modified_unstaged=$(git -c core.quotePath=false diff --name-only 2>/dev/null || true)
 
 incomplete='[]'
 add_incomplete() {
@@ -92,14 +92,19 @@ is_modified_unstaged() {
 
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
-  case "$f" in
+  # Resolve sibling paths relative to the manifest's own directory so
+  # monorepo workspace manifests (packages/app/package.json) pair with
+  # their adjacent lockfile, not the repo-root one.
+  fdir="$(dirname "$f")"
+  sib() { if [[ "$fdir" == "." ]]; then printf '%s' "$1"; else printf '%s/%s' "$fdir" "$1"; fi; }
+  case "${f##*/}" in
     package.json)
-      if is_modified_unstaged "package-lock.json" || is_modified_unstaged "pnpm-lock.yaml" || is_modified_unstaged "yarn.lock"; then
+      if is_modified_unstaged "$(sib package-lock.json)" || is_modified_unstaged "$(sib pnpm-lock.yaml)" || is_modified_unstaged "$(sib yarn.lock)"; then
         add_incomplete "$f" "lockfile" "package.json staged but lockfile is modified-but-unstaged"
       fi
       ;;
     package-lock.json|pnpm-lock.yaml|yarn.lock)
-      if is_modified_unstaged "package.json"; then
+      if is_modified_unstaged "$(sib package.json)"; then
         add_incomplete "$f" "package.json" "lockfile staged but package.json is modified-but-unstaged"
       fi
       ;;
@@ -159,15 +164,25 @@ while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   [[ -f "$f" ]] || continue
   line=0
+  in_hunk=0
   while IFS= read -r dline; do
+    # The diff file header (`--- a/..`, `+++ b/..`) only appears before the
+    # first `@@` hunk. After a hunk has started, a line beginning `+++ ` or
+    # `--- ` is genuine added/removed content (e.g. `+++ marker`), not a
+    # header — so only skip header lines while in_hunk is still 0.
+    if (( ! in_hunk )); then
+      case "$dline" in
+        '+++ '*|'--- '*) continue ;;
+      esac
+    fi
     case "$dline" in
-      '+++ '*) continue ;;
       '@@ '*)
         # Hunk header `@@ -a,b +c,d @@` — seed line counter at c - 1.
         plus=${dline#*+}
         plus=${plus%% *}
         start=${plus%%,*}
         line=$((start - 1))
+        in_hunk=1
         continue
         ;;
       '+'*)

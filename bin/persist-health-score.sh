@@ -63,6 +63,14 @@ if [[ ! -f "$health_file" ]]; then
   exit 0
 fi
 
+# Lock the read→modify→write window. The `mv` below is atomic, but
+# without a lock two concurrent persists (CI matrix, pre-push hook +
+# manual run) both read the same `existing` and the second writer's
+# `mv` clobbers the first writer's appended entry. mkdir-based lock is
+# portable (macOS has no flock). Release on every exit path via trap.
+nyann::lock "$health_file.lock"
+trap 'nyann::unlock "$health_file.lock"' EXIT
+
 existing=$(cat "$health_file")
 
 # Dedup: skip if last entry has same score
@@ -97,7 +105,10 @@ updated=$(jq '
 ' <<<"$updated")
 
 health_tmp=$(mktemp -t nyann-health.XXXXXX)
-trap 'rm -f "$health_tmp"' EXIT
+# Replace (not append) the EXIT trap so it cleans up BOTH the temp file
+# and the lock — a second `trap ... EXIT` overwrites the lock-release
+# trap installed above, so the unlock must be folded in here.
+trap 'rm -f "$health_tmp"; nyann::unlock "$health_file.lock"' EXIT
 printf '%s\n' "$updated" > "$health_tmp"
 mv "$health_tmp" "$health_file"
 

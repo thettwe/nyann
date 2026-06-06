@@ -27,15 +27,6 @@ Happy path:
 5. On `result: rejected` for `stage: commit-msg`, regenerate with the
    hook's reason folded in. Cap at 2 retries.
 
-## Flags
-
-- `--edit-message`  don't commit automatically; show the message and
-  let the user tweak it before commit.
-- `--amend`         amend the previous commit instead of creating a new
-  one (skill validates there's no remote history to worry about).
-- `--no-retry`      skip the retry loop on hook rejection (surface
-  immediately). Useful for CI.
-
 ## When not to trigger
 
 - The user is on `main` / `master` — warn about the block-main hook and

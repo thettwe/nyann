@@ -69,7 +69,7 @@ if git -C "$target" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
 fi
 
 # Find the last tag for this workspace
-last_tag=$(git -C "$target" tag --list "${tag_prefix}*" --sort=-v:refname 2>/dev/null | head -n1)
+last_tag=$(git -C "$target" -c versionsort.suffix=- tag --list "${tag_prefix}*" --sort=-v:refname 2>/dev/null | head -n1)
 if [[ -n "$last_tag" ]]; then
   from_ref="$last_tag"
 else

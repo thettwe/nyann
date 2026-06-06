@@ -111,6 +111,12 @@ now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 append_notification() {
   local pr_no="$1" severity="$2" msg="$3" context_json="${4-{}}"
   local notif_file="$notif_dir/${repo_hash}.jsonl"
+  # Hold the SAME named lock the reader uses (read-notifications.sh derives
+  # it from the same queue path) so an append can't land in the inode the
+  # reader is about to mv-then-rm. Lock name = "${notif_file}.lock". Keep
+  # the hold time minimal — just the jq + append redirect.
+  local lock_dir="${notif_file}.lock"
+  nyann::lock "$lock_dir"
   jq -n \
     --arg ts "$(now)" \
     --arg source "sentinel" \
@@ -119,6 +125,7 @@ append_notification() {
     --argjson context "$context_json" \
     '{timestamp:$ts, source:$source, severity:$severity, message:$message, context:$context}' \
     >> "$notif_file"
+  nyann::unlock "$lock_dir"
 }
 
 poll_pr() {

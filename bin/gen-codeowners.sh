@@ -92,20 +92,48 @@ if $has_ws; then
   done < <(jq -c '.[]' "$ws_configs_path")
 fi
 
-# Layer 2: derived owners from git history (middle precedence)
+# Layer 2: derived owners from git history (middle precedence).
+# derive-codeowners.sh emits suggested_owner="" when it couldn't map the
+# top committer to a CODEOWNERS-valid owner (@handle / @org/team /
+# email). A bare display name must never be written as an active owner —
+# GitHub rejects it and the rule is silently inert. So: emit an active
+# rule only when suggested_owner is non-empty; otherwise drop a
+# `# suggested:` comment naming the top committer for manual handle
+# assignment (no inert rule reaches the file).
 if $has_derived; then
-  while IFS=$'\t' read -r d_path d_owner; do
-    [[ -z "$d_path" || -z "$d_owner" ]] && continue
-    codeowners_lines="${codeowners_lines}${d_path} ${d_owner}"$'\n'
-  done < <(jq -r '.[] | [.path, .suggested_owner] | @tsv' "$derived_owners_path" 2>/dev/null)
+  # Read one entry per line (NDJSON) and pull each field with jq. A
+  # tab-joined @tsv won't work here: an empty suggested_owner field
+  # produces consecutive tabs, and `read` with a whitespace IFS (tab is
+  # whitespace) collapses them — shifting the name into the owner slot
+  # and re-introducing the bare-name bug this code is meant to prevent.
+  while IFS= read -r d_entry; do
+    [[ -z "$d_entry" ]] && continue
+    d_path=$(jq -r '.path // ""' <<<"$d_entry")
+    d_owner=$(jq -r '.suggested_owner // ""' <<<"$d_entry")
+    d_name=$(jq -r '.suggested_name // ""' <<<"$d_entry")
+    [[ -z "$d_path" || "$d_path" == "null" ]] && continue
+    if [[ -n "$d_owner" && "$d_owner" != "null" ]]; then
+      codeowners_lines="${codeowners_lines}${d_path} ${d_owner}"$'\n'
+    elif [[ -n "$d_name" && "$d_name" != "null" ]]; then
+      codeowners_lines="${codeowners_lines}# suggested: ${d_path} — top committer \"${d_name}\"; assign a @handle or @org/team manually"$'\n'
+    fi
+  done < <(jq -c '.[]' "$derived_owners_path" 2>/dev/null)
 fi
 
-# Layer 3: explicit profile owners (highest precedence — listed last, CODEOWNERS uses last-match-wins)
+# Layer 3: explicit profile owners (highest precedence — listed last, CODEOWNERS uses last-match-wins).
+# Guard two ways a malformed entry would otherwise corrupt the output:
+#   - missing `owners` → jq `.owners | join(...)` raises "Cannot iterate
+#     over null" (exit 5) and aborts the script. `.owners // []` makes it
+#     an empty join, which we then skip.
+#   - missing `pattern` → jq -r prints the literal string "null", which a
+#     `-z` test won't catch, producing a bogus `null @owner` rule. Reject
+#     empty AND the literal "null" explicitly.
 if $has_profile_owners; then
   while IFS= read -r po_entry; do
-    po_pattern=$(jq -r '.pattern' <<<"$po_entry")
-    po_owners=$(jq -r '.owners | join(" ")' <<<"$po_entry")
-    [[ -z "$po_pattern" || -z "$po_owners" ]] && continue
+    po_pattern=$(jq -r '.pattern // ""' <<<"$po_entry")
+    po_owners=$(jq -r '.owners // [] | join(" ")' <<<"$po_entry")
+    [[ -z "$po_pattern" || "$po_pattern" == "null" ]] && continue
+    [[ -z "$po_owners" ]] && continue
     codeowners_lines="${codeowners_lines}${po_pattern} ${po_owners}"$'\n'
   done < <(jq -c '.[]' "$profile_owners_path")
 fi

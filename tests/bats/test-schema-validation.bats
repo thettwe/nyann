@@ -331,6 +331,69 @@ JSON
     env HOME="$fake_home" bash "${REPO_ROOT}/bin/sync-team-profiles.sh" --user-root "$fake_home/.claude/nyann"
 }
 
+@test "team-sync-result schema: --check-updates shape with updates_available validates" {
+  # The --check-updates path adds a top-level updates_available[] array of
+  # team-profile-changelog elements when a pinned source is behind. Rather
+  # than stand up a real behind-by-N pinned remote, synthesize an object of
+  # the exact shape sync-team-profiles.sh emits (see the jq at
+  # bin/sync-team-profiles.sh:412-419 and the changelog item builder at
+  # :196-204) and confirm it validates — i.e. the schema no longer rejects
+  # the field via additionalProperties:false.
+  cat > "$TMP/out.json" <<'JSON'
+{
+  "synced": [],
+  "skipped": [],
+  "registered": [],
+  "invalid": [],
+  "updates_available": [
+    {
+      "source_name": "acme",
+      "pinned_at": "v1.0.0",
+      "latest": "v1.2.0",
+      "commits_behind": 3,
+      "changed_profiles": ["profiles/backend.json"],
+      "commit_log": [
+        { "sha": "abc1234", "subject": "feat: add backend profile" },
+        { "sha": "def5678", "subject": "fix: tighten hook" }
+      ]
+    }
+  ]
+}
+JSON
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/team-sync-result.schema.json" "$TMP/out.json"
+}
+
+# --- DerivedCodeowners (derive-codeowners.sh) -------------------------------
+
+@test "derived-codeowners schema: derive-codeowners output validates" {
+  # Build a couple of authored commits per top-level dir so the script
+  # crosses its --min-commits threshold and emits a non-empty array. The
+  # noreply-github email derives an @handle owner; the plain email derives
+  # an email owner — exercising both suggested_owner branches.
+  ( cd "$REPO"
+    mkdir -p src docs
+    for i in 1 2 3 4 5; do
+      echo "s$i" >> src/file.txt
+      git -c user.email="42+alice@users.noreply.github.com" -c user.name="Alice W" add -A
+      git -c user.email="42+alice@users.noreply.github.com" -c user.name="Alice W" commit -q -m "feat: s$i"
+    done
+    for i in 1 2 3 4 5; do
+      echo "d$i" >> docs/readme.md
+      git -c user.email="bob@example.com" -c user.name="Bob Real" add -A
+      git -c user.email="bob@example.com" -c user.name="Bob Real" commit -q -m "docs: d$i"
+    done
+  )
+  validate_stdout_against derived-codeowners.schema.json \
+    bash "${REPO_ROOT}/bin/derive-codeowners.sh" --target "$REPO" --min-commits 5
+}
+
+@test "derived-codeowners schema: empty result (below threshold) validates as []" {
+  # No dir reaches --min-commits → script emits []. Must still validate as
+  # an array per the top-level schema type.
+  validate_stdout_against derived-codeowners.schema.json \
+    bash "${REPO_ROOT}/bin/derive-codeowners.sh" --target "$REPO" --min-commits 99
+}
+
 # --- GhIntegrationResult (gh-integration.sh) --------------------------------
 
 @test "gh-integration-result schema: skipped path emits valid shape (no gh)" {
@@ -355,7 +418,9 @@ EOF
   fake_home="$TMP/home"
   mkdir -p "$fake_home/.claude/nyann"
   run bash "${REPO_ROOT}/bin/setup.sh" --check --json --user-root "$fake_home/.claude/nyann"
-  [ "$status" -eq 0 ]
+  # Documented contract: exit 2 when no preferences.json exists yet; the JSON
+  # status payload is still emitted (and must validate against the schema).
+  [ "$status" -eq 2 ]
   echo "$output" > "$TMP/out.json"
   "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/setup-status.schema.json" "$TMP/out.json"
 }
@@ -457,4 +522,15 @@ JSON
     bash -c 'echo "{\"writes\":[],\"commands\":[],\"remote\":[]}"; exit 1'
   [ "$status" -ne 0 ]
   echo "$output" | grep -Fq "producer exited 1"
+}
+
+# --- Every schema is itself a valid JSON Schema -----------------------------
+# Guards against a malformed schema (bad metaschema, dangling $ref) shipping
+# unnoticed. check-jsonschema --check-metaschema validates each schema
+# document against the draft 2020-12 metaschema.
+
+@test "all schemas are valid JSON Schema (metaschema check)" {
+  run "${VALIDATE[@]}" --check-metaschema "${REPO_ROOT}"/schemas/*.schema.json
+  if [ "$status" -ne 0 ]; then echo "$output" >&2; fi
+  [ "$status" -eq 0 ]
 }

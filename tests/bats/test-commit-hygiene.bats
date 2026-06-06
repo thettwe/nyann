@@ -92,6 +92,32 @@ EOF
   [ "$count" -eq 0 ]
 }
 
+@test "incomplete staging: monorepo workspace package.json + unstaged sibling lockfile" {
+  mkdir -p "$REPO/packages/app"
+  echo '{}' > "$REPO/packages/app/package.json"
+  echo '{"lockfileVersion":1}' > "$REPO/packages/app/package-lock.json"
+  ( cd "$REPO" && git add packages/app/package.json packages/app/package-lock.json \
+      && git commit -q -m "chore: deps" )
+  # Modify both, stage only the workspace manifest.
+  echo '{"name":"app"}' > "$REPO/packages/app/package.json"
+  echo '{"lockfileVersion":1,"x":1}' > "$REPO/packages/app/package-lock.json"
+  ( cd "$REPO" && git add packages/app/package.json )
+  out=$(bash "$REPO_ROOT/bin/commit-hygiene.sh" --target "$REPO")
+  echo "$out" | jq -e '.incomplete_staging[] | select(.staged == "packages/app/package.json" and .missing == "lockfile")'
+}
+
+@test "debug artifacts: added line starting with ++ is flagged (not a header)" {
+  mkdir -p "$REPO/src"
+  echo "let z = 1;" > "$REPO/src/h.ts"
+  ( cd "$REPO" && git add src/h.ts && git commit -q -m "feat: h" )
+  # Added content line whose text begins with `++ ` — the diff renders it as
+  # `+++ ...`, which must not be mistaken for a file header.
+  printf '%s\n' "let z = 1;" "++ TODO: remove this" > "$REPO/src/h.ts"
+  ( cd "$REPO" && git add src/h.ts )
+  out=$(bash "$REPO_ROOT/bin/commit-hygiene.sh" --target "$REPO")
+  echo "$out" | jq -e '.debug_artifacts[] | select(.match == "TODO")'
+}
+
 @test "custom patterns from --patterns override defaults" {
   echo "let x = 1; // BUG: bad" > "$REPO/c.ts"
   ( cd "$REPO" && git add c.ts )
