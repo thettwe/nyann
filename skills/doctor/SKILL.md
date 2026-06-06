@@ -60,7 +60,7 @@ series in `memory/health.json`).
 
 ## 4. Sections in the report
 
-The output has five blocks. When the user asks "what does each section
+The output has several blocks. When the user asks "what does each section
 mean?", explain in terms of the repo, not nyann internals:
 
 - **MISSING:** files the profile expects but the repo lacks (e.g. no
@@ -93,6 +93,17 @@ mean?", explain in terms of the repo, not nyann internals:
   and count-claim drift (opt-in per profile). Driven by
   `bin/docs-drift-scan.sh`. Critical/high findings escalate the exit
   code (mirrors GitHub protection); medium/low are advisory.
+- **IAC DRIFT:** IaC source (`*.tf`, `Chart.yaml`, `Pulumi*.yaml`,
+  `*.tfvars`, Ansible vars) scanned for committed secrets (critical),
+  unpinned module refs / providers / deps (high), missing lockfiles and
+  Helm `appVersion` lag (medium). Filesystem + git only — no
+  `terraform plan`, no cloud calls. Driven by `bin/iac-drift-scan.sh`,
+  gated per profile via `iac.drift_check.{enabled, unpinned_refs,
+  missing_lockfile, secrets_in_vars, version_lag}`. Critical/high
+  findings escalate the exit code (mirrors public-doc drift); medium/low
+  are advisory. Silent on non-infra repos. Like public-doc drift, this
+  is score-isolated — it shapes the exit code but not the numeric health
+  score.
 
 The protection block respects nyann's gh-best-effort invariant — it
 never prompts for credentials and never blocks the audit. When `gh`

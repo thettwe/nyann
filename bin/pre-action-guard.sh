@@ -53,9 +53,9 @@ esac
 # Per-flow built-in guard list. The order matters: dependencies first
 # (e.g., staged files exist before scanning the staged diff).
 case "$flow" in
-  commit)  builtin_guards=( staged-files-exist merge-conflict-markers ) ;;
+  commit)  builtin_guards=( staged-files-exist merge-conflict-markers unpinned-iac-refs ) ;;
   pr)      builtin_guards=( branch-pushed wip-commits ) ;;
-  release) builtin_guards=( clean-tree ) ;;
+  release) builtin_guards=( clean-tree committed-secrets unpinned-iac-refs ) ;;
   ship)    builtin_guards=( branch-pushed wip-commits ) ;;
 esac
 
@@ -129,8 +129,11 @@ for g in "${effective_guards[@]}"; do
     idx=$((idx+1))
     continue
   fi
-  # Each guard takes target, optional base. Capture stdout; ignore stderr.
-  if ! bash "$guard_script" "$target" "$base" > "$tmp/${idx}.json" 2>/dev/null; then
+  # Each guard takes target, optional base, optional resolved-profile path.
+  # The profile is forwarded so IaC guards can read iac.drift_check toggles
+  # (gating + the demotable secrets gate); guards that don't need it ignore
+  # the 3rd positional arg. Capture stdout; ignore stderr.
+  if ! bash "$guard_script" "$target" "$base" "$profile_file" > "$tmp/${idx}.json" 2>/dev/null; then
     jq -n --arg name "$g" \
       '{name:$name,pass:false,severity:"advisory",skipped:true,message:"guard execution failed"}' \
       > "$tmp/${idx}.json"

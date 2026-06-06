@@ -663,6 +663,24 @@
               }
             }
           }
+        },
+        "drift_check": {
+          "$comment": "v1.13.0 (I8) — IaC drift governance. Read by bin/iac-drift-scan.sh, doctor's iac-drift probe, and the unpinned-iac-refs/committed-secrets guards. Flat-boolean per-detector toggles (mirroring documentation.readme_badges, and matching the spec's flag names verbatim). Master `enabled` short-circuits the whole subsystem. All additive and default-on; absent block = all detectors run.",
+          "type": "object",
+          "additionalProperties": false,
+          "description": "IaC drift governance. Master `enabled` plus per-detector boolean toggles. Read by bin/iac-drift-scan.sh.",
+          "properties": {
+            "enabled":          { "type": "boolean", "default": true, "description": "Master switch. false short-circuits the iac-drift scan to an empty report." },
+            "unpinned_refs":    { "type": "boolean", "default": true, "description": "Toggle the unpinned-refs detector (moving module refs, unpinned providers/deps). Severity: high." },
+            "missing_lockfile": { "type": "boolean", "default": true, "description": "Toggle the missing-lockfile detector (.terraform.lock.hcl / Chart.lock / Pulumi plugins). Severity: medium." },
+            "secrets_in_vars":  { "type": "boolean", "default": true, "description": "Toggle the secrets-in-vars detector (committed credentials in var files). Severity: critical." },
+            "version_lag":      { "type": "boolean", "default": true, "description": "Toggle the version-lag detector (Helm appVersion behind the latest git tag). Severity: medium." },
+            "scanned_files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional explicit scan set (repo-relative paths). Overrides the default multi-pattern find when present."
+            }
+          }
         }
       }
     }

@@ -10,7 +10,14 @@
     "package_manager": "npm"
   },
   "iac": {
-    "tool": "aws-cdk"
+    "tool": "aws-cdk",
+    "drift_check": {
+      "enabled": true,
+      "unpinned_refs": true,
+      "missing_lockfile": false,
+      "secrets_in_vars": true,
+      "version_lag": false
+    }
   },
   "branching": {
     "strategy": "trunk-based",

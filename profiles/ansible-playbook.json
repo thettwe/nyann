@@ -57,7 +57,14 @@
     "tool": "ansible",
     "units": [
       { "kind": "playbook", "path": "site.yml", "name": "site" }
-    ]
+    ],
+    "drift_check": {
+      "enabled": true,
+      "unpinned_refs": false,
+      "missing_lockfile": false,
+      "secrets_in_vars": true,
+      "version_lag": false
+    }
   },
   "documentation": {
     "use_archetype_scaffolds": true,

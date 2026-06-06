@@ -51,7 +51,14 @@
     ]
   },
   "iac": {
-    "tool": "pulumi"
+    "tool": "pulumi",
+    "drift_check": {
+      "enabled": true,
+      "unpinned_refs": true,
+      "missing_lockfile": true,
+      "secrets_in_vars": true,
+      "version_lag": false
+    }
   },
   "documentation": {
     "use_archetype_scaffolds": true,
