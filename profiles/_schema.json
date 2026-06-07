@@ -83,7 +83,7 @@
         "package_manager": {
           "oneOf": [
             { "type": "null" },
-            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix", "opentofu"] }
+            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix", "terraform", "opentofu"] }
           ]
         }
       }

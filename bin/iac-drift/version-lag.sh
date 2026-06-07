@@ -31,7 +31,16 @@ base="$(basename "$file")"
 [[ "$base" == "Chart.yaml" ]] || exit 0
 
 if [[ -z "$latest_tag" ]]; then
-  latest_tag=$( cd "$target" && git describe --tags --abbrev=0 2>/dev/null || echo "" )
+  # Standalone fallback (no --latest-tag passed). Prefer repo-wide SemVer
+  # tags and IGNORE namespaced per-unit tags (e.g. the I10 per-unit Helm
+  # release `umbrella-2.1.0`): `git describe --abbrev=0` would return such a
+  # tag, which then strips to a non-numeric base and masks a genuine lag.
+  latest_tag=$(
+    cd "$target" \
+      && git tag --list --sort=-v:refname 2>/dev/null \
+         | grep -E '^v?[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.+-]+)?$' \
+         | head -n1 || echo ""
+  )
 fi
 # Skip when no git tags — there is no release line to lag behind.
 [[ -n "$latest_tag" ]] || exit 0
@@ -40,6 +49,13 @@ fi
 latest_clean="${latest_tag#v}"
 latest_clean="${latest_clean%%-*}"
 latest_clean="${latest_clean%%+*}"
+
+# Defence-in-depth: a non-numeric comparison base (e.g. a namespaced tag
+# like `umbrella-2.1.0` whose pre-`-` segment is `umbrella`) would parse as
+# 0.0.0 in semver_lt and silently mask EVERY appVersion lag. Refuse to
+# compare against a base that is not a numeric-leading version — stay
+# advisory (exit 0), do not crash.
+[[ "$latest_clean" =~ ^[0-9]+(\.[0-9]+)*$ ]] || exit 0
 
 semver_lt() {
   # Returns 0 if $1 < $2 (numeric semver comparison).

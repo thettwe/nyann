@@ -51,9 +51,12 @@ cd "$target" || nyann::die "cd $target failed"
 # .git are pruned because they hold downloaded/derived state, not source.
 declare -a scanned=()
 if [[ -n "$files_override" ]]; then
+  # Restore IFS to its default afterward rather than `unset`-ing it: under
+  # `set -o nounset`, an unbound IFS is fatal the moment any later code reads
+  # `$IFS` (the path-traversal guard below does, via nyann::path_under_target).
   IFS=','
   for f in $files_override; do scanned+=("$f"); done
-  unset IFS
+  IFS=$' \t\n'
 elif [[ -n "$profile_file" && -f "$profile_file" ]]; then
   while IFS= read -r f; do
     [[ -n "$f" ]] && scanned+=("$f")
@@ -90,12 +93,37 @@ if (( ${#scanned[@]} == 0 )); then
   )
 fi
 
+# Path-traversal guard. --files and profile scanned_files[] are operator-/
+# profile-controlled; a `../`-prefixed entry satisfies the per-detector
+# `[[ -f "$target/$f" ]]` existence check while pointing OUTSIDE the repo,
+# leaking external file content into the report (and via doctor / guards).
+# The `[[ -f ]]` test alone is not a containment check. Resolve every entry
+# through nyann::path_under_target "$target" (canonicalises `..` and follows
+# symlinks) and DROP any that escape the repo root, warning so the operator
+# sees the skip. The find-default set is already in-tree and passes; this is
+# load-bearing only for the user/profile-supplied lists. Runs after the
+# `cd "$target"` above so relative entries resolve against the repo root.
+if (( ${#scanned[@]} )); then
+  declare -a _safe_scanned=()
+  for f in "${scanned[@]}"; do
+    if nyann::path_under_target "$target" "$f" >/dev/null 2>&1; then
+      _safe_scanned+=("$f")
+    else
+      nyann::warn "iac-drift: skipping scanned entry outside repo root: $f"
+    fi
+  done
+  # Reassign without expanding a possibly-empty array (bash 3.2 + nounset
+  # errors on "${arr[@]}" when arr is empty — happens if every entry escaped).
+  scanned=()
+  (( ${#_safe_scanned[@]} )) && scanned=( "${_safe_scanned[@]}" )
+fi
+
 # Resolve detector list.
 declare -a detectors=()
 if [[ -n "$detectors_override" ]]; then
   IFS=','
   for d in $detectors_override; do detectors+=("$d"); done
-  unset IFS
+  IFS=$' \t\n'
 else
   detectors=( unpinned-refs missing-lockfile secrets-in-vars version-lag )
 fi
@@ -137,7 +165,25 @@ if [[ -n "$profile_file" && -f "$profile_file" ]]; then
   fi
 fi
 
-latest_tag=$( git describe --tags --abbrev=0 2>/dev/null || echo "" )
+# Resolve the comparison tag for version-lag. `git describe --tags
+# --abbrev=0` returns the single most-recent tag of ANY shape — including a
+# namespaced per-unit tag like `umbrella-2.1.0` or `charts/foo-1.0.0` from
+# the I10 per-unit Helm release flow. version-lag.sh strips a `-suffix`, so
+# `umbrella-2.1.0` collapses to `umbrella` → parses as 0.0.0 → a genuine
+# appVersion lag is silently masked. Instead, prefer repo-wide SemVer tags:
+# enumerate tags, keep only the strict `v?MAJOR.MINOR[.PATCH]` shape (a
+# numeric-leading version with NO namespace prefix and NO `/`), and take the
+# version-max via `-v:refname` sort. Namespaced per-unit tags are ignored.
+# Empty when the repo has no repo-wide release tag — version-lag then no-ops.
+# grep exits 1 on no-match and `head` can SIGPIPE git mid-stream; under
+# `set -o errexit -o pipefail` either would abort the scan. `|| true` keeps
+# the assignment advisory — no repo-wide release tag just yields an empty tag.
+latest_tag=$(
+  git tag --list --sort=-v:refname 2>/dev/null \
+    | grep -E '^v?[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.+-]+)?$' \
+    | head -n1 || true
+)
+latest_tag="${latest_tag:-}"
 
 findings_tmp=$(mktemp -t nyann-iac-drift.XXXXXX)
 trap 'rm -f "$findings_tmp"' EXIT

@@ -406,6 +406,97 @@ EOF
   [ "$count" -eq 0 ]
 }
 
+# BUG 9 lock: version-lag must flag a genuine appVersion lag in a repo that
+# ALSO carries a namespaced per-unit tag (the I10 per-unit Helm release flow,
+# e.g. `umbrella-2.1.0`). `git describe --abbrev=0` would surface that tag,
+# which strips to a non-numeric base and masks the lag. Tag resolution must
+# prefer the repo-wide SemVer tag v3.0.0 over the namespaced one.
+@test "version-lag: genuine lag flagged despite a namespaced per-unit chart tag" {
+  mkdir -p "$REPO/chart"
+  cat > "$REPO/chart/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: app
+version: 0.1.0
+appVersion: "2.0.0"
+EOF
+  # Order matters: create the repo-wide SemVer tag FIRST, then the namespaced
+  # per-unit tag on a later commit so `git describe --abbrev=0` would pick the
+  # namespaced one (most-recent) — exactly the masking scenario.
+  ( cd "$REPO" \
+      && git add -A && git commit -q -m chart \
+      && git tag v3.0.0 \
+      && git commit -q --allow-empty -m "chart release" \
+      && git tag umbrella-2.1.0 )
+  out=$(scan --detectors version-lag --files chart/Chart.yaml)
+  # appVersion 2.0.0 lags repo-wide tag v3.0.0 → flagged, expected 3.0.0
+  # (NOT umbrella-2.1.0, which would otherwise mask via a 0.0.0 base).
+  echo "$out" | jq -e '.findings[] | select(.kind == "version-lag" and .current == "2.0.0" and .expected == "3.0.0")'
+}
+
+# BUG 9 lock (negative): a repo whose ONLY tag is namespaced per-unit must NOT
+# spuriously flag — there is no repo-wide release line to lag behind, and the
+# namespaced tag must never be parsed as a 0.0.0 comparison base.
+@test "version-lag: namespaced-only tag → no repo-wide base → silent" {
+  mkdir -p "$REPO/chart"
+  cat > "$REPO/chart/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: app
+version: 0.1.0
+appVersion: "2.0.0"
+EOF
+  ( cd "$REPO" && git add -A && git commit -q -m chart && git tag umbrella-2.1.0 )
+  out=$(scan --detectors version-lag --files chart/Chart.yaml)
+  count=$(echo "$out" | jq '[.findings[] | select(.kind == "version-lag")] | length')
+  [ "$count" -eq 0 ]
+}
+
+# BUG 8 lock (SECURITY): --files with a `../`-traversal entry points OUTSIDE
+# the repo. The per-detector `[[ -f "$target/$f" ]]` check is satisfied by the
+# escaping path, so without a containment guard the external file's content
+# leaks into the report. The traversal entry MUST be skipped: absent from
+# scanned_files[] and contributing zero findings.
+@test "traversal: --files ../escape.tf outside repo is NOT scanned or reported" {
+  # Place an external file OUTSIDE the repo (in $TMP, the repo's parent) that
+  # WOULD trip unpinned-refs if it were scanned.
+  cat > "$TMP/escape.tf" <<'EOF'
+module "leak" {
+  source = "git::https://github.com/org/mod.git?ref=main"
+}
+EOF
+  cat > "$REPO/main.tf" <<'EOF'
+module "ok" { source = "git::https://github.com/org/mod.git?ref=v1.0.0" }
+EOF
+  commit_all
+  # Capture stdout only — the skip emits a warn to stderr (which `run` would
+  # fold into $output and break the JSON parse). Assert exit 0 separately.
+  run scan --detectors unpinned-refs --files ../escape.tf,main.tf
+  [ "$status" -eq 0 ]
+  out=$(scan --detectors unpinned-refs --files ../escape.tf,main.tf 2>/dev/null)
+  # The traversal entry must NOT appear in the scanned set.
+  echo "$out" | jq -e 'all(.scanned_files[]; . != "../escape.tf")'
+  # And nothing from the external file leaked into findings.
+  echo "$out" | jq -e '[.findings[] | select(.kind == "unpinned-ref")] | length == 0'
+}
+
+# BUG 8 lock: same guard via the profile scanned_files[] path (not just
+# --files). A `../`-prefixed profile entry must be dropped identically.
+@test "traversal: profile scanned_files[] ../escape.tf is NOT scanned or reported" {
+  cat > "$TMP/escape.tf" <<'EOF'
+module "leak" { source = "git::https://github.com/org/mod.git?ref=main" }
+EOF
+  cat > "$REPO/main.tf" <<'EOF'
+module "ok" { source = "git::https://github.com/org/mod.git?ref=v1.0.0" }
+EOF
+  commit_all
+  prof="$TMP/p.json"
+  jq -n '{iac:{drift_check:{scanned_files:["../escape.tf","main.tf"]}}}' > "$prof"
+  run scan --detectors unpinned-refs --profile "$prof"
+  [ "$status" -eq 0 ]
+  out=$(scan --detectors unpinned-refs --profile "$prof" 2>/dev/null)
+  echo "$out" | jq -e 'all(.scanned_files[]; . != "../escape.tf")'
+  echo "$out" | jq -e '[.findings[] | select(.kind == "unpinned-ref")] | length == 0'
+}
+
 # --- profile gating ----------------------------------------------------------
 
 @test "profile: master enabled=false short-circuits to empty report" {

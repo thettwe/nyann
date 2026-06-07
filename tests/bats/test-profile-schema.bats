@@ -97,6 +97,14 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+# BUG 10 lock: stack.package_manager = "terraform" must validate. The
+# stack-descriptor schema already lists "terraform"; the profile schema
+# omitted it, so a profile pinning package_manager:"terraform" was rejected.
+@test "fixture: valid-pm-terraform → exit 0 (package_manager terraform)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/valid-pm-terraform.json"
+  [ "$status" -eq 0 ]
+}
+
 @test "starter: terraform-monorepo.json → exit 0" {
   run bash "$VALIDATE" "${REPO_ROOT}/profiles/terraform-monorepo.json"
   [ "$status" -eq 0 ]
