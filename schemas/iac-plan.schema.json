@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/iac-plan/v1.json",
+  "title": "IacPlan",
+  "description": "Normalized output of bin/iac-plan.sh — the tool-agnostic plan/diff summary for one IaC unit. Produced by detecting iac.tool, dispatching to bin/iac-plan/<tool>.sh, and normalizing whatever machine-readable output the tool offers (terraform `show -json`, pulumi `preview --json`, cdk diff parse) into a common shape. helm/kubernetes/kustomize/ansible are ADVISORY in v1.13.0: they emit a text diff, summary counts are 0, and `destructive` is reported via the `destructive_known:false` flag (treated as potentially-destructive by the apply gate). Read-only — iac-plan.sh never mutates infrastructure; it only previews. Soft-skips (status:'skipped') when the tool CLI or its backend/credentials are absent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "tool", "unit", "summary", "destructive", "destructive_known"],
+  "properties": {
+    "schema_version": {
+      "description": "IacPlan schema version. Bump in lockstep with the schema's $id when v2 ships.",
+      "const": 1
+    },
+    "status": {
+      "description": "planned: the tool produced a plan (structured or advisory). skipped: the CLI, backend, or credentials were absent, so no plan ran (soft-skip; exit 0). refused: a precondition failed (e.g. unknown tool, --unit escapes target).",
+      "type": "string",
+      "enum": ["planned", "skipped", "refused"]
+    },
+    "tool": {
+      "description": "The detected iac.tool that produced this plan (long-form, schema-aligned). Empty string only when status is skipped/refused before a tool was resolved.",
+      "type": "string",
+      "enum": ["terraform", "opentofu", "aws-cdk", "pulumi", "kubernetes", "kustomize", "helm", "ansible", ""]
+    },
+    "unit": {
+      "description": "Repo-relative path of the planned unit ('.' for the root unit). The whole target when --unit was not passed.",
+      "type": "string"
+    },
+    "summary": {
+      "description": "Resource action counts parsed from the plan. For ADVISORY tools (helm/k8s/kustomize/ansible) and for skipped/refused plans these are all 0 — absence of a count is NOT a claim that the change is non-destructive (see destructive_known).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["add", "change", "destroy"],
+      "properties": {
+        "add":     { "type": "integer", "minimum": 0, "description": "Resources to be created." },
+        "change":  { "type": "integer", "minimum": 0, "description": "Resources to be updated in place." },
+        "destroy": { "type": "integer", "minimum": 0, "description": "Resources to be destroyed/replaced. Drives the destructive-apply gate." }
+      }
+    },
+    "destructive": {
+      "description": "True when this plan would destroy or replace at least one resource. For structured tools this is `summary.destroy > 0`. For ADVISORY tools it is conservatively TRUE (we cannot prove safety from a text diff), paired with destructive_known:false so the apply layer demands --confirm-destroy.",
+      "type": "boolean"
+    },
+    "destructive_known": {
+      "description": "True when the destructive verdict was derived from a structured, machine-readable plan (terraform/opentofu/pulumi/aws-cdk). False for ADVISORY text-diff tools (helm/kubernetes/kustomize/ansible) where destruction cannot be reliably counted in v1.13.0 — the apply gate treats destructive_known:false as potentially-destructive.",
+      "type": "boolean"
+    },
+    "raw_path": {
+      "description": "Absolute path to the captured raw tool output (terraform plan binary's JSON, pulumi preview JSON, or the advisory text diff) written under a private temp/working dir. Present when status is planned. NEVER contains credentials; MAY contain resource addresses and config values, so it is written outside the repo (never committed) and referenced by path only — the IacPlan JSON itself carries no raw plan contents.",
+      "type": "string"
+    },
+    "message": {
+      "description": "Human-readable detail — the soft-skip reason (status:skipped), the refusal reason (status:refused), or a one-line summary line (status:planned).",
+      "type": "string"
+    }
+  }
+}
