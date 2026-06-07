@@ -98,7 +98,17 @@ if [[ -n "$unit" ]]; then
   if ! unit_dir="$(nyann::path_under_target "$target" "$target/$unit" 2>/dev/null)"; then
     emit_refused "$tool" "$unit_label" "--unit escapes target directory: $unit"
   fi
-  [[ -d "$unit_dir" ]] || emit_refused "$tool" "$unit_label" "--unit is not a directory: $unit"
+  # The documented "plan a specific discovered stack" workflow hands
+  # iac.units[].path to --unit, and for CDK/Pulumi that path is a stack
+  # DESCRIPTOR FILE (cdk.json / Pulumi.yaml / a per-stack file), not a dir. The
+  # CDK/Pulumi adapters cd to the app root anyway, so when --unit resolves to a
+  # file we use its containing directory as the working dir (the traversal guard
+  # above already ran on the resolved path, so the parent dir is in-bounds too).
+  if [[ -f "$unit_dir" ]]; then
+    unit_dir="$(dirname "$unit_dir")"
+  elif [[ ! -d "$unit_dir" ]]; then
+    emit_refused "$tool" "$unit_label" "--unit does not exist: $unit"
+  fi
 else
   unit_dir="$target"
 fi
@@ -115,7 +125,12 @@ case "$tool" in
   kubernetes) adapter="kubernetes.sh" ;;
   kustomize)  adapter="kustomize.sh" ;;
   ansible)    adapter="ansible.sh" ;;
-  *) emit_refused "$tool" "$unit_label" "unsupported iac.tool: $tool" ;;
+  # Unknown tool: the raw $tool string is NOT in the schema's tool enum
+  # (terraform|opentofu|aws-cdk|pulumi|kubernetes|kustomize|helm|ansible|""),
+  # so emit tool:"" to keep the refused IacPlan schema-valid. The message still
+  # carries the raw name for the operator. Valid-tool refusals below (path
+  # traversal, missing adapter, adapter failure) keep their real $tool.
+  *) emit_refused "" "$unit_label" "unsupported iac.tool: $tool" ;;
 esac
 
 adapter_path="${_script_dir}/iac-plan/${adapter}"

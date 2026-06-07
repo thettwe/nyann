@@ -76,6 +76,17 @@ if [[ -z "$plan_file" || ! -f "$plan_file" ]]; then
   exit 0
 fi
 
+# FAIL CLOSED on an empty / whitespace-only / unparseable plan. A 0-byte file
+# makes `jq -r 'if ... then "true" else "false"'` exit 0 with NO output, so the
+# `destructive=""` would fall through to the non-destructive branch and the gate
+# would PASS (gate-not-required) — a fail-OPEN hole on the most critical gate.
+# Require a non-empty file that parses to a JSON object before trusting any
+# field below; anything else cannot prove safety ⇒ refuse.
+if [[ ! -s "$plan_file" ]] || ! jq -e 'type == "object"' "$plan_file" >/dev/null 2>&1; then
+  emit false "IacPlan is empty or not a JSON object — cannot prove safety, refusing to authorize apply"
+  exit 0
+fi
+
 # DEFENSIVE: do not trust .destructive alone — a crafted plan claiming
 # {summary.destroy:9, destructive:false} must NOT slip past this gate. A plan
 # is destructive if it says so, OR has a destroy count, OR destructiveness is

@@ -179,9 +179,18 @@ else
 fi
 
 # --- resolve the unit dir for the apply command ------------------------------
+# Mirror iac-plan.sh's resolution: --unit may point at a stack DESCRIPTOR FILE
+# (CDK/Pulumi: cdk.json / Pulumi.yaml / a per-stack file) rather than a dir. The
+# apply commands `cd "$unit_dir"`, so when --unit resolves to a file we use its
+# containing directory (the traversal guard already vetted the resolved path).
 if [[ -n "$unit" ]]; then
   if ! unit_dir="$(nyann::path_under_target "$target" "$target/$unit" 2>/dev/null)"; then
     nyann::die "--unit escapes target directory: $unit"
+  fi
+  if [[ -f "$unit_dir" ]]; then
+    unit_dir="$(dirname "$unit_dir")"
+  elif [[ ! -d "$unit_dir" ]]; then
+    nyann::die "--unit does not exist: $unit"
   fi
 else
   unit_dir="$target"
@@ -221,7 +230,15 @@ case "$tool" in
     ;;
   helm)
     apply_cli="helm"
-    apply_cmd=(helm upgrade --install "$(basename "$unit_dir")" .)
+    # The release name is the unit-dir basename. A chart dir / --unit named e.g.
+    # `-rf` or `--namespace` would otherwise reach `helm upgrade --install` as a
+    # bare flag token and inject helm options (redirecting the install to the
+    # wrong cluster/namespace) during THE highest-stakes mutator. Reject a
+    # leading-dash name cleanly (matches release-workspace.sh:133), AND pass the
+    # name after a `--` separator so helm can never parse it as a flag.
+    helm_release="$(basename "$unit_dir")"
+    [[ "$helm_release" == -* ]] && nyann::die "helm release name '$helm_release' starts with '-' (helm would parse it as an option); rename the chart dir"
+    apply_cmd=(helm upgrade --install -- "$helm_release" .)
     apply_label="helm upgrade --install"
     ;;
   kubernetes)

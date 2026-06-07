@@ -264,6 +264,34 @@ EOF
   echo "$out" | jq -e '.pass == false'
 }
 
+# --- BUG 6 LOCK: empty / whitespace plan must FAIL CLOSED -------------------
+
+@test "guard: 0-byte plan file FAILS CLOSED (not gate-not-required)" {
+  # A 0-byte plan makes `jq -r 'if ... then "true" else "false"'` exit 0 with NO
+  # output, which would set destructive="" and PASS the gate as not-required — a
+  # fail-OPEN hole. The guard must refuse an empty plan.
+  : > "$TMP/empty.json"
+  out=$(bash "$REPO_ROOT/bin/guards/iac-apply-confirmation.sh" \
+    --plan "$TMP/empty.json" --confirm-destroy false --confirmed false)
+  echo "$out" | jq -e '.pass == false'
+  # Must NOT report itself as a satisfied not-required no-op.
+  echo "$out" | jq -e '(.skipped // false) == false'
+}
+
+@test "guard: whitespace-only plan file FAILS CLOSED" {
+  printf '   \n\t\n' > "$TMP/ws.json"
+  out=$(bash "$REPO_ROOT/bin/guards/iac-apply-confirmation.sh" \
+    --plan "$TMP/ws.json" --confirm-destroy false --confirmed false)
+  echo "$out" | jq -e '.pass == false'
+}
+
+@test "guard: non-object plan (bare array/scalar) FAILS CLOSED" {
+  printf '[]' > "$TMP/arr.json"
+  out=$(bash "$REPO_ROOT/bin/guards/iac-apply-confirmation.sh" \
+    --plan "$TMP/arr.json" --confirm-destroy true --confirmed true)
+  echo "$out" | jq -e '.pass == false'
+}
+
 @test "guard: advisory plan (destructive_known false) is treated destructive" {
   echo '{"destructive":true,"destructive_known":false,"summary":{"add":0,"change":0,"destroy":0}}' > "$TMP/p.json"
   # Without confirm-destroy → fail.
@@ -296,4 +324,67 @@ EOF
   out="$(apply --apply 2>/dev/null)"
   rec="$(echo "$out" | jq -r '.record_path')"
   "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/iac-apply-record.schema.json" "$rec"
+}
+
+# --- BUG 4 LOCK: helm apply release-name option injection -------------------
+
+@test "helm apply: a '-' release name is rejected OR only reaches helm after --" {
+  # A chart dir / --unit named like a flag (-rf / --namespace) must never reach
+  # `helm upgrade --install` as a bare token during the highest-stakes mutator.
+  # Supply a destructive advisory plan via --plan so we drive the helm apply
+  # path directly, with --unit pointing at the dangerous dir.
+  cat > "$STUB/helm" <<STUB
+#!/usr/bin/env bash
+echo "helm \$*" >> "$TMP/calls.log"
+exit 0
+STUB
+  chmod +x "$STUB/helm"
+  mkdir -p "$REPO/-rf"
+  cat > "$REPO/-rf/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: c
+version: 0.1.0
+EOF
+  cat > "$TMP/helmplan.json" <<'JSON'
+{"schema_version":1,"status":"planned","tool":"helm","unit":"-rf","summary":{"add":0,"change":0,"destroy":0},"destructive":true,"destructive_known":false}
+JSON
+  run env NYANN_IAC_TOOL=helm bash "$REPO_ROOT/bin/iac-apply.sh" \
+    --target "$REPO" --unit -rf --plan "$TMP/helmplan.json" --apply --confirm-destroy
+  # Either apply refused/died on the dangerous name, or helm ran with `--`.
+  if grep -q 'helm upgrade' "$TMP/calls.log" 2>/dev/null; then
+    line="$(grep 'helm upgrade' "$TMP/calls.log" | tail -1)"
+    before="${line%% -- *}"
+    echo "$before" | grep -vqw -- '-rf'   # bare -rf must NOT precede the separator
+    echo "$line" | grep -q -- ' -- '      # the -- separator must be present
+  else
+    # No helm invocation ⇒ apply rejected the name before constructing argv.
+    [ "$status" -ne 0 ]
+  fi
+}
+
+# --- BUG 7 LOCK: apply --unit may be a stack DESCRIPTOR FILE -----------------
+
+@test "apply --unit pointing at a Pulumi stack FILE resolves to its dir" {
+  # Mirror the plan side: iac.units[].path is a FILE for CDK/Pulumi. apply must
+  # accept it (resolve to the containing dir) instead of dying on cd into a file.
+  cat > "$STUB/pulumi" <<STUB
+#!/usr/bin/env bash
+echo "pulumi \$*" >> "$TMP/calls.log"
+if [ "\$1" = "preview" ]; then echo '{"changeSummary":{"create":1,"same":0}}'; exit 0; fi
+if [ "\$1" = "up" ]; then echo "[stub] pulumi up"; exit 0; fi
+exit 0
+STUB
+  chmod +x "$STUB/pulumi"
+  mkdir -p "$REPO/stacks/prod"
+  cat > "$REPO/stacks/prod/Pulumi.yaml" <<'EOF'
+name: infra
+runtime: nodejs
+EOF
+  # Capture stdout (JSON) only — tool/log output streams to stderr.
+  out="$(NYANN_IAC_TOOL=pulumi bash "$REPO_ROOT/bin/iac-apply.sh" \
+    --target "$REPO" --unit stacks/prod/Pulumi.yaml --apply 2>/dev/null)"; rc=$?
+  [ "$rc" -eq 0 ]
+  echo "$out" | jq -e '.status == "applied"'
+  # pulumi up must have run in the stack's DIRECTORY, not been refused.
+  grep -q 'pulumi up' "$TMP/calls.log"
 }
