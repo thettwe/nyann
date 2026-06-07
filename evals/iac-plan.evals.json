@@ -1,0 +1,22 @@
+{
+  "skill": "iac-plan",
+  "trigger_cases": [
+    { "prompt": "terraform plan this",                          "should_trigger": true,  "tag": "tf-plan" },
+    { "prompt": "preview my infra change",                      "should_trigger": true,  "tag": "infra-preview" },
+    { "prompt": "what will this deploy change",                 "should_trigger": true,  "tag": "what-deploys" },
+    { "prompt": "cdk diff",                                     "should_trigger": true,  "tag": "cdk-diff" },
+    { "prompt": "pulumi preview the stack",                     "should_trigger": true,  "tag": "pulumi-preview" },
+    { "prompt": "show me the terraform diff before applying",   "should_trigger": true,  "tag": "tf-diff" },
+    { "prompt": "dry-run the infrastructure change",            "should_trigger": true,  "tag": "infra-dry-run" },
+    { "prompt": "helm diff this chart",                         "should_trigger": true,  "tag": "helm-diff" },
+    { "prompt": "kubectl diff for this overlay",                "should_trigger": true,  "tag": "kubectl-diff" },
+    { "prompt": "/nyann:plan",                                  "should_trigger": true,  "tag": "slash" },
+    { "prompt": "plan a feature for the login flow",            "should_trigger": false, "tag": "feature-plan-distractor" },
+    { "prompt": "plan my sprint",                               "should_trigger": false, "tag": "sprint-plan-distractor" },
+    { "prompt": "let's plan the refactor",                      "should_trigger": false, "tag": "refactor-plan-distractor" },
+    { "prompt": "make a plan before you edit the code",         "should_trigger": false, "tag": "exitplanmode-distractor" },
+    { "prompt": "apply the terraform change now",               "should_trigger": false, "tag": "apply-intent-is-iac-apply" },
+    { "prompt": "what's a good way to plan my week?",           "should_trigger": false, "tag": "informational-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

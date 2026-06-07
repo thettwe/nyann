@@ -1,0 +1,21 @@
+{
+  "skill": "iac-apply",
+  "trigger_cases": [
+    { "prompt": "terraform apply this",                         "should_trigger": true,  "tag": "tf-apply" },
+    { "prompt": "apply the infra change",                       "should_trigger": true,  "tag": "infra-apply" },
+    { "prompt": "deploy this infrastructure",                   "should_trigger": true,  "tag": "deploy-infra" },
+    { "prompt": "cdk deploy the stack",                         "should_trigger": true,  "tag": "cdk-deploy" },
+    { "prompt": "pulumi up now",                                "should_trigger": true,  "tag": "pulumi-up" },
+    { "prompt": "helm upgrade this release",                    "should_trigger": true,  "tag": "helm-upgrade" },
+    { "prompt": "kubectl apply the manifests",                  "should_trigger": true,  "tag": "kubectl-apply" },
+    { "prompt": "provision this terraform module",             "should_trigger": true,  "tag": "provision" },
+    { "prompt": "/nyann:apply",                                 "should_trigger": true,  "tag": "slash" },
+    { "prompt": "apply this code patch",                        "should_trigger": false, "tag": "patch-distractor" },
+    { "prompt": "apply the review suggestion",                  "should_trigger": false, "tag": "suggestion-distractor" },
+    { "prompt": "apply prettier formatting",                    "should_trigger": false, "tag": "formatting-distractor" },
+    { "prompt": "apply the database migration",                 "should_trigger": false, "tag": "db-migration-distractor" },
+    { "prompt": "just preview the terraform change",            "should_trigger": false, "tag": "preview-only-is-iac-plan" },
+    { "prompt": "apply for the job",                            "should_trigger": false, "tag": "unrelated-apply-distractor" }
+  ],
+  "output_quality_scenarios": []
+}
