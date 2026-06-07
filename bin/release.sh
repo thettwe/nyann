@@ -258,7 +258,38 @@ if [[ -n "$workspace_path" ]] || $all_workspaces || [[ -n "$iac_units_file" ]]; 
 
   while IFS=$'\t' read -r ws ws_kind ws_name; do
     [[ -z "$ws" ]] && continue
-    [[ -d "$target/$ws" ]] || { nyann::warn "workspace not found: $ws"; continue; }
+
+    # A unit path that is not a directory must NOT be silently dropped — doing
+    # so let the run still report status:"released" with workspaces:[] (a false
+    # success that tagged NOTHING). Two non-dir shapes are handled HONESTLY:
+    #
+    #   - A FILE path (CDK `lib/db-stack.ts`, Pulumi `Pulumi.prod.yaml`): a real
+    #     unit, but NOT independently path-releasable in nyann's per-workspace
+    #     model — there is no per-unit directory to host <path>/CHANGELOG.md (the
+    #     path IS a file), and CDK/Pulumi stacks carry no version manifest to
+    #     bump and no depends_on (cross-stack edges live in program code; see
+    #     discover-iac-units.sh). Record a `skipped` result with a clear reason
+    #     so the operator sees it; never a phantom `released`.
+    #   - A path that exists as neither file nor dir: a genuinely missing unit.
+    #     Record an `error` result (the existing non-zero exit path then fires).
+    #
+    # Either way the unit is captured in workspaces[] and counted, so the
+    # all-dropped case can no longer masquerade as a plain success.
+    if [[ ! -d "$target/$ws" ]]; then
+      if [[ -e "$target/$ws" ]]; then
+        nyann::warn "release: unit '$ws' is a file path, not a releasable directory (CDK/Pulumi stack files are not independently path-releasable); skipping"
+        ws_result=$(jq -n --arg ws "$ws" --arg kind "${ws_kind:-}" \
+          '{workspace:$ws, status:"skipped", reason:"file-path unit is not independently releasable (no per-unit directory for a CHANGELOG; no version manifest or depends_on)"}
+           + (if $kind != "" then {unit_kind:$kind} else {} end)')
+      else
+        nyann::warn "release: unit path not found: $ws"
+        ws_result=$(jq -n --arg ws "$ws" --arg kind "${ws_kind:-}" \
+          '{workspace:$ws, status:"error", reason:"unit path not found"}
+           + (if $kind != "" then {unit_kind:$kind} else {} end)')
+      fi
+      ws_results=$(jq --argjson r "$ws_result" '. + [$r]' <<<"$ws_results")
+      continue
+    fi
 
     ws_unit_args=()
     [[ -n "${ws_kind:-}" ]] && ws_unit_args+=(--kind "$ws_kind")
@@ -326,10 +357,27 @@ if [[ -n "$workspace_path" ]] || $all_workspaces || [[ -n "$iac_units_file" ]]; 
     done
   fi
 
+  ws_total=$(jq 'length' <<<"$ws_results")
   ws_error_count=$(jq '[.[] | select(.status == "error")] | length' <<<"$ws_results")
+  # A dry-run unit reports status "preview"; a real release reports "released".
+  ws_released_count=$(jq '[.[] | select(.status == "released" or .status == "preview")] | length' <<<"$ws_results")
+
+  # Top-level status must reflect what actually happened, so an all-dropped run
+  # can NEVER report a plain "released":
+  #   - >=1 unit released/previewed -> "released"
+  #   - 0 released, but units WERE requested and at least one was a clean
+  #     skip/noop (e.g. all units are CDK/Pulumi file paths, or all unchanged)
+  #     -> "noop" (honest: nothing was tagged, but nothing errored either)
+  #   - any "error" entry -> "released"/"noop" by the rule above, but the
+  #     non-zero exit below still surfaces it.
+  if (( ws_released_count > 0 )); then
+    overall_status="released"
+  else
+    overall_status="noop"
+  fi
 
   jq -n \
-    --arg status "released" \
+    --arg status "$overall_status" \
     --arg strategy "$strategy" \
     --arg version "$version" \
     --argjson workspaces "$ws_results" \
@@ -337,7 +385,19 @@ if [[ -n "$workspace_path" ]] || $all_workspaces || [[ -n "$iac_units_file" ]]; 
     '{status:$status, strategy:$strategy, version:$version, workspaces:$workspaces}
      + (if $dry_run then {dry_run:true} else {} end)'
 
+  # Non-zero exit when the run did not honestly succeed:
+  #   - any unit errored, OR
+  #   - units were requested but NONE were released (the all-dropped case BUG 1
+  #     used to mask as exit 0). A run where every unit is an up-to-date noop is
+  #     fine (released_count counts releases only), so the all-noop case is NOT
+  #     forced non-zero — but the all-file-path/all-missing case, which lands
+  #     here with skipped/error entries and zero releases, IS.
   if (( ws_error_count > 0 )); then
+    exit 1
+  fi
+  ws_skipped_count=$(jq '[.[] | select(.status == "skipped")] | length' <<<"$ws_results")
+  if (( ws_released_count == 0 && ws_total > 0 && ws_skipped_count > 0 )); then
+    nyann::warn "release: requested $ws_total unit(s) but released 0 — $ws_skipped_count skipped as not independently releasable. Nothing was tagged."
     exit 1
   fi
   exit 0

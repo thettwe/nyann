@@ -411,3 +411,106 @@ JSON
   echo "$out" | jq -e '.workspaces[0] | has("unit_kind") | not'
   git -C "$repo" rev-parse --verify "refs/tags/core@1.0.0" >/dev/null 2>&1
 }
+
+# ────────────────────────────────────────────────────────────────────
+# Cluster-1 regression locks (BUG 1 / 2 / 3)
+# ────────────────────────────────────────────────────────────────────
+
+# BUG 1 — a CDK/Pulumi stack carries a FILE path (e.g. lib/db-stack.ts,
+# Pulumi.prod.yaml). Such a unit is not independently path-releasable (no
+# per-unit directory for a CHANGELOG, no version manifest, no depends_on), so it
+# was silently dropped while release.sh still claimed status:"released" with
+# workspaces:[] and exit 0 — a phantom success that tagged NOTHING. Lock that a
+# file-path unit is NEVER a false success: it must be reported HONESTLY
+# (a non-released status, the unit visible in workspaces[], non-zero exit) and
+# tag nothing. (We chose to report file-path units honestly rather than invent a
+# changelog location for them — see release.sh's BUG 1 comment.)
+@test "release.sh --iac-units: CDK/Pulumi file-path unit is NOT a false success" {
+  repo="$TMP/cdkfile-$BATS_TEST_NUMBER-$RANDOM"
+  mkdir -p "$repo/lib"
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.email "test@test"
+  git -C "$repo" config user.name "test"
+  echo '{"app":"npx ts-node bin/app.ts"}' > "$repo/cdk.json"
+  echo 'export class DbStack {}' > "$repo/lib/db-stack.ts"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "feat: scaffold cdk app"
+  echo '// change' >> "$repo/lib/db-stack.ts"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "fix(db): change db stack"
+  # detect-stack emits CDK stacks with FILE paths; mirror that shape exactly.
+  cat > "$repo/units.json" <<'JSON'
+[
+  {"kind":"stack","path":"lib/db-stack.ts","name":"db-stack","version":null}
+]
+JSON
+  # Honest failure: zero of one requested unit released -> NOT plain success.
+  run bash "$RELEASE" --target "$repo" --version 1.2.0 \
+    --iac-units "$repo/units.json" --yes
+  [ "$status" -ne 0 ]
+  # Parse the JSON from a clean stdout-only capture (the run above also captures
+  # the honest stderr warnings, which would break jq).
+  out=$(bash "$RELEASE" --target "$repo" --version 1.2.0 \
+    --iac-units "$repo/units.json" --yes 2>/dev/null) || true
+  # The unit is visible (never silently dropped) and reported honestly.
+  echo "$out" | jq -e '.status != "released"'
+  echo "$out" | jq -e '.workspaces | length == 1'
+  echo "$out" | jq -e '.workspaces[0].workspace == "lib/db-stack.ts"'
+  echo "$out" | jq -e '.workspaces[0].status != "released"'
+  # NOTHING was tagged — the core invariant.
+  ! git -C "$repo" rev-parse --verify "refs/tags/lib/db-stack.ts/v1.2.0" >/dev/null 2>&1
+  [ -z "$(git -C "$repo" tag -l)" ]
+}
+
+# BUG 2 — for kind=chart the tag prefix is `<name>-`, so the last-tag glob
+# `app-*` ALSO matched sibling chart `app-worker`'s tags (app-worker-2.0.0).
+# That wrong from-ref yielded zero app-scoped commits -> a silent noop, never
+# tagging app. Lock that chart `app` releases off its OWN `app-1.0.0` baseline.
+@test "release.sh --iac-units: chart releases off its own baseline, not a sibling chart's tag" {
+  repo="$TMP/sibling-$BATS_TEST_NUMBER-$RANDOM"
+  mkdir -p "$repo/charts/app" "$repo/charts/app-worker"
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.email "test@test"
+  git -C "$repo" config user.name "test"
+  printf 'apiVersion: v2\nname: app\nversion: 1.0.0\n' > "$repo/charts/app/Chart.yaml"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "feat: scaffold app chart"
+  git -C "$repo" tag "app-1.0.0"
+  # app changes NOW (between app-1.0.0 and the later sibling tag).
+  echo '# app change' >> "$repo/charts/app/Chart.yaml"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "fix: touch app chart"
+  # Sibling chart app-worker is created and tagged LATER (higher version). The
+  # buggy `app-*` glob would pick app-worker-2.0.0 as app's baseline.
+  printf 'apiVersion: v2\nname: app-worker\nversion: 2.0.0\n' > "$repo/charts/app-worker/Chart.yaml"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "feat: add app-worker chart"
+  git -C "$repo" tag "app-worker-2.0.0"
+  cat > "$repo/units.json" <<'JSON'
+[
+  {"kind":"chart","path":"charts/app","name":"app","version":"1.0.0"}
+]
+JSON
+  out=$(bash "$RELEASE" --target "$repo" --version 1.1.0 \
+    --iac-units "$repo/units.json" --batch-commit --yes 2>/dev/null)
+  app=$(echo "$out" | jq -c '.workspaces[] | select(.workspace == "charts/app")')
+  # Baseline is app's OWN last tag, not the sibling's.
+  echo "$app" | jq -e '.from == "app-1.0.0"'
+  echo "$app" | jq -e '.status == "released"'
+  echo "$app" | jq -e '.commits | length >= 1'
+  echo "$app" | jq -e '.tag == "app-1.1.0"'
+  # The real tag exists.
+  git -C "$repo" rev-parse --verify "refs/tags/app-1.1.0" >/dev/null 2>&1
+}
+
+# BUG 3 — a chart/unit name containing a shell-glob metacharacter (* ? [) would
+# produce an invalid tag pattern and false-matching --list globs. Lock that such
+# a name fails CLEANLY (a guarded die), not via a mis-glob or git-option abort.
+@test "release-workspace: a chart name with a glob metacharacter fails cleanly" {
+  repo=$(make_iac_repo)
+  run bash "$WS_RELEASE" --target "$repo" --workspace charts/app --version 0.4.0 \
+    --kind chart --name 'app*'
+  [ "$status" -ne 0 ]
+  [ "$status" -ne 129 ]   # not a git "unknown option" abort
+  echo "$output" | grep -F "shell-glob metacharacter"
+}

@@ -134,6 +134,19 @@ if [[ "$tag" == -* ]]; then
   nyann::die "release-workspace: tag '$tag' starts with '-' (git would parse it as an option); rename the unit"
 fi
 
+# A tag must not contain shell-glob metacharacters (* ? [). The tag (via its
+# prefix) is spliced into `git tag --list "<prefix>*"` patterns below: a name
+# like `app*` yields the pattern `app**` which FALSE-MATCHES unrelated tags
+# (picking a wrong from-ref -> silent noop), and `[` opens a never-closed
+# bracket class making the pattern undefined. Names/paths come from detection
+# (a Helm Chart.yaml `name:`, a stack filename) and the profile schema forbids
+# these chars, but a malformed descriptor could carry them — reject cleanly
+# before any git call rather than mis-glob. The leading-dash guard above only
+# catches '-'; this covers the glob metachars.
+if [[ "$tag" == *[*?[]* ]]; then
+  nyann::die "release-workspace: tag '$tag' contains a shell-glob metacharacter (* ? [); these break the tag-list globs used to find the last tag — rename the unit"
+fi
+
 # Collision guard: a per-unit tag must NEVER equal a repo-wide release tag
 # `vX.Y.Z`. The path-scoped / chart-name prefixes make this structurally
 # impossible, but guard explicitly so a hand-passed --tag-prefix that collapses
@@ -147,8 +160,16 @@ if git -C "$target" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
   nyann::die "release-workspace: tag $tag already exists"
 fi
 
-# Find the last tag for this workspace
-last_tag=$(git -C "$target" -c versionsort.suffix=- tag --list --sort=-v:refname -- "${tag_prefix}*" 2>/dev/null | head -n1)
+# Find the last tag for this workspace. Anchor the glob to a DIGIT after the
+# prefix (`<prefix>[0-9]*`, not `<prefix>*`): a SemVer version always starts
+# with a digit, so this matches THIS unit's own version tags only. The bare
+# `<prefix>*` for a chart prefix `app-` also matched a SIBLING chart's tags —
+# `app-worker-2.0.0` — picking a wrong from-ref and silently producing a noop
+# (the app change since `app-1.0.0` looked empty against the worker baseline).
+# Anchoring is safe for every convention because the version directly follows
+# the prefix in all of them: chart `app-` -> `app-[0-9]*`, module/stack
+# `<path>/v` -> `<path>/v[0-9]*`, code `<name>@` -> `<name>@[0-9]*`.
+last_tag=$(git -C "$target" -c versionsort.suffix=- tag --list --sort=-v:refname -- "${tag_prefix}[0-9]*" 2>/dev/null | head -n1)
 if [[ -n "$last_tag" ]]; then
   from_ref="$last_tag"
 else
