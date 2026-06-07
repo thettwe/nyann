@@ -81,6 +81,7 @@ gh_release=false
 profile_path=""
 workspace_path=""
 all_workspaces=false
+iac_units_file=""
 batch_commit=false
 
 while [[ $# -gt 0 ]]; do
@@ -118,6 +119,8 @@ while [[ $# -gt 0 ]]; do
     --workspace)      workspace_path="${2:-}"; shift 2 ;;
     --workspace=*)    workspace_path="${1#--workspace=}"; shift ;;
     --all-workspaces) all_workspaces=true; shift ;;
+    --iac-units)      iac_units_file="${2:-}"; shift 2 ;;
+    --iac-units=*)    iac_units_file="${1#--iac-units=}"; shift ;;
     --batch-commit)   batch_commit=true; shift ;;
     -h|--help)        sed -n '3,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "unknown argument: $1" ;;
@@ -203,10 +206,33 @@ tag="${tag_prefix}${version}"
 # When --workspace or --all-workspaces is set, delegate to release-workspace.sh
 # instead of the single-repo flow below.
 
-if [[ -n "$workspace_path" ]] || $all_workspaces; then
+if [[ -n "$workspace_path" ]] || $all_workspaces || [[ -n "$iac_units_file" ]]; then
   ws_results='[]'
 
-  if [[ -n "$workspace_path" ]]; then
+  # ws_list is a TAB-separated stream: `path<TAB>kind<TAB>name`. Code workspaces
+  # carry empty kind/name (no --kind passed -> v1.11.0 behavior, unchanged). IaC
+  # units carry their kind/name and are emitted in dependency-FIRST topological
+  # order so a bumped module is tagged before a chart that references it.
+  if [[ -n "$iac_units_file" ]]; then
+    [[ -f "$iac_units_file" ]] || nyann::die "--iac-units file not found: $iac_units_file"
+    jq -e 'type == "array"' "$iac_units_file" >/dev/null 2>&1 \
+      || nyann::die "--iac-units must be a JSON array of units"
+    # Topo-order the unit PATHS (dependency-first), then join each path back to
+    # its {kind,name} from the units file. release.sh owns the ordering; the
+    # cycle-safe best-effort fallback lives in topo-order-units.sh (never aborts).
+    _ordered_paths=$("${_release_dir}/topo-order-units.sh" --units-file "$iac_units_file")
+    ws_list=""
+    while IFS= read -r _up; do
+      [[ -z "$_up" ]] && continue
+      _rec=$(jq -r --arg p "$_up" \
+        'map(select(.path == $p)) | .[0] | [.path, (.kind // ""), (.name // "")] | @tsv' \
+        "$iac_units_file")
+      ws_list="${ws_list}${ws_list:+$'\n'}${_rec}"
+    done <<<"$_ordered_paths"
+    if [[ -z "$ws_list" ]]; then
+      nyann::die "--iac-units: no releasable units found"
+    fi
+  elif [[ -n "$workspace_path" ]]; then
     ws_list="$workspace_path"
   else
     if [[ -n "$profile_path" && -f "$profile_path" ]]; then
@@ -230,11 +256,19 @@ if [[ -n "$workspace_path" ]] || $all_workspaces; then
   pending_tags=()
   released_workspaces=()
 
-  while IFS= read -r ws; do
+  while IFS=$'\t' read -r ws ws_kind ws_name; do
     [[ -z "$ws" ]] && continue
     [[ -d "$target/$ws" ]] || { nyann::warn "workspace not found: $ws"; continue; }
 
-    ws_result=$("${_release_dir}/release-workspace.sh" "${ws_args[@]}" --workspace "$ws") || true
+    ws_unit_args=()
+    [[ -n "${ws_kind:-}" ]] && ws_unit_args+=(--kind "$ws_kind")
+    [[ -n "${ws_name:-}" ]] && ws_unit_args+=(--name "$ws_name")
+
+    # Expand ws_unit_args defensively: it is empty for code workspaces and
+    # `set -u` (from _lib.sh) makes a bare "${arr[@]}" on an empty array an
+    # "unbound variable" error on bash 3.2. The +-guard yields nothing when empty.
+    ws_result=$("${_release_dir}/release-workspace.sh" "${ws_args[@]}" --workspace "$ws" \
+      ${ws_unit_args[@]+"${ws_unit_args[@]}"}) || true
     if [[ -z "$ws_result" ]] || ! jq -e . <<<"$ws_result" >/dev/null 2>&1; then
       ws_result=$(jq -n --arg ws "$ws" '{workspace:$ws, status:"error"}')
     fi

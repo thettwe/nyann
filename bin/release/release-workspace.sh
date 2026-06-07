@@ -1,18 +1,37 @@
 #!/usr/bin/env bash
-# release-workspace.sh — release a single workspace within a monorepo.
+# release-workspace.sh — release a single workspace OR IaC unit in a monorepo.
 #
 # Usage:
 #   release-workspace.sh --target <repo> --workspace <path>
 #                        --version <x.y.z> [--tag-prefix <prefix>]
+#                        [--kind module|chart|stack|overlay|role|playbook]
 #                        [--scopes <csv>] [--changelog-mode per-workspace|unified]
 #                        [--dry-run] [--yes]
 #
-# Creates a workspace-scoped changelog section, scoped tag, and optional
-# manifest bumps. Does NOT commit or push — the caller (release.sh)
-# batches workspace releases into a single commit when --batch-commit.
+# Creates a unit-scoped changelog section + scoped tag. Does NOT commit or push
+# — the caller (release.sh) batches releases into a single commit when
+# --batch-commit (tags then land on that commit; ordering owned by release.sh).
+#
+# A "workspace" is any releasable unit:
+#   - code package (package.json / Cargo.toml monorepo) — no --kind, default
+#     scoped tag `<basename>@<version>` (e.g. core@2.1.0). UNCHANGED by I10.
+#   - IaC unit (--kind from the descriptor's iac.units[]) — tool-idiomatic,
+#     COLLISION-SAFE tag prefix derived per kind (see below).
+#
+# Per-kind tag conventions (when --tag-prefix is not given explicitly):
+#   chart   -> `<chart-name>-<version>`   (Helm convention, e.g. app-0.4.0)
+#   module  -> `<unit-path>/v<version>`   (path-scoped, e.g. modules/vpc/v1.3.0)
+#   stack |
+#   overlay |
+#   role |
+#   playbook-> `<unit-path>/v<version>`   (path-scoped)
+# Path-scoping the module/stack tag is what prevents a unit tag from EVER
+# colliding with a repo-wide `vX.Y.Z`: `modules/vpc/v1.3.0` shares no namespace
+# with `v1.3.0`. A chart tag `app-0.4.0` likewise can't equal `vX.Y.Z`. The
+# existing rev-parse tag-exists guard then catches any exact duplicate.
 #
 # Output (JSON on stdout): WorkspaceReleaseResult
-#   { workspace, version, tag, commits[], changelog_section, status }
+#   { workspace, version, tag, commits[], changelog_section, status [, unit_kind] }
 
 set -euo pipefail
 
@@ -26,11 +45,18 @@ target="$PWD"
 workspace=""
 version=""
 tag_prefix=""
+tag_prefix_explicit=false
+kind=""
+unit_name=""
 scope_csv=""
 changelog_mode="per-workspace"
 dry_run=false
+# confirm: --yes is accepted for interface parity with release.sh (which passes
+# it through), but workspace release is non-interactive (no prompt to confirm),
+# so the value is intentionally unread.
 confirm=false
 
+# shellcheck disable=SC2034  # --yes sets confirm for interface parity only; unread (see above)
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)          target="${2:-}"; shift 2 ;;
@@ -39,15 +65,19 @@ while [[ $# -gt 0 ]]; do
     --workspace=*)     workspace="${1#--workspace=}"; shift ;;
     --version)         version="${2:-}"; shift 2 ;;
     --version=*)       version="${1#--version=}"; shift ;;
-    --tag-prefix)      tag_prefix="${2:-}"; shift 2 ;;
-    --tag-prefix=*)    tag_prefix="${1#--tag-prefix=}"; shift ;;
+    --tag-prefix)      tag_prefix="${2:-}"; tag_prefix_explicit=true; shift 2 ;;
+    --tag-prefix=*)    tag_prefix="${1#--tag-prefix=}"; tag_prefix_explicit=true; shift ;;
+    --kind)            kind="${2:-}"; shift 2 ;;
+    --kind=*)          kind="${1#--kind=}"; shift ;;
+    --name)            unit_name="${2:-}"; shift 2 ;;
+    --name=*)          unit_name="${1#--name=}"; shift ;;
     --scopes)          scope_csv="${2:-}"; shift 2 ;;
     --scopes=*)        scope_csv="${1#--scopes=}"; shift ;;
     --changelog-mode)  changelog_mode="${2:-}"; shift 2 ;;
     --changelog-mode=*) changelog_mode="${1#--changelog-mode=}"; shift ;;
     --dry-run)         dry_run=true; shift ;;
     --yes)             confirm=true; shift ;;
-    -h|--help)         sed -n '2,16p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)         sed -n '2,34p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "release-workspace: unknown argument: $1" ;;
   esac
 done
@@ -58,33 +88,92 @@ target="$(cd "$target" && pwd)"
 [[ -n "$version" ]] || nyann::die "release-workspace: --version is required"
 nyann::assert_path_under_target "$target" "$target/$workspace" "--workspace" >/dev/null
 
+if [[ -n "$kind" ]]; then
+  case "$kind" in
+    module|chart|stack|overlay|role|playbook) ;;
+    *) nyann::die "release-workspace: --kind must be one of module|chart|stack|overlay|role|playbook: got '$kind'" ;;
+  esac
+fi
+
 ws_name=$(basename "$workspace")
-if [[ -z "$tag_prefix" ]]; then
-  tag_prefix="${ws_name}@"
+# Prefer the unit's declared name (from iac.units[].name) for chart tags so an
+# umbrella chart whose dir != chart name still tags by chart name; fall back to
+# the path basename.
+[[ -n "$unit_name" ]] || unit_name="$ws_name"
+
+# --- per-unit tag prefix ------------------------------------------------------
+# Default (no --kind): code-workspace convention `<basename>@<version>` —
+# byte-for-byte unchanged. With --kind: tool-idiomatic, COLLISION-SAFE prefix.
+# An explicit --tag-prefix always wins (caller takes responsibility).
+if ! $tag_prefix_explicit || [[ -z "$tag_prefix" ]]; then
+  case "$kind" in
+    chart)
+      # Helm convention: `<chart-name>-<version>` (e.g. app-0.4.0).
+      tag_prefix="${unit_name}-"
+      ;;
+    module|stack|overlay|role|playbook)
+      # Path-scoped: `<unit-path>/v<version>` (e.g. modules/vpc/v1.3.0). The
+      # path prefix structurally guarantees no collision with a repo-wide
+      # `vX.Y.Z` — they share no leading namespace.
+      tag_prefix="${workspace%/}/v"
+      ;;
+    "")
+      # Code workspace — unchanged v1.11.0 default.
+      tag_prefix="${ws_name}@"
+      ;;
+  esac
 fi
 tag="${tag_prefix}${version}"
+
+# A tag (or its prefix) must never start with '-': git would parse it as an
+# option (e.g. in `git tag --list "<prefix>*"`), aborting uncleanly with rc
+# 129 under errexit. Unit names/paths come from detection (e.g. a Helm
+# Chart.yaml `name: -foo`), which can carry a leading dash even though the
+# profile schema forbids it — reject cleanly before any git call.
+if [[ "$tag" == -* ]]; then
+  nyann::die "release-workspace: tag '$tag' starts with '-' (git would parse it as an option); rename the unit"
+fi
+
+# Collision guard: a per-unit tag must NEVER equal a repo-wide release tag
+# `vX.Y.Z`. The path-scoped / chart-name prefixes make this structurally
+# impossible, but guard explicitly so a hand-passed --tag-prefix that collapses
+# to a bare `vX.Y.Z` is rejected before any mutation. (`v` is the repo-wide
+# default tag_prefix in release.sh.)
+if [[ -n "$kind" && "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+  nyann::die "release-workspace: unit tag '$tag' collides with the repo-wide release tag namespace (vX.Y.Z); use a path- or name-scoped --tag-prefix"
+fi
 
 if git -C "$target" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
   nyann::die "release-workspace: tag $tag already exists"
 fi
 
 # Find the last tag for this workspace
-last_tag=$(git -C "$target" -c versionsort.suffix=- tag --list "${tag_prefix}*" --sort=-v:refname 2>/dev/null | head -n1)
+last_tag=$(git -C "$target" -c versionsort.suffix=- tag --list --sort=-v:refname -- "${tag_prefix}*" 2>/dev/null | head -n1)
 if [[ -n "$last_tag" ]]; then
   from_ref="$last_tag"
 else
   from_ref=$(git -C "$target" rev-list --max-parents=0 HEAD 2>/dev/null | head -n1)
 fi
 
-# Collect workspace-scoped commits
+# Collect workspace-scoped commits (pass --kind through for IaC units)
 commits_json=$("${_script_dir}/detect-workspace-changes.sh" \
   --target "$target" --workspace "$workspace" --from "$from_ref" \
-  ${scope_csv:+--scopes "$scope_csv"})
+  ${scope_csv:+--scopes "$scope_csv"} \
+  ${kind:+--kind "$kind"})
+
+# unit_kind fragment: present only for IaC units, so a code-workspace result
+# stays byte-for-byte identical to v1.11.0.
+if [[ -n "$kind" ]]; then
+  kind_obj=$(jq -n --arg k "$kind" '{unit_kind:$k}')
+else
+  kind_obj='{}'
+fi
 
 n_commits=$(jq 'length' <<<"$commits_json")
 if (( n_commits == 0 )); then
   jq -n --arg ws "$workspace" --arg version "$version" --arg tag "$tag" --arg from "$from_ref" \
-    '{workspace:$ws, version:$version, tag:$tag, from:$from, commits:[], changelog_section:"", status:"noop"}'
+    --argjson kind_obj "$kind_obj" \
+    '{workspace:$ws, version:$version, tag:$tag, from:$from, commits:[], changelog_section:"", status:"noop"} + $kind_obj'
   exit 0
 fi
 
@@ -99,7 +188,8 @@ if $dry_run; then
     --arg from "$from_ref" \
     --argjson commits "$commits_json" \
     --arg changelog "$changelog_section" \
-    '{workspace:$ws, version:$version, tag:$tag, from:$from, commits:$commits, changelog_section:$changelog, status:"preview", dry_run:true}'
+    --argjson kind_obj "$kind_obj" \
+    '{workspace:$ws, version:$version, tag:$tag, from:$from, commits:$commits, changelog_section:$changelog, status:"preview", dry_run:true} + $kind_obj'
   exit 0
 fi
 
@@ -123,4 +213,5 @@ jq -n \
   --arg from "$from_ref" \
   --argjson commits "$commits_json" \
   --arg changelog "$changelog_section" \
-  '{workspace:$ws, version:$version, tag:$tag, from:$from, commits:$commits, changelog_section:$changelog, status:"released"}'
+  --argjson kind_obj "$kind_obj" \
+  '{workspace:$ws, version:$version, tag:$tag, from:$from, commits:$commits, changelog_section:$changelog, status:"released"} + $kind_obj'

@@ -328,8 +328,8 @@
               },
               "format": {
                 "type": "string",
-                "enum": ["json-version-key", "toml-version-key", "script"],
-                "description": "How to mutate the file. json-version-key uses jq; toml-version-key sed-edits a single-line `version = \"x.y.z\"` within a section; script invokes a user-provided command with $NEW_VERSION."
+                "enum": ["json-version-key", "toml-version-key", "yaml-version-key", "text-version", "script"],
+                "description": "How to mutate the file. json-version-key uses jq; toml-version-key sed-edits a single-line `version = \"x.y.z\"` within a section; yaml-version-key rewrites a top-level `version:` (Helm Chart.yaml) and optionally `appVersion:`; text-version overwrites a whole-file VERSION sentinel (terraform module); script invokes a user-provided command with $NEW_VERSION."
               },
               "key": {
                 "type": "string",
@@ -347,6 +347,10 @@
                 "type": "string",
                 "maxLength": 512,
                 "description": "script: shell command run with $NEW_VERSION exported. The command is responsible for mutating the file at .path. REQUIRED for script."
+              },
+              "app_version": {
+                "type": "boolean",
+                "description": "yaml-version-key only: when true, ALSO rewrite the chart's `appVersion:` to the release version (mirrors the deployed app's release tag for a paired Helm chart). Ignored by other formats."
               }
             },
             "allOf": [

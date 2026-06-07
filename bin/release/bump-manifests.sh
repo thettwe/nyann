@@ -13,6 +13,14 @@
 #   apply   — reads a previously computed plan and applies the bumps.
 #             Re-verifies file digests for TOCTOU defense.
 #
+# Formats (per release.bump_files[].format):
+#   json-version-key — jq path (.key) into a JSON manifest (package.json).
+#   toml-version-key — single-line `version = "..."` inside [.section] (Cargo.toml).
+#   yaml-version-key — top-level `version:` in a Helm Chart.yaml; set .app_version
+#                      true to ALSO mirror the app release tag into `appVersion:`.
+#   text-version     — whole-file version sentinel (terraform module VERSION file).
+#   script           — user command run with $NEW_VERSION (requires --allow-scripts).
+#
 # Output (JSON on stdout):
 #   compute: { "bumped_files": [...], "plan": [...] }
 #   apply:   { "applied": N }
@@ -51,7 +59,7 @@ while [[ $# -gt 0 ]]; do
     --allow-scripts) allow_scripts=true; shift ;;
     --plan-file)   plan_file="${2:-}"; shift 2 ;;
     --plan-file=*) plan_file="${1#--plan-file=}"; shift ;;
-    -h|--help)     sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)     sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "bump-manifests: unknown argument: $1" ;;
   esac
 done
@@ -193,6 +201,60 @@ _compute() {
             '. + [{path:$p, format:$fmt, payload:$payload, digest:$digest}]' <<<"$plan_json")
         fi
         ;;
+      yaml-version-key)
+        # Helm Chart.yaml: bump the top-level `version:` (the chart's own
+        # SemVer — this drives the chart tag). Optionally mirror the paired
+        # app's release tag into `appVersion:` when .app_version is true (per
+        # I7/I10 spec: appVersion tracks the deployed app, not the chart). The
+        # key is line-oriented YAML, so we extract/replace with awk mirroring
+        # toml-version-key, NOT a YAML parser (no PyYAML dependency at bump time).
+        local app_version_flag yaml_payload
+        app_version_flag=$(jq -r 'if (.app_version // false) then "true" else "false" end' <<<"$entry")
+        current=$(awk '
+          /^[[:space:]]*#/ { next }
+          /^version[[:space:]]*:/ {
+            sub(/^version[[:space:]]*:[[:space:]]*/, "")
+            gsub(/^["'\'']|["'\'']$/, "")
+            sub(/[[:space:]]*(#.*)?$/, "")
+            print; exit
+          }' "$full")
+        [[ -n "$current" ]] \
+          || nyann::die "release.bump_files[$i]: could not find a top-level \`version:\` key in $path"
+        digest=$(_file_digest "$full")
+        # payload encodes whether appVersion is also bumped: "version" or
+        # "version+appVersion". The apply arm dispatches on this.
+        if [[ "$app_version_flag" == "true" ]]; then
+          yaml_payload="version+appVersion"
+        else
+          yaml_payload="version"
+        fi
+        if [[ "$current" == "$version" ]]; then
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"unchanged", from_version:$from}]' <<<"$bumped_files_json")
+        else
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
+          plan_json=$(jq --arg p "$path" --arg fmt "$format" --arg payload "$yaml_payload" --arg digest "$digest" \
+            '. + [{path:$p, format:$fmt, payload:$payload, digest:$digest}]' <<<"$plan_json")
+        fi
+        ;;
+      text-version)
+        # Terraform module VERSION file (or any whole-file version sentinel):
+        # the entire file content IS the version. No in-file key to bump — we
+        # overwrite the file with the new version. Read current as the first
+        # non-blank line so a trailing newline doesn't count as drift.
+        current=$(awk 'NF { sub(/[[:space:]]+$/, ""); print; exit }' "$full")
+        digest=$(_file_digest "$full")
+        if [[ "$current" == "$version" ]]; then
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"unchanged", from_version:$from}]' <<<"$bumped_files_json")
+        else
+          bumped_files_json=$(jq --arg p "$path" --arg fmt "$format" --arg from "$current" \
+            '. + [{path:$p, format:$fmt, action:"bumped", from_version:$from}]' <<<"$bumped_files_json")
+          plan_json=$(jq --arg p "$path" --arg fmt "$format" --arg payload "text" --arg digest "$digest" \
+            '. + [{path:$p, format:$fmt, payload:$payload, digest:$digest}]' <<<"$plan_json")
+        fi
+        ;;
       script)
         command=$(jq -r '.command // empty' <<<"$entry")
         [[ -n "$command" ]] || nyann::die "release.bump_files[$i]: script requires .command"
@@ -273,6 +335,40 @@ _apply() {
           }
           { print }
         ' "$full" > "$tmp"
+        mv "$tmp" "$full"
+        ;;
+      yaml-version-key)
+        # Rewrite the top-level `version:` line. When payload requests it,
+        # also rewrite `appVersion:` to mirror the app's release tag. We touch
+        # ONLY the first top-level occurrence of each key (in-section/nested
+        # keys are indented and skipped by the `^version:` / `^appVersion:`
+        # left-anchor), leaving every other field untouched.
+        tmp=$(mktemp -t nyann-bump-yaml.XXXXXX)
+        awk -v new="$version" -v bump_app="$payload" '
+          BEGIN { vdone=0; adone=0 }
+          !vdone && /^version[[:space:]]*:/ {
+            match($0, /^version[[:space:]]*:[[:space:]]*/)
+            pre = substr($0, 1, RLENGTH)
+            print pre new
+            vdone=1
+            next
+          }
+          (bump_app == "version+appVersion") && !adone && /^appVersion[[:space:]]*:/ {
+            match($0, /^appVersion[[:space:]]*:[[:space:]]*/)
+            pre = substr($0, 1, RLENGTH)
+            print pre "\"" new "\""
+            adone=1
+            next
+          }
+          { print }
+        ' "$full" > "$tmp"
+        mv "$tmp" "$full"
+        ;;
+      text-version)
+        # Whole-file version sentinel (terraform VERSION): overwrite with the
+        # new version + trailing newline.
+        tmp=$(mktemp -t nyann-bump-text.XXXXXX)
+        printf '%s\n' "$version" > "$tmp"
         mv "$tmp" "$full"
         ;;
       script)
