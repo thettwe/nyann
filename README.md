@@ -228,8 +228,10 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:diagnose [--json]` | Bundle a redacted support snapshot. |
 | `/nyann:settings [<key> <value>]` | Interactive preferences menu (or direct `<key> <value>` shortcut). |
 | `/nyann:watch [--pr <n>] [--stop]` | One-shot CI sentinel poll — queues state-transition notifications. |
+| `/nyann:plan [--unit <path>]` | Preview an IaC change (terraform / opentofu / aws-cdk / pulumi / helm / kubernetes / kustomize / ansible) — read-only add/change/destroy summary, never applies. |
+| `/nyann:apply [--unit <path>] [--apply] [--confirm-destroy]` | Apply an IaC change. Opt-in: previews + confirms first; destructive applies require an explicit confirmation. Writes an audit IacApplyRecord. |
 
-All 37 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
+All 39 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
 
 ## Profiles
 
@@ -360,12 +362,12 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 
 ```
 bin/                   # 87 top-level shell scripts + 39 extracted modules + 1 python helper
-commands/              # 37 Claude Code slash-command registrations
+commands/              # 39 Claude Code slash-command registrations
 evals/                 # 24 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse + UserPromptSubmit hooks
 profiles/              # 32 starter profiles (+ _schema.json)
 schemas/               # 62 JSON Schemas for every exchanged shape
-skills/                # 37 skills (SKILL.md, optionally with references/ and scripts/)
+skills/                # 39 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs (incl. iac), husky, docs, CI, memory
 monitors/              # Monitor manifest (monitors.json, currently empty)
 tests/                 # 1583 bats tests + fixtures

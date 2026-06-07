@@ -29,6 +29,7 @@ else
     bin/*.sh
     bin/release/*.sh
     bin/iac-drift/*.sh
+    bin/iac-plan/*.sh
     bin/guards/*.sh
     templates/hooks/pre-commit
     templates/hooks/commit-msg

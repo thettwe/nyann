@@ -87,6 +87,8 @@ identifier consumers can pin against.
 | `dead-code-scan.schema.json` | `bin/dead-code-scan.sh` | `bin/commit-hygiene.sh`, `bin/pre-action-guard.sh` |
 | `docs-drift-report.schema.json` | `bin/docs-drift-scan.sh` | `skills/doctor/SKILL.md` (advisory section in the planned doctor integration), `bin/retrofit.sh --scope docs-drift` (planned auto-fix path) |
 | `iac-drift-report.schema.json` | `bin/iac-drift-scan.sh` (orchestrates `bin/iac-drift/{unpinned-refs,missing-lockfile,secrets-in-vars,version-lag}.sh`) | `bin/doctor.sh` (IAC DRIFT sibling probe), `bin/guards/{unpinned-iac-refs,committed-secrets}.sh`, `skills/doctor/SKILL.md` |
+| `iac-plan.schema.json` | `bin/iac-plan.sh` (dispatches to `bin/iac-plan/<tool>.sh` adapters; normalizes terraform `show -json` / pulumi `preview --json` / cdk diff into a common summary) | `bin/iac-apply.sh` (the gated apply reads the plan summary), `skills/iac-plan/SKILL.md` |
+| `iac-apply-record.schema.json` | `bin/iac-apply.sh` (writes `memory/.nyann/iac-applies/<ts>/manifest.json` after gates pass — NO credentials/state) | audit trail; `skills/iac-apply/SKILL.md` |
 | `docs-staleness.schema.json` | `bin/docs-staleness.sh` | `bin/session-triage.sh` (folds into the session-start summary), `skills/doctor/SKILL.md` (planned doctor integration) |
 | `guard-result.schema.json` | `bin/pre-action-guard.sh` | `skills/commit/SKILL.md`, `skills/pr/SKILL.md`, `skills/release/SKILL.md`, `skills/ship/SKILL.md` |
 | `notification.schema.json` | `bin/ci-sentinel.sh` | `bin/read-notifications.sh`, `bin/session-triage.sh` |
