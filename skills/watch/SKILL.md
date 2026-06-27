@@ -123,6 +123,20 @@ repos) when the budget runs low — because N repos × M PRs would otherwise
 blow the 5000/hr ceiling. It prints a scheduler-summary JSON
 (`current_interval` tells a supervising daemon how long to sleep next).
 
+To keep the whole watch-list polling **in the background** after the session
+ends (same opt-in confirm as the single-repo daemon — a long-running process
+is never started implicitly), supervise the aggregate loop via the daemon
+manager:
+```
+bash <plugin_root>/bin/sentinel-daemon.sh start  --aggregate
+bash <plugin_root>/bin/sentinel-daemon.sh status --aggregate
+bash <plugin_root>/bin/sentinel-daemon.sh stop   --aggregate
+```
+This launches `sentinel-aggregate.sh --daemon-loop` under launchd / systemd /
+nohup, sleeping each cycle's `current_interval` and self-capping at
+`--max-runtime` (8h). One aggregate daemon runs per user; `doctor` surfaces it
+alongside any per-repo daemons.
+
 Read the unified, repo-tagged view across every watched repo:
 ```
 bash <plugin_root>/bin/read-notifications.sh --all

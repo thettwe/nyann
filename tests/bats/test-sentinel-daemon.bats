@@ -21,6 +21,10 @@ setup() {
   HASH=$(printf '%s' "$REPO" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
   PID_FILE="$STATE_DIR/${HASH}.sentinel.pid"
   DAEMON_FILE="$STATE_DIR/${HASH}.sentinel.daemon.json"
+  # Aggregate daemon (v1.13.0 P10) uses FIXED file names — there is one per user.
+  WL="$TMP/watch-list.json"
+  AGG_PID_FILE="$STATE_DIR/aggregate.sentinel.pid"
+  AGG_DAEMON_FILE="$STATE_DIR/aggregate.sentinel.daemon.json"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -39,6 +43,12 @@ SH
 sd() { # verb + extra args; PATH-prefixes the mock dir
   PATH="$MOCK:$PATH" run bash "$SCRIPT" "$@" \
     --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --log-dir "$LOG_DIR"
+}
+
+# Aggregate variant: appends --aggregate + a sandboxed --watch-list.
+sda() { # verb + extra args; PATH-prefixes the mock dir
+  PATH="$MOCK:$PATH" run bash "$SCRIPT" "$@" --aggregate \
+    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --log-dir "$LOG_DIR" --watch-list "$WL"
 }
 
 # spawn_nohup is intentionally ASYNC (nohup ... & disown) so start never
@@ -376,6 +386,155 @@ SH
   shopt -s nullglob
   corrupt=("$NOTIF_DIR/${HASH}.jsonl.corrupt".*)
   [ "${#corrupt[@]}" -eq 0 ]
+}
+
+# --- aggregate daemon (v1.13.0 P10) -----------------------------------------
+# --aggregate retargets start|stop|status|restart at the single per-user
+# multi-repo aggregate daemon (sentinel-aggregate.sh), which uses fixed
+# aggregate.sentinel.* file names. The supervisors stay STUBBED — no test ever
+# spawns a real daemon.
+
+@test "start --aggregate falls back to nohup and launches sentinel-aggregate --daemon-loop" {
+  make_stub nohup 0
+  cat > "$MOCK/uname" <<'SH'
+#!/bin/sh
+echo BeOS
+SH
+  chmod +x "$MOCK/uname"
+  sda start
+  [ "$status" -eq 0 ]
+  # nohup was invoked to spawn the AGGREGATE loop, with the watch-list wired.
+  wait_for_calls "$TMP/nohup.calls"
+  grep -q "sentinel-aggregate" "$TMP/nohup.calls"
+  grep -q -- "--daemon-loop" "$TMP/nohup.calls"
+  grep -q -- "--watch-list" "$TMP/nohup.calls"
+  echo "$output" | grep -qi "aggregate daemon started"
+  echo "$output" | grep -qi "supervisor: nohup"
+  # No aggregate supervisor unit files written in the nohup path.
+  [ ! -f "$HOME/Library/LaunchAgents/com.nyann.sentinel-aggregate.plist" ]
+  [ ! -f "$HOME/.config/systemd/user/nyann-sentinel-aggregate.service" ]
+}
+
+@test "start --aggregate writes the aggregate launchd plist + bootstraps (supervisor=launchd)" {
+  make_stub launchctl 0
+  sda start --supervisor launchd
+  [ "$status" -eq 0 ]
+  plist="$HOME/Library/LaunchAgents/com.nyann.sentinel-aggregate.plist"
+  [ -f "$plist" ]
+  [ -f "$TMP/launchctl.calls" ]
+  grep -Eq "bootstrap|load" "$TMP/launchctl.calls"
+  # Rendered plist points at the aggregate binary + watch-list, carries the
+  # orphan-backstop max-runtime, and has NO leftover ${...} placeholders.
+  grep -q "sentinel-aggregate.sh" "$plist"
+  grep -q "$WL" "$plist"
+  grep -q "max-runtime" "$plist"
+  ! grep -q '\${' "$plist"
+  echo "$output" | grep -qi "supervisor: launchd"
+  # The per-repo plist is NOT touched by the aggregate path.
+  [ ! -f "$HOME/Library/LaunchAgents/com.nyann.sentinel.plist" ]
+}
+
+@test "status --aggregate reports running (pid_is_live matches a sentinel-aggregate cmdline) then stale" {
+  echo $$ > "$AGG_PID_FILE"
+  printf '{"repo":"(aggregate)","pr_number":0,"last_poll_at":"2026-06-07T00:00:00Z","checks_status":"unknown","review_status":"unknown","daemon":{"pid":%s,"started_at":"2026-06-07T00:00:00Z","supervisor":"nohup"}}\n' "$$" > "$AGG_DAEMON_FILE"
+  printf '[{"repo":"o/a"},{"repo":"o/b"}]\n' > "$WL"
+  # ps reports a sentinel-aggregate-looking cmdline → generalized pid_is_live
+  # must classify it RUNNING (it would be falsely STALE without the fix).
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/sentinel-aggregate.sh --daemon-loop"
+SH
+  chmod +x "$MOCK/ps"
+  sda status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "aggregate daemon running"
+  # Watched repos come from the watch-list, not per-PR state files.
+  echo "$output" | grep -q "o/a"
+  echo "$output" | grep -q "o/b"
+  # Now make the process look dead → STALE.
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "unrelated"
+SH
+  chmod +x "$MOCK/ps"
+  sda status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "stale"
+}
+
+@test "status --aggregate --json lists watched repos" {
+  echo $$ > "$AGG_PID_FILE"
+  printf '{"repo":"(aggregate)","pr_number":0,"last_poll_at":"2026-06-07T00:00:00Z","checks_status":"unknown","review_status":"unknown","daemon":{"pid":%s,"started_at":"2026-06-07T00:00:00Z","supervisor":"systemd"}}\n' "$$" > "$AGG_DAEMON_FILE"
+  printf '[{"repo":"o/a"},{"repo":"o/b","prs":[5]}]\n' > "$WL"
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/sentinel-aggregate.sh --daemon-loop"
+SH
+  chmod +x "$MOCK/ps"
+  PATH="$MOCK:$PATH" out=$(bash "$SCRIPT" status --aggregate --state-dir "$STATE_DIR" \
+    --notif-dir "$NOTIF_DIR" --log-dir "$LOG_DIR" --watch-list "$WL" --json)
+  echo "$out" | jq -e '.aggregate == true'
+  echo "$out" | jq -e '.running == true'
+  echo "$out" | jq -e '.supervisor == "systemd"'
+  echo "$out" | jq -e '.watched_repos | sort == ["o/a","o/b"]'
+}
+
+@test "stop --aggregate reaps the aggregate pid + block" {
+  echo 999999 > "$AGG_PID_FILE"
+  printf '{"repo":"(aggregate)","pr_number":0,"last_poll_at":"2026-06-07T00:00:00Z","checks_status":"unknown","review_status":"unknown","daemon":{"pid":999999,"started_at":"2026-06-07T00:00:00Z","supervisor":"nohup"}}\n' > "$AGG_DAEMON_FILE"
+  make_stub kill 0
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/sentinel-aggregate.sh --daemon-loop"
+SH
+  chmod +x "$MOCK/ps"
+  sda stop
+  [ "$status" -eq 0 ]
+  [ ! -f "$AGG_PID_FILE" ]
+  [ ! -f "$AGG_DAEMON_FILE" ]
+  echo "$output" | grep -qi "aggregate daemon stopped"
+}
+
+@test "stop --aggregate is a clean noop when nothing is running" {
+  sda stop
+  [ "$status" -eq 0 ]
+}
+
+@test "report folds in the aggregate daemon (classified running via generalized pid_is_live)" {
+  echo $$ > "$AGG_PID_FILE"
+  printf '{"repo":"(aggregate)","pr_number":0,"last_poll_at":"2026-06-07T00:00:00Z","checks_status":"unknown","review_status":"unknown","daemon":{"pid":%s,"started_at":"2026-06-07T00:00:00Z","supervisor":"nohup"}}\n' "$$" > "$AGG_DAEMON_FILE"
+  # A per-repo block too, to prove report's glob folds both in.
+  printf '{"repo":"a/b","daemon":{"pid":111,"started_at":"2026-06-07T00:00:00Z","supervisor":"systemd"}}\n' > "$STATE_DIR/aaaaaaaaaaaa.sentinel.daemon.json"
+  # ps reports a sentinel-aggregate cmdline for any live pid; pid 111 is dead so
+  # kill -0 fails first and it is STALE. The aggregate (this bats pid) is live.
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/sentinel-aggregate.sh --daemon-loop"
+SH
+  chmod +x "$MOCK/ps"
+  PATH="$MOCK:$PATH" out=$(bash "$SCRIPT" report --state-dir "$STATE_DIR" --json)
+  [ "$(echo "$out" | jq 'length')" -eq 2 ]
+  # The aggregate daemon is present, tagged "(aggregate)", and RUNNING.
+  echo "$out" | jq -e 'any(.[]; .repo == "(aggregate)" and .running == true)'
+}
+
+@test "restart --aggregate does not require --repo" {
+  make_stub nohup 0
+  cat > "$MOCK/uname" <<'SH'
+#!/bin/sh
+echo BeOS
+SH
+  chmod +x "$MOCK/uname"
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "unrelated"
+SH
+  chmod +x "$MOCK/ps"
+  sda restart
+  [ "$status" -eq 0 ]
+  # Stop then start: the aggregate loop re-spawned via nohup.
+  wait_for_calls "$TMP/nohup.calls"
+  grep -q "sentinel-aggregate" "$TMP/nohup.calls"
 }
 
 # --- schema: daemon block validates -----------------------------------------

@@ -279,3 +279,104 @@ EOF
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "gh CLI not installed"
 }
+
+@test "--poll still prints a scheduler summary (regression after daemon-loop extraction)" {
+  # run_poll_cycle is a pure extraction of the old --poll body; prove --poll's
+  # observable contract (one cycle, one summary, per-repo fan-out) is unchanged.
+  sentinel="$(make_sentinel)"
+  ghdir="$(gh_path 5000)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  summary="$(env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --sentinel "$sentinel" 2>/dev/null)"
+  echo "$summary" | jq -e 'has("current_interval") and has("polled") and has("backoff")'
+  echo "$summary" | jq -e '.polled == ["o/a"] and .backoff == false'
+  # The cycle still persists the scheduler state file.
+  [ -s "$STATE_DIR/aggregate-scheduler.json" ]
+}
+
+# --- --daemon-loop / --stop (v1.13.0 P10) -----------------------------------
+# The supervised aggregate loop. Exercised with a SHORT --max-runtime / an
+# empty watch-list so each cycle is cheap and the loop self-terminates in a
+# couple of seconds — never a real long-running daemon. There is ONE aggregate
+# daemon per user, so it uses FIXED file names (aggregate.sentinel.{pid,daemon
+# .json}), not repo-hashed ones.
+
+@test "--daemon-loop self-terminates at --max-runtime and reaps its state" {
+  # Empty watch-list → each cycle returns early (cheap, no gh needed). A 2s cap
+  # exits cleanly almost immediately — bounded, not long-running.
+  run bash "$AGG" --daemon-loop --interval 1 --max-runtime 2 \
+    --watch-list "$WL" --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "max-runtime"
+  # Clean exit reaps the fixed-name pid file + daemon liveness block.
+  [ ! -f "$STATE_DIR/aggregate.sentinel.pid" ]
+  [ ! -f "$STATE_DIR/aggregate.sentinel.daemon.json" ]
+}
+
+@test "--daemon-loop writes a schema-valid liveness block, then --stop reaps it" {
+  # Run the daemon in the BACKGROUND with a longer interval so it sits in its
+  # sleep (pid + block present); a short max-runtime backstops a failed --stop
+  # so the suite can't hang. Empty watch-list keeps each cycle cheap.
+  pidf="$STATE_DIR/aggregate.sentinel.pid"
+  blockf="$STATE_DIR/aggregate.sentinel.daemon.json"
+  bash "$AGG" --daemon-loop --interval 2 --max-runtime 10 \
+    --watch-list "$WL" --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup &
+  daemon_pid=$!
+  # Bounded wait for the daemon to write its pid + liveness block.
+  i=0; while (( i < 50 )); do [ -s "$pidf" ] && [ -s "$blockf" ] && break; sleep 0.1; i=$(( i + 1 )); done
+  [ -s "$pidf" ]
+  [ -s "$blockf" ]
+  # The block carries the reserved aggregate identity + a daemon block.
+  [ "$(jq -r '.repo' "$blockf")" = "(aggregate)" ]
+  [ "$(jq -r '.pr_number' "$blockf")" -eq 0 ]
+  [ "$(jq -r '.daemon.supervisor' "$blockf")" = "nohup" ]
+  [ "$(jq -r '.daemon.pid' "$blockf")" = "$daemon_pid" ]
+  # ... and validates against the SentinelState schema when a validator exists.
+  if command -v check-jsonschema >/dev/null 2>&1 || command -v uvx >/dev/null 2>&1; then
+    if command -v check-jsonschema >/dev/null 2>&1; then VALIDATE=(check-jsonschema); else VALIDATE=(uvx --quiet check-jsonschema); fi
+    "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/sentinel-state.schema.json" "$blockf"
+  fi
+  # --stop kills it (PID-reuse guard matches the real cmdline) and reaps both.
+  run bash "$AGG" --stop --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # Let the daemon fully exit (its own cleanup also reaps) before asserting.
+  wait "$daemon_pid" 2>/dev/null || true
+  [ ! -f "$pidf" ]
+  [ ! -f "$blockf" ]
+}
+
+@test "--daemon-loop refuses to start a second aggregate daemon (single-instance)" {
+  # Pre-seed the aggregate pid file pointing at a live *sentinel-aggregate*-
+  # looking process (this bats process via a ps stub) so the guard fires.
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/sentinel-aggregate.sh --daemon-loop"
+SH
+  chmod +x "$TMP/mock/ps"
+  echo $$ > "$STATE_DIR/aggregate.sentinel.pid"   # live pid = this bats process.
+  PATH="$TMP/mock:$PATH" run bash "$AGG" --daemon-loop --interval 1 --max-runtime 2 \
+    --watch-list "$WL" --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "already running"
+  # The pre-existing pid file (pointing at us) must NOT have been reaped.
+  [ -f "$STATE_DIR/aggregate.sentinel.pid" ]
+  [ "$(cat "$STATE_DIR/aggregate.sentinel.pid")" = "$$" ]
+}
+
+@test "--stop is a clean no-op when no aggregate daemon is running" {
+  run bash "$AGG" --stop --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+}
+
+@test "--daemon-loop rejects a non-numeric --interval" {
+  run bash "$AGG" --daemon-loop --interval abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "interval"
+}
+
+@test "--daemon-loop rejects an unknown --supervisor" {
+  run bash "$AGG" --daemon-loop --supervisor cron --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "supervisor"
+}
