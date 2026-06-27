@@ -395,9 +395,14 @@ nyann::is_excluded() {
 readonly NYANN_CURRENT_SCHEMA=1
 
 # --- Preferences schema version ----------------------------------------------
-# Current preferences.json schemaVersion. v2 carries git_identity,
+# Schema version setup.sh writes for a fresh file. v2 carries git_identity,
 # session_triage, guard_default_severity, and notifications.{sentinel,
-# staleness_alerts}; v1 omits those four blocks.
+# staleness_alerts}; v1 omits those four blocks. v3 adds
+# notifications.delivery (opt-in external delivery channels) — but that block
+# is configured lazily via /nyann:settings, so the default fresh-setup floor
+# stays at 2 and a file is only upgraded to 3 the moment a delivery channel is
+# set (or carried forward on an incremental setup). The schema (max 3) accepts
+# all three versions; delivery is additive and optional.
 # shellcheck disable=SC2034
 readonly NYANN_PREFS_CURRENT_SCHEMA=2
 

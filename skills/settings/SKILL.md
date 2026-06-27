@@ -136,12 +136,62 @@ Pass 2 — based on the group, ask the specific setting:
     "options": [
       { "label": "Session triage",                "description": "Quiet drift check on first message each session" },
       { "label": "Guard severity (default)",      "description": "advisory | confirm — pre-action guard severity floor" },
-      { "label": "CI sentinel notifications",     "description": "Sentinel state-change notifications" },
-      { "label": "Staleness alerts",              "description": "Documentation staleness alerts" }
+      { "label": "Notifications (sentinel/staleness)", "description": "In-session CI sentinel + doc staleness toggles" },
+      { "label": "Notification delivery",         "description": "Send alerts to Slack/Discord/webhook/email" }
     ]
   }]
 }
 ```
+
+If the user picks **Notifications (sentinel/staleness)**, ask which of the two
+in-session toggles to change (CI sentinel notifications | Staleness alerts),
+then go to Step 4 for that toggle.
+
+If the user picks **Notification delivery**, run the delivery sub-flow
+(Step 3a) below instead of Step 4 — delivery channels are multi-field, not a
+single enum.
+
+### Step 3a: Notification delivery sub-flow
+
+External delivery fans queued notifications out to Slack, Discord, a generic
+webhook, or email. First pick the channel:
+
+```json
+{
+  "questions": [{
+    "question": "Which delivery channel?",
+    "header": "Channel",
+    "multiSelect": false,
+    "options": [
+      { "label": "Slack",   "description": "Incoming webhook ({text: ...})" },
+      { "label": "Discord", "description": "Webhook ({content: ...})" },
+      { "label": "Webhook", "description": "Generic endpoint — raw JSON POST" },
+      { "label": "Email",   "description": "sendmail or an SMTP relay" }
+    ]
+  }]
+}
+```
+
+Then, **because delivery secrets must never live in `preferences.json`**, ask
+for the *name of an environment variable* that holds the endpoint URL — never
+the URL itself. Tell the user to `export NYANN_SLACK_WEBHOOK=https://...` in
+their shell profile, then store only the name here. Set the channel with the
+direct `--set` calls (one per field):
+
+- Slack:   `notifications.delivery.slack.webhook_url_env <ENV_NAME>` then
+  `notifications.delivery.slack.enabled true`
+- Discord: `notifications.delivery.discord.webhook_url_env <ENV_NAME>` then
+  `notifications.delivery.discord.enabled true`
+- Webhook: `notifications.delivery.webhook.url_env <ENV_NAME>` then
+  `notifications.delivery.webhook.enabled true`
+- Email:   `notifications.delivery.email.to <addr>`,
+  `notifications.delivery.email.from <addr>`, optional
+  `notifications.delivery.email.smtp_env <ENV_NAME>`, then
+  `notifications.delivery.email.enabled true`
+
+`bin/settings.sh` REFUSES any value that looks like a URL (`http(s)://`) for a
+delivery key and prints why — surface that error verbatim and re-ask for the
+env-var NAME. After writing, return to Step 6.
 
 (If the user expressed interest in a specific setting in their initial
 message — e.g., "toggle triage" — go straight to that setting's value
@@ -186,6 +236,16 @@ table:
 | Guard severity (default) | `guard_default_severity`       | `advisory`, `confirm`                               |
 | CI sentinel              | `notifications.sentinel`       | `true`, `false`                                     |
 | Staleness alerts         | `notifications.staleness_alerts` | `true`, `false`                                   |
+| Slack delivery on/off    | `notifications.delivery.slack.enabled`   | `true`, `false`                           |
+| Slack endpoint env name  | `notifications.delivery.slack.webhook_url_env`   | env-var NAME (e.g. `NYANN_SLACK_WEBHOOK`) |
+| Discord delivery on/off  | `notifications.delivery.discord.enabled` | `true`, `false`                           |
+| Discord endpoint env name| `notifications.delivery.discord.webhook_url_env` | env-var NAME                      |
+| Webhook delivery on/off  | `notifications.delivery.webhook.enabled` | `true`, `false`                           |
+| Webhook endpoint env name| `notifications.delivery.webhook.url_env` | env-var NAME                              |
+| Email delivery on/off    | `notifications.delivery.email.enabled`   | `true`, `false`                           |
+| Email recipient          | `notifications.delivery.email.to`        | address                                   |
+| Email sender             | `notifications.delivery.email.from`      | address                                   |
+| Email SMTP relay env name| `notifications.delivery.email.smtp_env`  | env-var NAME (optional; else `sendmail`)  |
 
 Run:
 ```
@@ -207,3 +267,9 @@ to Step 3. If no, print a short confirmation and exit.
   `/nyann:settings git_identity.name "Foo Bar"`.
 - For first-time users with no `preferences.json`, hand off to the
   `setup` skill instead of trying to construct the file from scratch.
+- **Delivery secrets are never stored.** The `notifications.delivery.*`
+  `*_env` keys hold only the NAME of an environment variable; nyann reads the
+  actual URL/token from that env var at delivery time. `bin/settings.sh`
+  rejects any literal `http(s)://` value for a delivery key — if it does, the
+  user pasted a URL where an env-var name belongs. Setting any delivery key
+  upgrades the file to schemaVersion 3.

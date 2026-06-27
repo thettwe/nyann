@@ -92,6 +92,7 @@ identifier consumers can pin against.
 | `docs-staleness.schema.json` | `bin/docs-staleness.sh` | `bin/session-triage.sh` (folds into the session-start summary), `skills/doctor/SKILL.md` (planned doctor integration) |
 | `guard-result.schema.json` | `bin/pre-action-guard.sh` | `skills/commit/SKILL.md`, `skills/pr/SKILL.md`, `skills/release/SKILL.md`, `skills/ship/SKILL.md` |
 | `notification.schema.json` | `bin/ci-sentinel.sh` | `bin/read-notifications.sh`, `bin/session-triage.sh` |
+| `notification-delivery-config.schema.json` | shape of `preferences.json` `notifications.delivery` (mirrored inline in `preferences.schema.json`) | `bin/notify-deliver.sh`, `bin/settings.sh`, `skills/settings/SKILL.md` |
 | `readme-badge-block.schema.json` | `bin/gen-readme-badges.sh`, `bin/gen-readme-stack-icons.sh` | `bin/scaffold-docs.sh`, `bin/retrofit.sh` |
 | `sentinel-state.schema.json` | `bin/ci-sentinel.sh` (state cache) | `bin/ci-sentinel.sh` (next-poll dedup) |
 | `session-triage.schema.json` | `bin/session-triage.sh` (reserved JSON variant) | future `--json` consumer |

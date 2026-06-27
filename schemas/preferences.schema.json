@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nyann.dev/schemas/preferences/v2.json",
   "title": "NyannPreferences",
-  "description": "~/.claude/nyann/preferences.json — per-user nyann defaults collected during setup. schemaVersion 1 covers the core preferences; schemaVersion 2 adds git_identity, session_triage, guard_default_severity, and notifications.{sentinel, staleness_alerts}.",
+  "description": "~/.claude/nyann/preferences.json — per-user nyann defaults collected during setup. schemaVersion 1 covers the core preferences; schemaVersion 2 adds git_identity, session_triage, guard_default_severity, and notifications.{sentinel, staleness_alerts}; schemaVersion 3 adds notifications.delivery (opt-in external delivery channels — Slack/Discord/webhook/email — storing only env-var NAMES, never secrets). All blocks are additive: a schemaVersion 2 file with no delivery block stays valid and delivers nothing (silent no-op).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion"],
   "properties": {
-    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 3 },
     "default_profile": {
       "type": "string",
       "description": "Profile name to use when none specified. 'auto-detect' defers to stack detection.",
@@ -64,11 +64,52 @@
     },
     "notifications": {
       "type": "object",
-      "description": "Per-channel notification toggles. Added in schemaVersion 2.",
+      "description": "Per-channel notification toggles. sentinel/staleness_alerts added in schemaVersion 2; delivery added in schemaVersion 3.",
       "additionalProperties": false,
       "properties": {
         "sentinel":          { "type": "boolean", "default": true,  "description": "CI sentinel state-change notifications." },
-        "staleness_alerts":  { "type": "boolean", "default": true,  "description": "Documentation staleness notifications." }
+        "staleness_alerts":  { "type": "boolean", "default": true,  "description": "Documentation staleness notifications." },
+        "delivery": {
+          "type": "object",
+          "description": "Opt-in external delivery channels (Slack/Discord/webhook/email). Mirrors notification-delivery-config.schema.json. Holds only env-var NAMES + toggles, never secrets. Added in schemaVersion 3.",
+          "additionalProperties": false,
+          "properties": {
+            "slack": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled":         { "type": "boolean", "default": false },
+                "webhook_url_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the env var holding the Slack incoming-webhook URL. NOT the URL itself." }
+              }
+            },
+            "discord": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled":         { "type": "boolean", "default": false },
+                "webhook_url_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the env var holding the Discord webhook URL. NOT the URL itself." }
+              }
+            },
+            "webhook": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false },
+                "url_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the env var holding the target webhook URL. NOT the URL itself." }
+              }
+            },
+            "email": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled":  { "type": "boolean", "default": false },
+                "to":       { "type": "string" },
+                "from":     { "type": "string" },
+                "smtp_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the env var holding the SMTP relay URL. NOT the URL itself." }
+              }
+            }
+          }
+        }
       }
     },
     "setup_completed_at": {

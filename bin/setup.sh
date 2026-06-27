@@ -52,6 +52,10 @@ session_triage=true
 guard_default_severity="advisory"
 notifications_sentinel=true
 notifications_staleness_alerts=true
+# notifications.delivery (schemaVersion 3) has no setup flag — it is configured
+# via /nyann:settings. Defaults to empty; only ever populated by carrying an
+# existing value forward on an incremental upgrade (see below).
+notifications_delivery=""
 
 # Track which flags the caller explicitly set. --simulate falls back
 # to preferences.json for any flag the caller did NOT override, which
@@ -467,6 +471,10 @@ if [[ -f "$prefs_path" ]]; then
       [[ "$v" == "false" ]] && notifications_staleness_alerts=false
       [[ "$v" == "true"  ]] && notifications_staleness_alerts=true
     fi
+    # Preserve notifications.delivery (schemaVersion 3) verbatim across the
+    # rebuild — it has no CLI flag, so without this an incremental upgrade
+    # would silently drop a user's configured delivery channels.
+    notifications_delivery=$(jq -c '.notifications.delivery // empty' "$prefs_path" 2>/dev/null || true)
     if ! $_set_git_identity; then
       v_name=$(jq -r '.git_identity.name // empty' "$prefs_path" 2>/dev/null || true)
       v_email=$(jq -r '.git_identity.email // empty' "$prefs_path" 2>/dev/null || true)
@@ -494,8 +502,20 @@ fi
 prefs_tmp=$(mktemp -t nyann-prefs.XXXXXX)
 trap 'rm -f "$prefs_tmp"' EXIT
 
+# Normalize the carried-forward delivery block to valid JSON for --argjson and
+# bump the written schema to 3 when present (the 2→3 upgrade). Absent → null,
+# the notifications object omits `delivery`, and the version stays at the
+# current default — so a fresh setup is unchanged.
+prefs_schema_to_write="$NYANN_PREFS_CURRENT_SCHEMA"
+if [[ -z "$notifications_delivery" ]]; then
+  notifications_delivery_json="null"
+else
+  notifications_delivery_json="$notifications_delivery"
+  prefs_schema_to_write=3
+fi
+
 jq -n \
-  --argjson schema_version "$NYANN_PREFS_CURRENT_SCHEMA" \
+  --argjson schema_version "$prefs_schema_to_write" \
   --arg default_profile "$default_profile" \
   --arg branching_strategy "$branching_strategy" \
   --arg commit_format "$commit_format" \
@@ -509,6 +529,7 @@ jq -n \
   --arg guard_default_severity "$guard_default_severity" \
   --argjson notifications_sentinel "$notifications_sentinel" \
   --argjson notifications_staleness_alerts "$notifications_staleness_alerts" \
+  --argjson notifications_delivery "$notifications_delivery_json" \
   --arg setup_completed_at "$setup_completed_at" \
   '{
     schemaVersion: $schema_version,
@@ -525,10 +546,13 @@ jq -n \
     },
     session_triage: $session_triage,
     guard_default_severity: $guard_default_severity,
-    notifications: {
-      sentinel: $notifications_sentinel,
-      staleness_alerts: $notifications_staleness_alerts
-    },
+    notifications: (
+      {
+        sentinel: $notifications_sentinel,
+        staleness_alerts: $notifications_staleness_alerts
+      }
+      + (if $notifications_delivery != null then { delivery: $notifications_delivery } else {} end)
+    ),
     setup_completed_at: $setup_completed_at
   }' > "$prefs_tmp"
 
