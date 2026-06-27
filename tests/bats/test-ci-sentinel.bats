@@ -228,3 +228,72 @@ SH
   jq -n '{repo:"o/r", pr_number:42, base_branch:"main", head_branch:"feature/x", last_poll_at:"2026-05-28T00:00:00Z", checks_status:"pending", review_status:"no-reviews", merged:false}' > "$TMP/s.json"
   "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/sentinel-state.schema.json" "$TMP/s.json"
 }
+
+# --- P9 delivery wiring (v1.13.0) -------------------------------------------
+# End-to-end: a one-shot poll must fan QUEUED notifications out to a configured
+# delivery channel via notify-deliver.sh. Mirrors the INC-1 lesson — wire-level
+# integrations need an e2e test, not just unit coverage of notify-deliver.
+
+@test "one-shot poll delivers queued notifications to a configured channel" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  # Seed an undelivered notification.
+  jq -n '{timestamp:"2026-05-28T00:00:00Z", source:"sentinel", severity:"warning", message:"PR #42: CI failed", context:{pr:42}}' \
+    > "$NOTIF_DIR/${hash}.jsonl"
+
+  # Configure a generic webhook channel; secret URL lives only in the env var.
+  USER_ROOT="$TMP/userroot"; mkdir -p "$USER_ROOT"
+  jq -n '{schemaVersion:3, notifications:{delivery:{webhook:{enabled:true, url_env:"NYANN_TEST_WEBHOOK"}}}}' \
+    > "$USER_ROOT/preferences.json"
+
+  # Mock gh (no open PRs → one-shot hits the no-PR flush path) and curl
+  # (records the delivery so we can assert it fired).
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  cat > "$TMP/mock/curl" <<SH
+#!/bin/sh
+echo "called \$*" >> "$TMP/curl.calls"
+exit 0
+SH
+  chmod +x "$TMP/mock/gh" "$TMP/mock/curl"
+
+  PATH="$TMP/mock:$PATH" NYANN_USER_ROOT="$USER_ROOT" NYANN_TEST_WEBHOOK="https://example.test/hook" \
+    run bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo "$repo" \
+      --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # Delivery fired: curl was invoked at least once.
+  [ -f "$TMP/curl.calls" ]
+  # Peek-based delivery does NOT truncate the queue — session-start still sees it.
+  [ -s "$NOTIF_DIR/${hash}.jsonl" ]
+}
+
+@test "one-shot poll is a silent no-op when no delivery channel is configured" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  jq -n '{timestamp:"2026-05-28T00:00:00Z", source:"sentinel", severity:"info", message:"x", context:{}}' \
+    > "$NOTIF_DIR/${hash}.jsonl"
+  USER_ROOT="$TMP/userroot"; mkdir -p "$USER_ROOT"
+  jq -n '{schemaVersion:3}' > "$USER_ROOT/preferences.json"   # no delivery block
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  cat > "$TMP/mock/curl" <<SH
+#!/bin/sh
+echo "called" >> "$TMP/curl.calls"
+exit 0
+SH
+  chmod +x "$TMP/mock/gh" "$TMP/mock/curl"
+  PATH="$TMP/mock:$PATH" NYANN_USER_ROOT="$USER_ROOT" \
+    run bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo "$repo" \
+      --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # No channel configured → no network call.
+  [ ! -f "$TMP/curl.calls" ]
+}

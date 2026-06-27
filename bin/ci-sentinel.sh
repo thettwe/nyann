@@ -293,6 +293,22 @@ poll_one_pass() {
   return 0
 }
 
+# deliver_notifications — P9 external delivery hook. PEEKS the queue (so the
+# session-start drain still surfaces the same entries) and pipes them through
+# notify-deliver.sh, which dedups per its own marker (nothing is sent twice,
+# even across the eventual drain) and is a silent no-op when no channel is
+# configured. Best-effort: a delivery failure never affects polling. Because
+# the aggregate scheduler (P10) invokes this script one-shot per repo, wiring
+# delivery HERE — at the single notification producer — covers the single-repo
+# daemon, one-shot, and aggregate paths alike, with no per-caller duplication.
+deliver_notifications() {
+  local nd="${_script_dir}/notify-deliver.sh"
+  local rn="${_script_dir}/read-notifications.sh"
+  [[ -x "$nd" && -x "$rn" ]] || return 0
+  "$rn" --repo "$repo" --notif-dir "$notif_dir" --peek 2>/dev/null \
+    | "$nd" --repo "$repo" --cache-dir "$state_dir" 2>/dev/null || true
+}
+
 if $daemon_loop; then
   # --- Single-instance guard ------------------------------------------------
   # Refuse to start a second daemon for this repo. Reuse the same liveness +
@@ -362,6 +378,9 @@ if $daemon_loop; then
       echo "[nyann sentinel] poll pass failed (${consecutive_fail}x) — backing off to ${cur_interval}s" >&2
     fi
 
+    # Fan out any newly-queued notifications to configured channels (P9).
+    deliver_notifications
+
     # Refresh the liveness timestamp so consumers can tell the daemon is
     # alive and roughly when it last polled.
     write_daemon_block "$daemon_started_at" "$daemon_supervisor"
@@ -390,6 +409,9 @@ done < <( resolve_prs )
 
 if (( ${#prs_to_poll[@]} == 0 )); then
   echo "[nyann sentinel] no open PRs to poll for $repo" >&2
+  # Still flush any queued-but-undelivered notifications (P9) — a prior poll
+  # may have left a backlog. notify-deliver dedups, so this never re-sends.
+  deliver_notifications
   exit 0
 fi
 
@@ -400,6 +422,10 @@ printf '%s\n' "$$" > "$pid_file" 2>/dev/null || true
 for pr in "${prs_to_poll[@]}"; do
   poll_pr "$pr" || echo "[nyann sentinel] poll failed for PR #$pr" >&2
 done
+
+# Fan out any newly-queued notifications to configured channels (P9). No-op
+# when no delivery channel is configured.
+deliver_notifications
 
 # One-shot: clean up PID file.
 rm -f "$pid_file" 2>/dev/null || true

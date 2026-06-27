@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (64)
+## Schemas in this directory (68)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -95,6 +95,7 @@ identifier consumers can pin against.
 | `notification-delivery-config.schema.json` | shape of `preferences.json` `notifications.delivery` (mirrored inline in `preferences.schema.json`) | `bin/notify-deliver.sh`, `bin/settings.sh`, `skills/settings/SKILL.md` |
 | `readme-badge-block.schema.json` | `bin/gen-readme-badges.sh`, `bin/gen-readme-stack-icons.sh` | `bin/scaffold-docs.sh`, `bin/retrofit.sh` |
 | `sentinel-state.schema.json` | `bin/ci-sentinel.sh` (state cache) | `bin/ci-sentinel.sh` (next-poll dedup) |
+| `watch-list.schema.json` | `bin/sentinel-aggregate.sh` (`--add`/`--remove`/`--list`) | `bin/sentinel-aggregate.sh` (`--poll`), `bin/read-notifications.sh --all` |
 | `session-triage.schema.json` | `bin/session-triage.sh` (reserved JSON variant) | future `--json` consumer |
 | `derived-codeowners.schema.json` | `bin/derive-codeowners.sh` | `bin/gen-codeowners.sh --derived-owners` |
 
