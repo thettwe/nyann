@@ -134,15 +134,20 @@ if [[ "$mode" == "daemon-loop" ]]; then
   # The scheduler tunables are consumed every cycle by run_poll_cycle; a bad
   # value would only surface (fatally) deep in the first cycle. Fail fast at
   # start instead so a typo can't take the whole daemon down mid-run.
-  # --max-interval must be a POSITIVE integer (>= 1) AND >= --interval: a 0 (or
-  # a value below base) makes a backoff cycle clamp the adaptive interval to 0,
-  # and the 1s-slice sleep then never sleeps → a tight re-poll busy-spin.
+  # --max-interval must be a POSITIVE integer (>= 1): a 0 makes a backoff cycle
+  # clamp the adaptive interval to 0, and the 1s-slice sleep then never sleeps →
+  # a tight re-poll busy-spin. An explicitly non-numeric value still errors.
   if ! [[ "$max_interval" =~ ^[0-9]+$ ]] || (( max_interval < 1 )); then
     nyann::die "--max-interval must be a positive integer of seconds (got: $max_interval)"
   fi
-  if (( max_interval < base_interval )); then
-    nyann::die "--max-interval ($max_interval) must be >= --interval ($base_interval)"
-  fi
+  # A --max-interval below --interval just means there is no room to back off
+  # past the base cadence — clamp the ceiling UP to --interval rather than
+  # dying. sentinel-daemon.sh forwards only --interval to this daemon (not
+  # --max-interval), so a large --interval (e.g. hourly polling) would otherwise
+  # hit the default max_interval=1800 and silently abort the daemon behind a
+  # "started" message. Mirrors ci-sentinel.sh deriving its own ceiling from the
+  # interval (max_interval=interval*16).
+  (( max_interval < base_interval )) && max_interval="$base_interval"
   if ! [[ "$rate_reserve" =~ ^[0-9]+$ ]]; then
     nyann::die "--rate-reserve must be a non-negative integer (got: $rate_reserve)"
   fi
@@ -313,6 +318,25 @@ run_poll_cycle() {
       # remaining repos) rather than letting later repos overrun the budget.
       est_remaining="$remaining"
       for r in "${repos[@]}"; do
+        # Don't double-watch a repo that already has its OWN live per-repo
+        # daemon: that daemon polls AND delivers for the repo independently, so
+        # aggregating it too would post duplicate notifications (e.g. a Slack
+        # message twice). Keep exactly one producer per repo — skip it here.
+        # Reuse repo_hash + the same kill -0 / ps-cmdline liveness guard used by
+        # run_stop / the single-instance guard; a stale or dead pid file does
+        # NOT skip (only a live *ci-sentinel* process counts).
+        repo_pid_file="$state_dir/$(repo_hash "$r").sentinel.pid"
+        if [[ -f "$repo_pid_file" ]]; then
+          repo_pid=$(cat "$repo_pid_file" 2>/dev/null || true)
+          if [[ -n "$repo_pid" ]] && kill -0 "$repo_pid" 2>/dev/null; then
+            repo_pid_cmd=$(ps -p "$repo_pid" -o command= 2>/dev/null || ps -p "$repo_pid" -o comm= 2>/dev/null || true)
+            if [[ "$repo_pid_cmd" == *ci-sentinel* ]]; then
+              nyann::warn "skipping $r — a live per-repo daemon (pid $repo_pid) already covers it"
+              skipped+=("$r")
+              continue
+            fi
+          fi
+        fi
         if [[ -n "$est_remaining" ]] && (( est_remaining < rate_reserve )); then
           backoff=true
           skipped+=("$r")

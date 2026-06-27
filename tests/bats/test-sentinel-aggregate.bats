@@ -425,9 +425,66 @@ SH
   echo "$output" | grep -qi "max-interval"
 }
 
-@test "--daemon-loop rejects a --max-interval below --interval" {
-  run bash "$AGG" --daemon-loop --interval 300 --max-interval 100 \
-    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -qi "max-interval"
+@test "--daemon-loop clamps a --max-interval below --interval up to --interval (no die)" {
+  # A --max-interval under --interval just means no room to back off past the
+  # base cadence — the loop must CLAMP the ceiling up and keep running, not die.
+  # (sentinel-daemon.sh forwards only --interval, so a large --interval would
+  # otherwise hit the default max_interval=1800 and silently kill the daemon.)
+  # Empty watch-list + short max-runtime keeps it bounded.
+  run bash "$AGG" --daemon-loop --interval 2 --max-interval 1 --max-runtime 2 \
+    --watch-list "$WL" --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "max-runtime"
+  # It did NOT abort with the old ">= --interval" error.
+  ! echo "$output" | grep -qi "must be >="
+}
+
+# --- aggregate skips a repo with its own live per-repo daemon (no double-send) -
+
+@test "--poll skips a repo that already has a live per-repo daemon, still polls others" {
+  # If a per-repo daemon AND the aggregate both cover a repo, both poll+deliver
+  # it → duplicate notifications. The aggregate must skip a repo whose
+  # <repo-hash>.sentinel.pid points at a LIVE ci-sentinel process.
+  sentinel="$(make_sentinel)"
+  ghdir="$(gh_path 5000)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --watch-list "$WL"
+  # o/a has a live per-repo daemon: pid file points at this bats process and a
+  # ps stub makes its cmdline look like ci-sentinel. o/b has none.
+  echo $$ > "$STATE_DIR/$(qhash o/a).sentinel.pid"
+  mock="$TMP/mock"; mkdir -p "$mock"
+  cat > "$mock/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/ci-sentinel.sh --daemon-loop --repo o/a"
+SH
+  chmod +x "$mock/ps"
+  summary="$(env PATH="$mock:$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --sentinel "$sentinel" 2>/dev/null)"
+  # o/a is in skipped (covered by its own daemon); only o/b is polled.
+  echo "$summary" | jq -e '.polled == ["o/b"]'
+  echo "$summary" | jq -e '(.skipped | index("o/a")) != null'
+  # The aggregate never invoked the sentinel for o/a (its queue stays empty)...
+  [ ! -s "$NOTIF_DIR/$(qhash o/a).jsonl" ]
+  # ...but did for o/b.
+  [ -s "$NOTIF_DIR/$(qhash o/b).jsonl" ]
+}
+
+@test "--poll does NOT skip a repo whose per-repo pid file is stale (dead process)" {
+  # A stale/dead per-repo pid file must not suppress aggregation — only a LIVE
+  # ci-sentinel process counts. The repo is still polled.
+  sentinel="$(make_sentinel)"
+  ghdir="$(gh_path 5000)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  # Dead pid (very unlikely to be live) → the liveness guard fails → not skipped.
+  echo 999999 > "$STATE_DIR/$(qhash o/a).sentinel.pid"
+  mock="$TMP/mock"; mkdir -p "$mock"
+  cat > "$mock/ps" <<'SH'
+#!/bin/sh
+echo "unrelated"
+SH
+  chmod +x "$mock/ps"
+  summary="$(env PATH="$mock:$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --sentinel "$sentinel" 2>/dev/null)"
+  echo "$summary" | jq -e '.polled == ["o/a"]'
+  [ -s "$NOTIF_DIR/$(qhash o/a).jsonl" ]
 }

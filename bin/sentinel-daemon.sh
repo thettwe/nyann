@@ -157,6 +157,23 @@ select_supervisor() {
   printf 'nohup'
 }
 
+# _delivery_env_lines — emit "<channel> <env-var-name>" for each ENABLED
+# notifications.delivery.* channel that names a secret env var. Shared by
+# propagate/unpropagate so both always act on the SAME set of names (no drift).
+# Empty (and exit 0) when prefs are absent or no channel names a var.
+_delivery_env_lines() {
+  local prefs="${NYANN_USER_ROOT:-$HOME/.claude/nyann}/preferences.json"
+  [[ -f "$prefs" ]] || return 0
+  jq -r '
+    (.notifications.delivery // {}) as $d
+    | [ ($d.slack   | select(.enabled == true) | {c:"slack",   e:.webhook_url_env}),
+        ($d.discord | select(.enabled == true) | {c:"discord", e:.webhook_url_env}),
+        ($d.webhook | select(.enabled == true) | {c:"webhook", e:.url_env}),
+        ($d.email   | select(.enabled == true) | {c:"email",   e:.smtp_env}) ]
+    | .[] | select(.e != null and .e != "") | "\(.c) \(.e)"
+  ' "$prefs" 2>/dev/null || true
+}
+
 # propagate_delivery_env <supervisor> — make the configured delivery secrets
 # reachable by the supervised daemon. The channel scripts resolve their secret
 # endpoint by NAME via `printenv`, but launchd agents and systemd --user units
@@ -170,20 +187,19 @@ select_supervisor() {
 # systemd. nohup already inherits this shell's env. For any enabled channel
 # whose var is UNSET here, warn loudly. Best-effort: a missing launchctl /
 # systemctl never aborts start.
+#
+# TRADEOFF (residual, by design): `setenv` / `import-environment` write the
+# PER-USER supervisor domain, not just this daemon — so while the daemon runs
+# the secret is visible (via printenv / `systemctl --user show-environment`) to
+# other same-user processes in the launchd/systemd session. It is torn down on
+# stop by unpropagate_delivery_env, bounding the exposure to the daemon's
+# lifetime. The launchd branch additionally puts the secret VALUE on the
+# `launchctl setenv` argv (no stdin/file variant exists) — unavoidable with
+# setenv, and the value already lives in this shell's environ, so the extra
+# window is brief; the systemd branch passes only the NAME on argv.
 propagate_delivery_env() {
   local sup="$1"
-  local prefs="${NYANN_USER_ROOT:-$HOME/.claude/nyann}/preferences.json"
-  [[ -f "$prefs" ]] || return 0
-  # Emit "<channel> <env-var-name>" for each enabled channel that names a var.
-  local lines
-  lines=$(jq -r '
-    (.notifications.delivery // {}) as $d
-    | [ ($d.slack   | select(.enabled == true) | {c:"slack",   e:.webhook_url_env}),
-        ($d.discord | select(.enabled == true) | {c:"discord", e:.webhook_url_env}),
-        ($d.webhook | select(.enabled == true) | {c:"webhook", e:.url_env}),
-        ($d.email   | select(.enabled == true) | {c:"email",   e:.smtp_env}) ]
-    | .[] | select(.e != null and .e != "") | "\(.c) \(.e)"
-  ' "$prefs" 2>/dev/null || true)
+  local lines; lines=$(_delivery_env_lines)
   [[ -n "$lines" ]] || return 0
 
   local channel name val
@@ -195,9 +211,35 @@ propagate_delivery_env() {
       continue
     fi
     case "$sup" in
+      # NOTE: setenv exposes $val on the launchctl argv (see TRADEOFF above).
       launchd) launchctl setenv "$name" "$val" 2>/dev/null || true ;;
       systemd) systemctl --user import-environment "$name" 2>/dev/null || true ;;
       *) : ;;  # nohup inherits this shell's environment — nothing to propagate
+    esac
+  done <<<"$lines"
+}
+
+# unpropagate_delivery_env <supervisor> — undo propagate_delivery_env: clear the
+# delivery secret from the per-user supervisor domain so it does not linger
+# after stop/restart (it would otherwise persist in the launchd/systemd session
+# until logout). Re-reads the SAME enabled-channel env-var NAMEs and clears each
+# from the supervisor's environment: launchd → `launchctl unsetenv`, systemd →
+# `systemctl --user unset-environment`. Best-effort (never aborts stop); a
+# missing launchctl/systemctl (or nohup) is a no-op. A channel whose env-var
+# NAME was renamed between start and stop would leave the old name set —
+# acceptable: prefs are the single source of truth.
+unpropagate_delivery_env() {
+  local sup="$1"
+  local lines; lines=$(_delivery_env_lines)
+  [[ -n "$lines" ]] || return 0
+
+  local channel name
+  while read -r channel name; do
+    [[ -n "$name" ]] || continue
+    case "$sup" in
+      launchd) launchctl unsetenv "$name" 2>/dev/null || true ;;
+      systemd) systemctl --user unset-environment "$name" 2>/dev/null || true ;;
+      *) : ;;  # nohup inherited this shell's env directly — nothing in a domain
     esac
   done <<<"$lines"
 }
@@ -370,20 +412,25 @@ do_start_aggregate() {
   fi
 
   local sup; sup=$(select_supervisor)
-  # Make the configured delivery secrets reachable by the supervised daemon
-  # (launchd/systemd don't inherit shell exports) and warn for any enabled
-  # channel whose secret env var isn't exported in this shell.
-  propagate_delivery_env "$sup"
   local launched=""
+  # Propagate delivery secrets into the ACTUALLY-launched supervisor's domain
+  # only, BEFORE the load attempt so the daemon inherits them. If the load fails
+  # and we fall back to nohup, undo the propagation first — nohup inherits this
+  # shell's env directly and needs nothing in the domain. The nohup-default
+  # branch never touches the domain.
   case "$sup" in
     launchd)
+      propagate_delivery_env launchd
       if load_launchd_aggregate; then launched="launchd"; else
         nyann::warn "launchd load failed — falling back to nohup (best-effort)"
+        unpropagate_delivery_env launchd
         spawn_nohup_aggregate "nohup"; launched="nohup"
       fi ;;
     systemd)
+      propagate_delivery_env systemd
       if load_systemd_aggregate; then launched="systemd"; else
         nyann::warn "systemd load failed — falling back to nohup (best-effort)"
+        unpropagate_delivery_env systemd
         spawn_nohup_aggregate "nohup"; launched="nohup"
       fi ;;
     *)
@@ -431,20 +478,25 @@ do_start() {
   fi
 
   local sup; sup=$(select_supervisor)
-  # Make the configured delivery secrets reachable by the supervised daemon
-  # (launchd/systemd don't inherit shell exports) and warn for any enabled
-  # channel whose secret env var isn't exported in this shell.
-  propagate_delivery_env "$sup"
   local launched=""
+  # Propagate delivery secrets into the ACTUALLY-launched supervisor's domain
+  # only, BEFORE the load attempt so the daemon inherits them. If the load fails
+  # and we fall back to nohup, undo the propagation first — nohup inherits this
+  # shell's env directly and needs nothing in the domain. The nohup-default
+  # branch never touches the domain.
   case "$sup" in
     launchd)
+      propagate_delivery_env launchd
       if load_launchd; then launched="launchd"; else
         nyann::warn "launchd load failed — falling back to nohup (best-effort)"
+        unpropagate_delivery_env launchd
         spawn_nohup "nohup"; launched="nohup"
       fi ;;
     systemd)
+      propagate_delivery_env systemd
       if load_systemd; then launched="systemd"; else
         nyann::warn "systemd load failed — falling back to nohup (best-effort)"
+        unpropagate_delivery_env systemd
         spawn_nohup "nohup"; launched="nohup"
       fi ;;
     *)
@@ -464,12 +516,14 @@ do_stop_aggregate() {
 
   local recorded_sup=""
   [[ -f "$daemon_file" ]] && recorded_sup=$(jq -r '.daemon.supervisor // ""' "$daemon_file" 2>/dev/null || echo "")
+  # Tear down the unit/plist AND clear any delivery secret propagated into the
+  # supervisor domain on start, dispatching on the recorded supervisor.
   case "$recorded_sup" in
-    launchd) unload_launchd_aggregate ;;
-    systemd) unload_systemd_aggregate ;;
-    *) # Unknown — try both teardowns; they're individually safe no-ops.
-       command -v launchctl >/dev/null 2>&1 && unload_launchd_aggregate
-       command -v systemctl >/dev/null 2>&1 && unload_systemd_aggregate ;;
+    launchd) unload_launchd_aggregate; unpropagate_delivery_env launchd ;;
+    systemd) unload_systemd_aggregate; unpropagate_delivery_env systemd ;;
+    *) # Unknown — try both; each is an individually safe no-op.
+       command -v launchctl >/dev/null 2>&1 && { unload_launchd_aggregate; unpropagate_delivery_env launchd; }
+       command -v systemctl >/dev/null 2>&1 && { unload_systemd_aggregate; unpropagate_delivery_env systemd; } ;;
   esac
 
   bash "$_aggregate_bin" --stop --state-dir "$state_dir" --notif-dir "$notif_dir" >/dev/null 2>&1 || true
@@ -491,12 +545,14 @@ do_stop() {
   # (each is a no-op when the unit isn't installed).
   local recorded_sup=""
   [[ -f "$daemon_file" ]] && recorded_sup=$(jq -r '.daemon.supervisor // ""' "$daemon_file" 2>/dev/null || echo "")
+  # Tear down the unit/plist AND clear any delivery secret propagated into the
+  # supervisor domain on start, dispatching on the recorded supervisor.
   case "$recorded_sup" in
-    launchd) unload_launchd ;;
-    systemd) unload_systemd ;;
-    *) # Unknown — try both teardowns; they're individually safe no-ops.
-       command -v launchctl >/dev/null 2>&1 && unload_launchd
-       command -v systemctl >/dev/null 2>&1 && unload_systemd ;;
+    launchd) unload_launchd; unpropagate_delivery_env launchd ;;
+    systemd) unload_systemd; unpropagate_delivery_env systemd ;;
+    *) # Unknown — try both; each is an individually safe no-op.
+       command -v launchctl >/dev/null 2>&1 && { unload_launchd; unpropagate_delivery_env launchd; }
+       command -v systemctl >/dev/null 2>&1 && { unload_systemd; unpropagate_delivery_env systemd; } ;;
   esac
 
   # Signal the loop directly via ci-sentinel.sh --stop (handles the

@@ -537,6 +537,27 @@ SH
   grep -q "sentinel-aggregate" "$TMP/nohup.calls"
 }
 
+# --- large --interval must not silently kill the aggregate daemon ------------
+# sentinel-daemon forwards ONLY --interval to the aggregate daemon (not
+# --max-interval), so a large --interval must NOT trip the aggregate
+# daemon-loop's default max-interval (1800) and die behind a "started" line.
+
+@test "start --aggregate --interval 3600 starts cleanly (no max-interval death)" {
+  make_stub launchctl 0
+  sda start --interval 3600 --supervisor launchd
+  [ "$status" -eq 0 ]
+  plist="$HOME/Library/LaunchAgents/com.nyann.sentinel-aggregate.plist"
+  [ -f "$plist" ]
+  # The large interval is rendered and only --interval is plumbed through (no
+  # --max-interval token), so the daemon-loop applies its default + clamps.
+  grep -q "3600" "$plist"
+  grep -q "sentinel-aggregate.sh" "$plist"
+  ! grep -q "max-interval" "$plist"
+  echo "$output" | grep -qi "aggregate daemon started"
+  # Did not abort with the legacy ">= --interval" error.
+  ! echo "$output" | grep -qi "must be >="
+}
+
 # --- delivery-secret propagation (supervised daemons don't inherit exports) --
 # launchd agents + systemd --user units do not inherit interactive shell
 # exports, so start must (a) warn for an enabled delivery channel whose secret
@@ -582,6 +603,86 @@ SH
   grep -q "import-environment NYANN_HOOK" "$TMP/systemctl.calls"
   ! grep -q "example.test/seekret" "$HOME/.config/systemd/user/nyann-sentinel.service"
   unset NYANN_HOOK
+}
+
+# --- delivery-secret teardown + supervisor scoping ---------------------------
+# A propagated secret must not linger in the per-user launchd/systemd domain
+# after stop/restart, and the nohup-fallback / nohup-default paths must never
+# pollute a domain (nohup inherits the shell env directly).
+
+@test "stop clears a propagated delivery secret from the launchd domain (unsetenv)" {
+  printf '{"repo":"%s","daemon":{"pid":999999,"started_at":"2026-06-07T00:00:00Z","supervisor":"launchd"}}\n' "$REPO" > "$DAEMON_FILE"
+  make_stub launchctl 0
+  make_stub kill 0
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "unrelated"
+SH
+  chmod +x "$MOCK/ps"
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{slack:{enabled:true, webhook_url_env:"NYANN_SLACK_WEBHOOK"}}}}' \
+    > "$UR/preferences.json"
+  NYANN_USER_ROOT="$UR" sd stop --repo "$REPO"
+  [ "$status" -eq 0 ]
+  # Teardown reclaimed the secret from the supervisor domain on stop.
+  grep -q "unsetenv NYANN_SLACK_WEBHOOK" "$TMP/launchctl.calls"
+}
+
+@test "stop --aggregate clears a propagated delivery secret from the systemd domain (unset-environment)" {
+  printf '{"repo":"(aggregate)","pr_number":0,"last_poll_at":"2026-06-07T00:00:00Z","checks_status":"unknown","review_status":"unknown","daemon":{"pid":999999,"started_at":"2026-06-07T00:00:00Z","supervisor":"systemd"}}\n' > "$AGG_DAEMON_FILE"
+  make_stub systemctl 0
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "unrelated"
+SH
+  chmod +x "$MOCK/ps"
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{webhook:{enabled:true, url_env:"NYANN_HOOK"}}}}' \
+    > "$UR/preferences.json"
+  NYANN_USER_ROOT="$UR" sda stop
+  [ "$status" -eq 0 ]
+  grep -q "unset-environment NYANN_HOOK" "$TMP/systemctl.calls"
+}
+
+@test "start nohup-fallback (launchd load fails) clears the launchd domain" {
+  make_stub launchctl 1   # launchctl present but load FAILS → nohup fallback
+  make_stub nohup 0
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{slack:{enabled:true, webhook_url_env:"NYANN_SLACK_WEBHOOK"}}}}' \
+    > "$UR/preferences.json"
+  export NYANN_SLACK_WEBHOOK="https://hooks.slack.test/seekret"
+  NYANN_USER_ROOT="$UR" sd start --repo "$REPO" --supervisor launchd
+  [ "$status" -eq 0 ]
+  wait_for_calls "$TMP/nohup.calls"
+  echo "$output" | grep -qi "supervisor: nohup"
+  # The load-fail fallback undoes the propagation: nohup inherits the shell env
+  # directly, so the launchd domain must be cleared rather than left polluted.
+  grep -q "unsetenv NYANN_SLACK_WEBHOOK" "$TMP/launchctl.calls"
+  unset NYANN_SLACK_WEBHOOK
+}
+
+@test "start under the nohup-default supervisor never touches a launchd/systemd domain" {
+  make_stub nohup 0
+  cat > "$MOCK/uname" <<'SH'
+#!/bin/sh
+echo BeOS
+SH
+  chmod +x "$MOCK/uname"
+  make_stub launchctl 0   # present, but the nohup-default branch must NOT use it
+  make_stub systemctl 0
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{slack:{enabled:true, webhook_url_env:"NYANN_SLACK_WEBHOOK"}}}}' \
+    > "$UR/preferences.json"
+  export NYANN_SLACK_WEBHOOK="https://hooks.slack.test/seekret"
+  NYANN_USER_ROOT="$UR" sd start --repo "$REPO"
+  [ "$status" -eq 0 ]
+  wait_for_calls "$TMP/nohup.calls"
+  echo "$output" | grep -qi "supervisor: nohup"
+  # nohup inherits the shell env directly — nothing pushed into / cleared from a
+  # supervisor domain, so neither launchctl nor systemctl was ever invoked.
+  [ ! -f "$TMP/launchctl.calls" ]
+  [ ! -f "$TMP/systemctl.calls" ]
+  unset NYANN_SLACK_WEBHOOK
 }
 
 # --- per-repo --pr filter honoured under launchd/systemd ---------------------

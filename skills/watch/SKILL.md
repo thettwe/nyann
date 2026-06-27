@@ -72,6 +72,13 @@ backs off on `gh` failures, and self-terminates at `--max-runtime`
 (default 8h) as an orphan backstop. Starting is idempotent — a daemon
 already running for the repo is left alone.
 
+> **Delivery secrets under a supervisor:** if a notification delivery
+> channel is configured, `start` hands its secret to the launchd/systemd
+> session so the supervised daemon can reach it. While the daemon runs the
+> secret is visible to your other same-user processes in that session; it is
+> cleared on `stop`. (The `nohup` fallback inherits your shell env directly
+> and exposes nothing extra.)
+
 Report status (pid + supervisor + watched PRs; flags a stale daemon)
 with:
 ```
