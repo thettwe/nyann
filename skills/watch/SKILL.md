@@ -1,7 +1,8 @@
 ---
 name: watch
 description: >
-  Start (or stop) the nyann CI sentinel for the current repo. The sentinel
+  Start (or stop) the nyann CI sentinel for the current repo, OR manage a
+  multi-repo watch-list and poll all watched repos at once. The sentinel
   polls open PRs for state transitions (CI failure, approval, merge,
   branch staleness) and emits notifications the session-start hook
   surfaces on your next prompt.
@@ -11,6 +12,11 @@ description: >
   "daemonize the watcher", "watch in the background",
   "/nyann:watch", "/nyann:watch --pr <N>", "/nyann:watch --daemon",
   "stop watching", "/nyann:watch --stop".
+  ALSO TRIGGER for multi-repo aggregation: "watch all my repos", "watch
+  across repos", "add a repo to my watch list", "add <owner/repo> to watch",
+  "remove <owner/repo> from watch", "list watched repos", "what's new across
+  all my repos", "poll every repo I'm watching", "/nyann:watch --add",
+  "/nyann:watch --remove", "/nyann:watch --list".
   Do NOT trigger on "wait for checks" — that is `/nyann:wait-for-pr-checks`
   (blocking poll). watch is fire-and-forget; wait-for-pr-checks blocks.
 ---
@@ -18,8 +24,15 @@ description: >
 # watch
 
 > **Plugin root:** `<plugin_root>/skills/watch/SKILL.md` — scripts live
-> at `<plugin_root>/bin/ci-sentinel.sh`, `bin/sentinel-daemon.sh`, and
-> `bin/read-notifications.sh`.
+> at `<plugin_root>/bin/ci-sentinel.sh`, `bin/sentinel-daemon.sh`,
+> `bin/sentinel-aggregate.sh`, and `bin/read-notifications.sh`.
+
+Two modes:
+- **Single repo** (Steps 1–3): poll the current repo's PRs directly —
+  one-shot, or as a supervised background daemon (`--daemon`).
+- **Multi-repo** (Step 4): keep a watch-list of repos and poll them all
+  under one rate-limit-aware scheduler. Use this when the user watches PRs
+  across several repos and wants one merged view.
 
 ## Step 1: Resolve repo
 
@@ -81,6 +94,50 @@ Render the result as a short list:
 [nyann] 2 notifications since last check:
   - PR #42: CI failed (2h ago)
   - PR #43: approved (15m ago)
+```
+
+## Step 4: Multi-repo watch-list (aggregation)
+
+When the user watches PRs across several repos, manage a watch-list and
+poll them all at once instead of running the single-repo flow per repo.
+The watch-list lives at `~/.claude/nyann/watch-list.json` (an array of
+`{repo, prs?}`); manage it via `bin/sentinel-aggregate.sh`, because one
+scheduler must own the GitHub rate budget for all repos.
+
+Add / remove / list watched repos:
+```
+bash <plugin_root>/bin/sentinel-aggregate.sh --add <owner/repo> [--pr <N>]
+bash <plugin_root>/bin/sentinel-aggregate.sh --remove <owner/repo>
+bash <plugin_root>/bin/sentinel-aggregate.sh --list
+```
+`--add` is idempotent (re-adding never duplicates; `--pr` merges into the
+repo's PR set), so you can run it freely. Malformed slugs are rejected.
+
+Poll every watched repo in one cycle:
+```
+bash <plugin_root>/bin/sentinel-aggregate.sh --poll
+```
+This runs `ci-sentinel.sh` once per repo, but a single scheduler tracks the
+GitHub core rate budget and backs off **globally** (adaptive interval, all
+repos) when the budget runs low — because N repos × M PRs would otherwise
+blow the 5000/hr ceiling. It prints a scheduler-summary JSON
+(`current_interval` tells a supervising daemon how long to sleep next).
+
+Read the unified, repo-tagged view across every watched repo:
+```
+bash <plugin_root>/bin/read-notifications.sh --all
+```
+Each entry is tagged with `context.repo` so you can say which repo it came
+from. `--all` drains every watched queue (use `--peek` to leave them
+intact). Render grouped by repo:
+
+```
+[nyann] 3 notifications across 2 repos:
+  acme/api:
+    - PR #42: CI failed (2h ago)
+  acme/web:
+    - PR #7: approved (15m ago)
+    - PR #9: merged into main (1h ago)
 ```
 
 ## When to hand off

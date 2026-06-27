@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/watch-list/v1.json",
+  "title": "WatchList",
+  "description": "Repos the multi-repo sentinel aggregator (bin/sentinel-aggregate.sh) polls. Stored at ~/.claude/nyann/watch-list.json. Each entry names a GitHub repo and, optionally, the specific PRs to watch (omit prs to watch all open PRs).",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["repo"],
+    "properties": {
+      "repo": {
+        "type": "string",
+        "description": "GitHub repo slug in <owner>/<repo> form.",
+        "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+      },
+      "prs": {
+        "type": "array",
+        "description": "Optional explicit PR numbers. Omit to poll all open PRs on the repo.",
+        "items": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

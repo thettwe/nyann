@@ -1,0 +1,281 @@
+#!/usr/bin/env bats
+# Multi-repo sentinel aggregation — watch-list management, multi-repo poll
+# with a single globally rate-limit-aware scheduler, and the aggregated,
+# repo-tagged read via read-notifications.sh --all. Real gh polling is
+# replaced with a stub ci-sentinel and a PATH-stubbed gh.
+
+setup() {
+  REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
+  TMP="$(mktemp -d -t nyann-agg.XXXXXX)"
+  TMP="$(cd "$TMP" && pwd -P)"
+  WL="$TMP/watch-list.json"
+  STATE_DIR="$TMP/state"
+  NOTIF_DIR="$TMP/notifs"
+  mkdir -p "$STATE_DIR" "$NOTIF_DIR"
+  AGG="$REPO_ROOT/bin/sentinel-aggregate.sh"
+  READ="$REPO_ROOT/bin/read-notifications.sh"
+}
+
+teardown() { rm -rf "$TMP"; }
+
+# Per-repo queue hash — MUST match the scripts' repo_hash().
+qhash() { printf '%s' "$1" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12; }
+
+# A stub ci-sentinel that appends one notification to the repo's queue. Lets
+# the multi-repo poll exercise the real merge path without touching GitHub.
+make_sentinel() {
+  cat > "$TMP/fake-sentinel.sh" <<'EOF'
+#!/usr/bin/env bash
+repo=""; nd=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) repo="$2"; shift 2 ;;
+    --notif-dir) nd="$2"; shift 2 ;;
+    --pr) shift 2 ;;
+    *) shift ;;
+  esac
+done
+h=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12)
+jq -n --arg m "CI failed on $repo" \
+  '{timestamp:"2026-06-27T00:00:00Z", source:"sentinel", severity:"critical", message:$m, context:{pr:1}}' \
+  >> "$nd/$h.jsonl"
+EOF
+  chmod +x "$TMP/fake-sentinel.sh"
+  printf '%s' "$TMP/fake-sentinel.sh"
+}
+
+# A stub ci-sentinel that records every invocation by touching a marker. Used
+# to prove the backoff path skips polling entirely.
+make_sentinel_marker() {
+  cat > "$TMP/marker-sentinel.sh" <<EOF
+#!/usr/bin/env bash
+echo invoked >> "$TMP/invoked.log"
+EOF
+  chmod +x "$TMP/marker-sentinel.sh"
+  printf '%s' "$TMP/marker-sentinel.sh"
+}
+
+# A PATH directory whose gh stub reports <remaining> core budget.
+gh_path() {
+  local remaining="$1" dir="$TMP/gh-$remaining"
+  mkdir -p "$dir"
+  cat > "$dir/gh" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "api" && "\$2" == "rate_limit" ]]; then echo $remaining; exit 0; fi
+exit 0
+EOF
+  chmod +x "$dir/gh"
+  printf '%s' "$dir"
+}
+
+# --- watch-list management --------------------------------------------------
+
+@test "--add creates the watch-list with the repo" {
+  run bash "$AGG" --add o/a --watch-list "$WL"
+  [ "$status" -eq 0 ]
+  [ -f "$WL" ]
+  [ "$(jq -r '.[0].repo' "$WL")" = "o/a" ]
+}
+
+@test "--add is idempotent (no duplicate on re-add)" {
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  [ "$(jq '[.[] | select(.repo=="o/a")] | length' "$WL")" -eq 1 ]
+}
+
+@test "--add --pr merges PR numbers into prs[] (deduped, sorted)" {
+  bash "$AGG" --add o/b --pr 7 --watch-list "$WL"
+  bash "$AGG" --add o/b --pr 7 --watch-list "$WL"
+  bash "$AGG" --add o/b --pr 3 --watch-list "$WL"
+  [ "$(jq -c '.[] | select(.repo=="o/b") | .prs' "$WL")" = "[3,7]" ]
+}
+
+@test "--add rejects a malformed repo (no slash)" {
+  run bash "$AGG" --add notarepo --watch-list "$WL"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "invalid repo"
+  [ ! -f "$WL" ]
+}
+
+@test "--add rejects a path-traversal repo slug" {
+  run bash "$AGG" --add "../etc/passwd" --watch-list "$WL"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "invalid repo"
+}
+
+@test "--add rejects a leading-dash repo (option injection)" {
+  run bash "$AGG" --add "-x/y" --watch-list "$WL"
+  [ "$status" -ne 0 ]
+}
+
+@test "--add rejects a non-integer --pr" {
+  run bash "$AGG" --add o/a --pr abc --watch-list "$WL"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "positive integer"
+}
+
+@test "--remove deletes a repo from the watch-list" {
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --watch-list "$WL"
+  bash "$AGG" --remove o/a --watch-list "$WL"
+  [ "$(jq 'length' "$WL")" -eq 1 ]
+  [ "$(jq -r '.[0].repo' "$WL")" = "o/b" ]
+}
+
+@test "--remove of an absent repo is a clean no-op" {
+  bash "$AGG" --add o/a --watch-list "$WL"
+  run bash "$AGG" --remove o/zzz --watch-list "$WL"
+  [ "$status" -eq 0 ]
+  [ "$(jq 'length' "$WL")" -eq 1 ]
+}
+
+@test "--list prints the watch-list array" {
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --pr 4 --watch-list "$WL"
+  run bash "$AGG" --list --watch-list "$WL"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r '.[0].repo')" = "o/a" ]
+  [ "$(echo "$output" | jq -c '.[1].prs')" = "[4]" ]
+}
+
+@test "--list on a missing watch-list prints []" {
+  run bash "$AGG" --list --watch-list "$WL"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '. == []'
+}
+
+@test "a mode flag is required" {
+  run bash "$AGG" --watch-list "$WL"
+  [ "$status" -ne 0 ]
+}
+
+@test "two modes at once is rejected" {
+  run bash "$AGG" --list --poll --watch-list "$WL"
+  [ "$status" -ne 0 ]
+}
+
+@test "watch-list written by --add validates against the schema" {
+  if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
+    skip "no schema validator"
+  fi
+  if command -v check-jsonschema >/dev/null 2>&1; then VALIDATE=(check-jsonschema); else VALIDATE=(uvx --quiet check-jsonschema); fi
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --pr 7 --watch-list "$WL"
+  "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/watch-list.schema.json" "$WL"
+}
+
+# --- poll ------------------------------------------------------------------
+
+@test "--poll on an empty watch-list is a clean no-op summary" {
+  ghdir="$(gh_path 5000)"
+  # Capture stdout only — the human-readable [nyann] logs go to stderr and
+  # would otherwise corrupt the JSON summary parse.
+  summary="$(env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ]
+  echo "$summary" | jq -e '.polled == [] and .backoff == false'
+}
+
+@test "--poll iterates the watch-list and runs the sentinel per repo (merged notifications)" {
+  sentinel="$(make_sentinel)"
+  ghdir="$(gh_path 5000)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --pr 5 --watch-list "$WL"
+  run env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --sentinel "$sentinel"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.polled | sort == ["o/a","o/b"]'
+  # Both per-repo queues received an entry.
+  [ -s "$NOTIF_DIR/$(qhash o/a).jsonl" ]
+  [ -s "$NOTIF_DIR/$(qhash o/b).jsonl" ]
+}
+
+@test "read-notifications --all merges queues across repos and tags context.repo" {
+  sentinel="$(make_sentinel)"
+  ghdir="$(gh_path 5000)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --watch-list "$WL"
+  env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --sentinel "$sentinel"
+  run bash "$READ" --all --watch-list "$WL" --notif-dir "$NOTIF_DIR" --peek
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq 'length')" -eq 2 ]
+  # Every entry is repo-tagged via context.repo and the tags cover both repos.
+  echo "$output" | jq -e 'map(.context.repo) | sort == ["o/a","o/b"]'
+  echo "$output" | jq -e 'all(.[]; .context.repo != null)'
+}
+
+@test "read-notifications --all drains (truncates) every watched queue" {
+  repo_a="o/a"; repo_b="o/b"
+  bash "$AGG" --add "$repo_a" --watch-list "$WL"
+  bash "$AGG" --add "$repo_b" --watch-list "$WL"
+  fa="$NOTIF_DIR/$(qhash "$repo_a").jsonl"
+  fb="$NOTIF_DIR/$(qhash "$repo_b").jsonl"
+  jq -n '{timestamp:"2026-06-27T00:00:00Z", source:"sentinel", severity:"info", message:"a", context:{}}' > "$fa"
+  jq -n '{timestamp:"2026-06-27T00:00:01Z", source:"sentinel", severity:"info", message:"b", context:{}}' > "$fb"
+  run bash "$READ" --all --watch-list "$WL" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq 'length')" -eq 2 ]
+  # Both queues truncated (drained) after the read.
+  [ ! -s "$fa" ]
+  [ ! -s "$fb" ]
+}
+
+@test "read-notifications --all on an empty/missing watch-list returns []" {
+  run bash "$READ" --all --watch-list "$WL" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '. == []'
+}
+
+@test "--poll backs off GLOBALLY when the rate budget is low (no repo polled)" {
+  marker="$(make_sentinel_marker)"
+  ghdir="$(gh_path 5)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  bash "$AGG" --add o/b --watch-list "$WL"
+  # Capture stdout only — the backoff warning goes to stderr.
+  summary="$(env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --sentinel "$marker" --rate-reserve 100 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ]
+  # Global backoff: summary flags backoff, both repos skipped, none polled.
+  echo "$summary" | jq -e '.backoff == true and .polled == [] and (.skipped | sort == ["o/a","o/b"])'
+  # The sentinel was never invoked — no marker file was written.
+  [ ! -f "$TMP/invoked.log" ]
+}
+
+@test "--poll adaptive interval grows on consecutive backoffs and persists scheduler state" {
+  ghdir="$(gh_path 5)"
+  bash "$AGG" --add o/a --watch-list "$WL"
+  # First backoff: 120 -> 240.
+  env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --interval 120 --rate-reserve 100 >/dev/null
+  sched="$STATE_DIR/aggregate-scheduler.json"
+  [ "$(jq -r '.current_interval' "$sched")" -eq 240 ]
+  [ "$(jq -r '.consecutive_backoffs' "$sched")" -eq 1 ]
+  # Second consecutive backoff grows further (240-equivalent: 120 -> 480).
+  env PATH="$ghdir:$PATH" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR" --interval 120 --rate-reserve 100 >/dev/null
+  [ "$(jq -r '.consecutive_backoffs' "$sched")" -eq 2 ]
+  [ "$(jq -r '.current_interval' "$sched")" -gt 240 ]
+}
+
+@test "--poll soft-skips when gh is missing (no scheduler crash)" {
+  # Build a PATH that lacks gh so the rate oracle / sentinel are unavailable.
+  ngh="$TMP/nogh"; mkdir -p "$ngh"
+  local IFS=:
+  for d in $PATH; do
+    [ -d "$d" ] || continue
+    for exe in "$d"/*; do
+      [ -x "$exe" ] || continue
+      b="$(basename "$exe")"
+      [ "$b" = gh ] && continue
+      [ -e "$ngh/$b" ] || ln -s "$exe" "$ngh/$b" 2>/dev/null || true
+    done
+  done
+  bash "$AGG" --add o/a --watch-list "$WL"
+  run env PATH="$ngh" bash "$AGG" --poll --watch-list "$WL" \
+    --notif-dir "$NOTIF_DIR" --state-dir "$STATE_DIR"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "gh CLI not installed"
+}
