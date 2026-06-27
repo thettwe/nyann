@@ -195,6 +195,72 @@ write_v2_prefs() {
   [ -s "${markers[0]}" ]
 }
 
+@test "dedup: a soft-failed delivery is NOT marked and IS retried; a success is marked once" {
+  export NYANN_WEBHOOK_URL="https://example.test/hook"
+  local cfg='{"webhook":{"enabled":true,"url_env":"NYANN_WEBHOOK_URL"}}'
+
+  # First — curl FAILS (exit 22). The notification must NOT be recorded, so a
+  # SECOND run retries it: two curl attempts across two runs (no silent drop).
+  failstub="$TMP/failcurl"; mkdir -p "$failstub"
+  cat > "$failstub/curl" <<SH
+#!/usr/bin/env bash
+printf 'fail\n' >> "$TMP/fail.argv"
+exit 22
+SH
+  chmod +x "$failstub/curl"
+  printf '%s' "$BATCH" | PATH="$failstub:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  printf '%s' "$BATCH" | PATH="$failstub:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  [ "$(wc -l < "$TMP/fail.argv" | tr -d ' ')" -eq 2 ]
+
+  # Then — curl SUCCEEDS (stub exit 0). The notification is delivered once.
+  printf '%s' "$BATCH" | PATH="$STUB:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  [ "$(wc -l < "$CURL_ARGV" | tr -d ' ')" -eq 1 ]
+  # Finally — now it IS marked, so a re-run does not resend (still one send).
+  printf '%s' "$BATCH" | PATH="$STUB:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  [ "$(wc -l < "$CURL_ARGV" | tr -d ' ')" -eq 1 ]
+}
+
+# --- Security: env-var-name RCE refusal --------------------------------------
+
+@test "RCE: a url_env value with an injected command is REFUSED (no exec, no delivery)" {
+  # `${!name}` would arithmetic-evaluate the array subscript and RUN the
+  # command; the validation + printenv resolution must refuse it outright.
+  sentinel_file="$TMP/SENTINEL_RCE"
+  # Build the malicious env-var NAME as a LITERAL (single-quote the $(...) so
+  # this test shell never executes it); only the path is expanded.
+  mal='x[$(touch '"$sentinel_file"')]'
+  cfg=$(jq -nc --arg e "$mal" '{webhook:{enabled:true, url_env:$e}}')
+  out=$(printf '%s' "$BATCH" | PATH="$STUB:$PATH" bash "$DELIVER" \
+    --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" 2>&1)
+  [ "$?" -eq 0 ]
+  # The injected command never ran.
+  [ ! -e "$sentinel_file" ]
+  # And nothing was delivered (the channel was skipped as invalid).
+  [ ! -s "$CURL_ARGV" ]
+  echo "$out" | grep -qi "invalid env var name"
+}
+
+# --- Timeouts + email header injection ---------------------------------------
+
+@test "curl delivery carries connection + max-time timeouts" {
+  export NYANN_WEBHOOK_URL="https://example.test/hook"
+  deliver_cfg '{"webhook":{"enabled":true,"url_env":"NYANN_WEBHOOK_URL"}}' >/dev/null
+  grep -q -- "--max-time" "$CURL_ARGV"
+  grep -q -- "--connect-timeout" "$CURL_ARGV"
+}
+
+@test "email.sh strips CR/LF from to/from (no RFC822 header injection)" {
+  # A newline in email.to would otherwise inject an extra header. notify-deliver
+  # passes the config value verbatim; email.sh must strip CR/LF before headers.
+  cfg=$(jq -nc '{email:{enabled:true, to:"ops@team.test\nBcc: evil@x.test", from:"nyann@team.test"}}')
+  printf '%s' "$BATCH" | PATH="$STUB:$PATH" bash "$DELIVER" \
+    --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  [ -s "$SENDMAIL_CAP" ]
+  # No line STARTS with Bcc: — the injected text was folded into the To line.
+  ! grep -q '^Bcc:' "$SENDMAIL_CAP"
+  grep -q '^To: ops@team.test' "$SENDMAIL_CAP"
+}
+
 # --- Fan-out + prefs source --------------------------------------------------
 
 @test "multiple enabled channels each receive the batch" {

@@ -110,6 +110,21 @@ repo_hash() {
   printf '%s' "$1" | (md5sum 2>/dev/null || md5 -q 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-12
 }
 
+# valid_repo_slug <slug> — mirror sentinel-aggregate.sh's: accept only
+# <owner>/<repo>, reject a leading `-` (option injection into gh / the plist /
+# unit) and any `.`/`..` path component. $repo is substituted UNESCAPED into
+# the launchd plist + systemd unit, so it must be validated before render.
+valid_repo_slug() {
+  local r="${1-}"
+  [[ -n "$r" ]] || return 1
+  [[ "$r" != -* ]] || return 1
+  [[ "$r" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+  case "$r" in
+    .|..|./*|../*|*/.|*/..|*/./*|*/../*) return 1 ;;
+  esac
+  return 0
+}
+
 # pid_is_live <pid> — true iff the pid is alive AND still looks like a
 # sentinel (PID-reuse guard, same primitive ci-sentinel.sh --stop uses).
 # Matches BOTH the per-repo loop (ci-sentinel) and the multi-repo aggregate
@@ -319,8 +334,20 @@ do_start_aggregate() {
 
 # --- start -------------------------------------------------------------------
 do_start() {
+  # Validate the numeric tunables before launching EITHER daemon variant: they
+  # are substituted into the plist/unit and passed to the loop, so a typo must
+  # fail fast rather than spin a no-sleep loop (mirrors ci-sentinel.sh).
+  if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval < 1 )); then
+    nyann::die "start: --interval must be a positive integer of seconds (got: $interval)"
+  fi
+  if ! [[ "$max_runtime" =~ ^[0-9]+$ ]] || (( max_runtime < 1 )); then
+    nyann::die "start: --max-runtime must be a positive integer of seconds (got: $max_runtime)"
+  fi
   if $aggregate; then do_start_aggregate; return $?; fi
   [[ -n "$repo" ]] || nyann::die "start: --repo <owner/repo> is required"
+  # $repo is rendered UNESCAPED into the plist/unit — reject a slug that could
+  # inject options or path components before it's hashed/substituted.
+  valid_repo_slug "$repo" || nyann::die "start: invalid repo (expected <owner>/<repo>): $repo"
   local hash; hash=$(repo_hash "$repo")
   local pid_file="$state_dir/${hash}.sentinel.pid"
 

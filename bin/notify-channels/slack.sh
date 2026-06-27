@@ -8,9 +8,17 @@
 # Reads a JSON array of Notification objects on stdin and POSTs a Slack
 # incoming-webhook payload ({text: ...}) to the URL held in the named
 # environment variable. The webhook URL is read from the environment at
-# delivery time (indirect expansion of <ENV_VAR_NAME>) — never passed on
-# the command line and never stored in preferences.json. Missing env var
-# or missing curl → warn + skip (exit 0), never crash. Invoked by
+# delivery time via `printenv` (NEVER bash indirect expansion `${!name}`,
+# which evaluates array subscripts as arithmetic and would run an attacker
+# substring like `x[$(cmd)]` — RCE). <ENV_VAR_NAME> is validated to a POSIX
+# identifier first. The URL never reaches argv via `${...}` and is never
+# stored in preferences.json.
+#
+# EXIT CONTRACT (shared with notify-deliver.sh): exit 0 ONLY on a confirmed
+# delivery (curl --fail saw a 2xx). A soft-skip (unset env, missing curl,
+# invalid env name) or a failed POST returns NON-ZERO (75 for soft-skip, or
+# curl's own status for a transport/HTTP failure) so the orchestrator leaves
+# the notification UN-marked and retries it next poll. Invoked by
 # bin/notify-deliver.sh; not meant to be called directly by users.
 
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,19 +39,29 @@ done
 
 [[ -n "$env_name" ]] || nyann::die "--env <ENV_VAR_NAME> is required"
 
+# Validate the env-var NAME before resolving it. `${!name}` (indirect
+# expansion) treats `name` as `arr[subscript]` and arithmetic-evaluates the
+# subscript, so a value like `x[$(touch pwned)]` runs the command — RCE. A
+# strict POSIX-identifier check plus `printenv` (which does NOT evaluate
+# subscripts) closes that hole. Soft-skip (75) rather than crash the fan-out.
+if [[ ! "$env_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+  nyann::warn "slack: invalid env var name '$env_name' — skipping"
+  exit 75
+fi
+
 # Soft-skip when curl is unavailable — delivery is best-effort, never fatal.
 if ! nyann::has_cmd curl; then
   nyann::warn "slack: curl not installed — skipping delivery"
-  exit 0
+  exit 75
 fi
 
-# Resolve the endpoint from the environment by NAME (indirect expansion).
-# An unset/empty env var means the user named a channel but never exported
-# the secret — skip with a hint rather than crashing the whole fan-out.
-url="${!env_name-}"
+# Resolve the endpoint from the environment by NAME via printenv (never
+# `${!env_name}`). An unset/empty env var means the user named a channel but
+# never exported the secret — skip with a hint rather than crashing.
+url="$(printenv -- "$env_name" 2>/dev/null || true)"
 if [[ -z "$url" ]]; then
   nyann::warn "slack: env var \$${env_name} is unset — skipping (export it to enable Slack delivery)"
-  exit 0
+  exit 75
 fi
 
 batch="$(cat)"
@@ -54,11 +72,21 @@ if [[ "$(jq 'length' <<<"$batch" 2>/dev/null || echo 0)" -eq 0 ]]; then
 fi
 
 # Slack incoming-webhook shape: {text: "..."}. One line per notification.
-payload="$(jq -c '{text: ([.[] | "[\(.severity)] \(.message)"] | join("\n"))}' <<<"$batch")"
+# Prepend the repo tag (context.repo, set by notify-deliver) so a multi-repo
+# aggregate delivery says which repo each line is from.
+payload="$(jq -c '{text: ([.[] | "\(if .context.repo then "[\(.context.repo)] " else "" end)[\(.severity)] \(.message)"] | join("\n"))}' <<<"$batch")"
 
-# Send the body via stdin so the (secret) URL stays the only argv item and
-# the payload never appears in `ps`. Best-effort: warn on failure, exit 0.
-if ! printf '%s' "$payload" | curl -sS -X POST -H 'Content-Type: application/json' --data-binary @- "$url" >/dev/null 2>&1; then
+# Send the body via stdin so the (secret) URL stays out of `ps`. `--fail`
+# turns a non-2xx response into a non-zero exit; `--connect-timeout` /
+# `--max-time` stop a hung endpoint from wedging the poll loop. Pass the URL
+# via `--url` (end-of-options) so a URL beginning with `-` can't be parsed as
+# a curl flag. Return curl's status: exit 0 ONLY on confirmed delivery.
+rc=0
+printf '%s' "$payload" \
+  | curl --fail -sS --connect-timeout 5 --max-time 15 \
+      -X POST -H 'Content-Type: application/json' --data-binary @- \
+      --url "$url" >/dev/null 2>&1 || rc=$?
+if (( rc != 0 )); then
   nyann::warn "slack: delivery request failed (network or webhook error)"
 fi
-exit 0
+exit "$rc"

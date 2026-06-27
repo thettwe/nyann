@@ -417,13 +417,21 @@ fi
 # `gh_integration=true` would clobber a stored `false` without trace).
 if [[ -f "$prefs_path" ]]; then
   existing_schema=$(jq -r '.schemaVersion // 1' "$prefs_path" 2>/dev/null || echo 1)
-  if [[ -z "$incremental_fields" ]] && (( existing_schema < NYANN_PREFS_CURRENT_SCHEMA )); then
+  # Warn on ANY schema mismatch (not just older files). A non-incremental re-run
+  # on a NEWER file (e.g. v3 with delivery configured) would otherwise downgrade
+  # it and overwrite fields silently — fire the same "you're overwriting" notice.
+  if [[ -z "$incremental_fields" ]] && (( existing_schema != NYANN_PREFS_CURRENT_SCHEMA )); then
     nyann::warn "preferences.json is schemaVersion ${existing_schema} (current: ${NYANN_PREFS_CURRENT_SCHEMA})."
     nyann::warn "This run will OVERWRITE all fields with CLI defaults — fields you previously"
     nyann::warn "set (e.g. gh_integration=false) revert unless you re-pass them. Prefer:"
     nyann::warn "  bash $(basename "${BASH_SOURCE[0]}") --incremental --fields <new-fields>"
     nyann::warn "or use /nyann:settings to migrate non-destructively."
   fi
+  # Preserve notifications.delivery (schemaVersion 3) verbatim WHENEVER a prefs
+  # file exists — incremental OR not. It has no CLI flag and no flag should
+  # legitimately reset it, so a plain `setup.sh` re-run must not drop a user's
+  # configured delivery channels (or silently downgrade schemaVersion 3 → 2).
+  notifications_delivery=$(jq -c '.notifications.delivery // empty' "$prefs_path" 2>/dev/null || true)
   if [[ -n "$incremental_fields" ]]; then
     # Pull each unset field from existing prefs.
     if ! $_set_default_profile; then
@@ -471,10 +479,6 @@ if [[ -f "$prefs_path" ]]; then
       [[ "$v" == "false" ]] && notifications_staleness_alerts=false
       [[ "$v" == "true"  ]] && notifications_staleness_alerts=true
     fi
-    # Preserve notifications.delivery (schemaVersion 3) verbatim across the
-    # rebuild — it has no CLI flag, so without this an incremental upgrade
-    # would silently drop a user's configured delivery channels.
-    notifications_delivery=$(jq -c '.notifications.delivery // empty' "$prefs_path" 2>/dev/null || true)
     if ! $_set_git_identity; then
       v_name=$(jq -r '.git_identity.name // empty' "$prefs_path" 2>/dev/null || true)
       v_email=$(jq -r '.git_identity.email // empty' "$prefs_path" 2>/dev/null || true)

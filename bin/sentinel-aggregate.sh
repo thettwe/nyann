@@ -131,6 +131,15 @@ if [[ "$mode" == "daemon-loop" ]]; then
   if ! [[ "$max_runtime" =~ ^[0-9]+$ ]] || (( max_runtime < 1 )); then
     nyann::die "--max-runtime must be a positive integer of seconds (got: $max_runtime)"
   fi
+  # The scheduler tunables are consumed every cycle by run_poll_cycle; a bad
+  # value would only surface (fatally) deep in the first cycle. Fail fast at
+  # start instead so a typo can't take the whole daemon down mid-run.
+  if ! [[ "$max_interval" =~ ^[0-9]+$ ]]; then
+    nyann::die "--max-interval must be a non-negative integer of seconds (got: $max_interval)"
+  fi
+  if ! [[ "$rate_reserve" =~ ^[0-9]+$ ]]; then
+    nyann::die "--rate-reserve must be a non-negative integer (got: $rate_reserve)"
+  fi
   case "${supervisor:-nohup}" in
     launchd|systemd|nohup|"") ;;
     *) nyann::die "--supervisor must be one of launchd|systemd|nohup (got: $supervisor)" ;;
@@ -334,8 +343,12 @@ run_poll_cycle() {
       consec=$((prev_consec + 1))
       interval="$base_interval"
       i=0
+      # Clamp INSIDE the loop: doubling unboundedly before the post-loop cap
+      # could integer-overflow on a long backoff streak. Break the moment we
+      # reach the ceiling.
       while (( i < consec )); do
         interval=$((interval * 2))
+        (( interval >= max_interval )) && { interval="$max_interval"; break; }
         i=$((i + 1))
       done
       (( interval > max_interval )) && interval="$max_interval"
@@ -443,7 +456,12 @@ run_daemon_loop() {
 
     # One scheduler cycle. Captured in a subshell so we can parse the summary;
     # the per-cycle scheduler lock lives and dies inside run_poll_cycle.
-    summary="$(run_poll_cycle)"
+    # `|| summary=""` is LOAD-BEARING: under `set -o errexit`, a non-zero
+    # run_poll_cycle (transient lock timeout, gh hiccup) in a command-
+    # substitution assignment would otherwise abort the whole daemon — killing
+    # the documented transient-failure fallback below. Swallow it and fall
+    # back to the base cadence so the loop keeps running.
+    summary="$(run_poll_cycle)" || summary=""
     next_interval="$(printf '%s' "$summary" | jq -r '.current_interval // empty' 2>/dev/null || true)"
     # Fall back to the base interval if the summary couldn't be parsed (e.g. a
     # transient lock-timeout) so the loop never busy-spins.
@@ -497,7 +515,9 @@ run_stop() {
 case "$mode" in
   add)
     valid_repo_slug "$repo" || nyann::die "invalid repo (expected <owner>/<repo>): $repo"
-    if [[ -n "$pr" ]] && ! [[ "$pr" =~ ^[0-9]+$ ]]; then
+    # Reject --pr 0 (and any non-positive / non-numeric): the watch-list schema
+    # requires prs[] >= 1, so a 0 would write a file that fails validation.
+    if [[ -n "$pr" ]] && ! [[ "$pr" =~ ^[1-9][0-9]*$ ]]; then
       nyann::die "--pr must be a positive integer (got: $pr)"
     fi
     current="$(read_watch_list)"

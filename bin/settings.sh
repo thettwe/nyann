@@ -159,6 +159,13 @@ case "$set_key" in
     if [[ "$set_value" =~ ^[Hh][Tt][Tt][Pp][Ss]?:// ]]; then
       nyann::die "refusing to store a URL in $set_key — expected a plain email address."
     fi
+    # Reject CR/LF: these addresses are written verbatim into RFC822 To/From
+    # headers by email.sh, so a newline would inject extra headers (or a body)
+    # — classic email header injection. email.sh also strips CR/LF at the read
+    # site; rejecting here keeps the stored value clean in the first place.
+    if [[ "$set_value" == *$'\n'* || "$set_value" == *$'\r'* ]]; then
+      nyann::die "invalid value for $set_key: must not contain CR/LF (email header injection)"
+    fi
     [[ -n "$set_value" ]] || nyann::die "invalid value for $set_key: empty"
     ;;
   *)

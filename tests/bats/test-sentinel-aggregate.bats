@@ -114,6 +114,14 @@ EOF
   echo "$output" | grep -q "positive integer"
 }
 
+@test "--add rejects --pr 0 (watch-list schema requires prs >= 1)" {
+  run bash "$AGG" --add o/a --pr 0 --watch-list "$WL"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "positive integer"
+  # Nothing written — a 0 would violate watch-list.schema.json's prs minimum:1.
+  [ ! -f "$WL" ]
+}
+
 @test "--remove deletes a repo from the watch-list" {
   bash "$AGG" --add o/a --watch-list "$WL"
   bash "$AGG" --add o/b --watch-list "$WL"
@@ -369,10 +377,38 @@ SH
   [ "$status" -eq 0 ]
 }
 
+@test "--daemon-loop survives a cycle where run_poll_cycle returns non-zero" {
+  # Force EVERY cycle's run_poll_cycle to fail: pre-hold the per-cycle
+  # scheduler lock so nyann::lock times out + dies inside the subshell. A
+  # `sleep` stub makes the lock-retry loop instant so the test is bounded by
+  # --max-runtime (~1s), not the 10s lock timeout. With the `|| summary=""`
+  # fallback the loop keeps running and exits CLEANLY at --max-runtime; WITHOUT
+  # it, `set -e` would abort the daemon mid-loop (non-zero, no clean message).
+  bash "$AGG" --add o/a --watch-list "$WL"
+  mkdir -p "$STATE_DIR"
+  mkdir "$STATE_DIR/aggregate-scheduler.lock"   # held, never released
+
+  stub="$TMP/loopstub"; mkdir -p "$stub"
+  printf '#!/bin/sh\nexit 0\n' > "$stub/sleep"
+  printf '#!/bin/sh\nexit 0\n' > "$stub/gh"
+  chmod +x "$stub/sleep" "$stub/gh"
+
+  run env PATH="$stub:$PATH" bash "$AGG" --daemon-loop --interval 1 --max-runtime 1 \
+    --watch-list "$WL" --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "max-runtime"
+}
+
 @test "--daemon-loop rejects a non-numeric --interval" {
   run bash "$AGG" --daemon-loop --interval abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
   [ "$status" -ne 0 ]
   echo "$output" | grep -qi "interval"
+}
+
+@test "--daemon-loop rejects a non-numeric --max-interval" {
+  run bash "$AGG" --daemon-loop --max-interval abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "max-interval"
 }
 
 @test "--daemon-loop rejects an unknown --supervisor" {

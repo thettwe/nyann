@@ -46,6 +46,17 @@
     <string>--supervisor</string>
     <string>launchd</string>
   </array>
+  <!--
+    launchd agents start with a minimal PATH (often just /usr/bin:/bin), so a
+    Homebrew-installed `gh` (/opt/homebrew/bin on Apple silicon, /usr/local/bin
+    on Intel) would not be found and the daemon would silently no-op. Set an
+    explicit PATH that covers both Homebrew prefixes plus the system dirs.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
