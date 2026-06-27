@@ -61,6 +61,76 @@ nogh_path() {
   [ "$status" -eq 0 ]
 }
 
+# --- --daemon-loop (v1.13.0 P8) ---------------------------------------------
+# These exercise the supervised loop with a SHORT --max-runtime so it
+# self-terminates in a couple of seconds — never a real long-running daemon.
+
+@test "--daemon-loop rejects a non-numeric --interval" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop --repo o/r --interval abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "interval"
+}
+
+@test "--daemon-loop rejects a non-numeric --max-runtime" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop --repo o/r --max-runtime abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "max-runtime"
+}
+
+@test "--daemon-loop rejects an unknown --supervisor" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop --repo o/r --supervisor cron --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "supervisor"
+}
+
+@test "--daemon-loop self-terminates at --max-runtime and reaps its state" {
+  # Mock gh returning no open PRs so each pass is a cheap no-op. With a 2s
+  # cap the loop exits cleanly almost immediately — bounded, not long-running.
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+  hash=$(printf '%s' "o/r" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  PATH="$TMP/mock:$PATH" run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop \
+    --repo o/r --interval 1 --max-runtime 2 \
+    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "max-runtime"
+  # Clean exit reaps the pid file + daemon liveness block.
+  [ ! -f "$STATE_DIR/${hash}.sentinel.pid" ]
+  [ ! -f "$STATE_DIR/${hash}.sentinel.daemon.json" ]
+}
+
+@test "--daemon-loop refuses to start a second daemon for the same repo" {
+  # Pre-seed a pid file pointing at a live *ci-sentinel*-looking process so
+  # the single-instance guard fires. Use a stub ps to make the cmdline match.
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+  cat > "$TMP/mock/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/ci-sentinel.sh --daemon-loop --repo o/r"
+SH
+  chmod +x "$TMP/mock/ps"
+  hash=$(printf '%s' "o/r" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  echo $$ > "$STATE_DIR/${hash}.sentinel.pid"   # live pid = this bats process.
+  PATH="$TMP/mock:$PATH" run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop \
+    --repo o/r --interval 1 --max-runtime 2 \
+    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "already running"
+  # The pre-existing pid file (pointing at us) must NOT have been reaped.
+  [ -f "$STATE_DIR/${hash}.sentinel.pid" ]
+  [ "$(cat "$STATE_DIR/${hash}.sentinel.pid")" = "$$" ]
+}
+
 @test "read-notifications returns [] when queue file missing" {
   out=$(bash "$REPO_ROOT/bin/read-notifications.sh" --repo o/r --notif-dir "$NOTIF_DIR")
   echo "$out" | jq -e '. == []'

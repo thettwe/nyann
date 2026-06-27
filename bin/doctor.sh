@@ -181,6 +181,21 @@ id_total=$(jq -r '.summary.total // 0' <<<"$iac_drift_json")
 id_critical=$(jq -r '.summary.by_severity.critical // 0' <<<"$iac_drift_json")
 id_high=$(jq -r '.summary.by_severity.high // 0' <<<"$iac_drift_json")
 
+# --- Backgrounded sentinel probe (read-only) --------------------------------
+# Report any running / stale CI-sentinel daemon (v1.13.0 P8) so a
+# backgrounded watcher is never invisible — "doctor reports a running
+# sentinel". Purely informational: it never escalates the exit code or
+# touches the health score; a daemon is an operator choice, not drift. State
+# lives under the user root, independent of the target repo, so this works
+# even when --target isn't the watched repo.
+sentinel_json=$("${_script_dir}/sentinel-daemon.sh" report --json 2>/dev/null || echo '[]')
+if [[ -z "$sentinel_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$sentinel_json" 2>/dev/null || echo "")" != "array" ]]; then
+  sentinel_json='[]'
+fi
+sd_running=$(jq -r '[.[] | select(.running)] | length' <<<"$sentinel_json" 2>/dev/null || echo 0)
+sd_stale=$(jq -r '[.[] | select(.stale)] | length' <<<"$sentinel_json" 2>/dev/null || echo 0)
+
 # --- Compute drift ONCE -------------------------------------------------------
 # Previously text mode ran retrofit.sh twice (once --json, once --report-only).
 # Now compute-drift.sh runs once; JSON mode wraps via retrofit.sh, text mode
@@ -205,7 +220,8 @@ if $json_out; then
     --argjson ds "$docs_staleness_json" \
     --argjson dd "$docs_drift_json" \
     --argjson id "$iac_drift_json" \
-    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd, iac_drift: $id }'
+    --argjson sd "$sentinel_json" \
+    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd, iac_drift: $id, sentinel_daemons: $sd }'
 else
   # Single compute-drift call replaces two retrofit.sh calls.
   report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile" --scope "$scope") \
@@ -533,6 +549,18 @@ if ! $json_out; then
     elif (( id_high > 0 )) && (( retro_rc < 4 )); then
       retro_rc=4
     fi
+  fi
+  # Backgrounded sentinel — informational; never changes the exit code. A
+  # running daemon is surfaced so the operator knows it's there; a stale one
+  # (pid file present, process dead) is flagged with the reap CTA.
+  if (( sd_running > 0 )) || (( sd_stale > 0 )); then
+    printf '\nCI SENTINEL: %s running, %s stale\n' "$sd_running" "$sd_stale"
+    jq -r '.[] | "  " + (if .running then "●" elif .stale then "✗" else "○" end)
+      + " " + (.repo // "?")
+      + (if .pid then " (pid \(.pid)" else " (" end)
+      + (if .supervisor then ", \(.supervisor)" else "" end) + ")"
+      + (if .stale then " — STALE; run /nyann:watch --stop to reap" else "" end)' \
+      <<<"$sentinel_json" 2>/dev/null | head -10
   fi
 fi
 
