@@ -8,6 +8,7 @@
   Placeholders below are substituted at generate time:
     ${SENTINEL_BIN}   absolute path to bin/ci-sentinel.sh
     ${REPO}           <owner>/<repo> being watched
+    ${PR_ARGS}        optional `--pr <N>` array elements (empty = watch all PRs)
     ${INTERVAL}       poll interval in seconds
     ${MAX_RUNTIME}    hard cap in seconds (orphan backstop; default 8h)
     ${STATE_DIR}      state/cache dir
@@ -31,7 +32,7 @@
     <string>--daemon-loop</string>
     <string>--repo</string>
     <string>${REPO}</string>
-    <string>--interval</string>
+${PR_ARGS}    <string>--interval</string>
     <string>${INTERVAL}</string>
     <string>--max-runtime</string>
     <string>${MAX_RUNTIME}</string>

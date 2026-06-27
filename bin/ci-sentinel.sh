@@ -373,6 +373,12 @@ if $daemon_loop; then
       # successful pass. This stops a rate-limited / offline daemon from
       # hammering gh.
       consecutive_fail=$(( consecutive_fail + 1 ))
+      # Clamp the shift exponent BEFORE the left-shift: an unbounded
+      # consecutive_fail makes `1 << n` overflow intmax_t (wrapping negative or
+      # to 0), after which the `> max_interval` cap below mis-fires and the loop
+      # can stop sleeping. max_interval already saturates at interval*16 ==
+      # interval*(1<<4), so capping the exponent at 16 leaves the curve intact.
+      (( consecutive_fail > 16 )) && consecutive_fail=16
       cur_interval=$(( interval * (1 << consecutive_fail) ))
       (( cur_interval > max_interval )) && cur_interval="$max_interval"
       echo "[nyann sentinel] poll pass failed (${consecutive_fail}x) — backing off to ${cur_interval}s" >&2
@@ -415,10 +421,12 @@ if (( ${#prs_to_poll[@]} == 0 )); then
   exit 0
 fi
 
-# Record PID for --stop semantics. One-shot mode doesn't truly daemonize,
-# but a caller wrapping us in nohup gets the right PID file.
-printf '%s\n' "$$" > "$pid_file" 2>/dev/null || true
-
+# One-shot mode is synchronous — there is nothing to `--stop` — and the
+# <repo-hash>.sentinel.pid path is OWNED by the long-running --daemon-loop for
+# this repo. The aggregate scheduler runs us `--one-shot` per watched repo, so
+# if this repo ALSO has a standalone daemon, writing/removing that pid file here
+# would clobber the daemon's single-instance guard and orphan it. So the
+# one-shot path deliberately does NOT touch the pid file at all.
 for pr in "${prs_to_poll[@]}"; do
   poll_pr "$pr" || echo "[nyann sentinel] poll failed for PR #$pr" >&2
 done
@@ -426,6 +434,3 @@ done
 # Fan out any newly-queued notifications to configured channels (P9). No-op
 # when no delivery channel is configured.
 deliver_notifications
-
-# One-shot: clean up PID file.
-rm -f "$pid_file" 2>/dev/null || true

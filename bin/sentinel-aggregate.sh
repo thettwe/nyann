@@ -134,8 +134,14 @@ if [[ "$mode" == "daemon-loop" ]]; then
   # The scheduler tunables are consumed every cycle by run_poll_cycle; a bad
   # value would only surface (fatally) deep in the first cycle. Fail fast at
   # start instead so a typo can't take the whole daemon down mid-run.
-  if ! [[ "$max_interval" =~ ^[0-9]+$ ]]; then
-    nyann::die "--max-interval must be a non-negative integer of seconds (got: $max_interval)"
+  # --max-interval must be a POSITIVE integer (>= 1) AND >= --interval: a 0 (or
+  # a value below base) makes a backoff cycle clamp the adaptive interval to 0,
+  # and the 1s-slice sleep then never sleeps → a tight re-poll busy-spin.
+  if ! [[ "$max_interval" =~ ^[0-9]+$ ]] || (( max_interval < 1 )); then
+    nyann::die "--max-interval must be a positive integer of seconds (got: $max_interval)"
+  fi
+  if (( max_interval < base_interval )); then
+    nyann::die "--max-interval ($max_interval) must be >= --interval ($base_interval)"
   fi
   if ! [[ "$rate_reserve" =~ ^[0-9]+$ ]]; then
     nyann::die "--rate-reserve must be a non-negative integer (got: $rate_reserve)"
@@ -466,6 +472,9 @@ run_daemon_loop() {
     # Fall back to the base interval if the summary couldn't be parsed (e.g. a
     # transient lock-timeout) so the loop never busy-spins.
     [[ "$next_interval" =~ ^[0-9]+$ ]] || next_interval="$base_interval"
+    # Floor to >=1s so a degenerate 0 (e.g. an out-of-band scheduler state) can
+    # never make the slice sleep spin without delay.
+    if (( next_interval < 1 )); then next_interval=1; fi
 
     # Refresh the liveness timestamp so consumers can tell the daemon is alive
     # and roughly when it last polled.

@@ -21,16 +21,25 @@ setup() {
   # Capture sinks for the mocks, read at runtime via the environment.
   CURL_ARGV="$TMP/curl.argv"
   CURL_BODY="$TMP/curl.body"
+  CURL_KCONF="$TMP/curl.kconf"
   SENDMAIL_CAP="$TMP/sendmail.cap"
-  export CURL_ARGV CURL_BODY SENDMAIL_CAP
+  export CURL_ARGV CURL_BODY CURL_KCONF SENDMAIL_CAP
 
   # Stub dir prepended to PATH so the fake curl/sendmail shadow the real ones
-  # while every other tool (jq, md5sum, grep, …) still resolves normally.
+  # while every other tool (jq, md5sum, grep, …) still resolves normally. The
+  # curl stub records argv (CURL_ARGV) AND the contents of any `-K <conf>`
+  # config file (CURL_KCONF) so a test can prove the secret URL travels via the
+  # 0600 config file and never appears on the command line.
   STUB="$TMP/stub"
   mkdir -p "$STUB"
   cat > "$STUB/curl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CURL_ARGV"
+prev=""
+for a in "$@"; do
+  [ "$prev" = "-K" ] && cat "$a" >> "$CURL_KCONF" 2>/dev/null
+  prev="$a"
+done
 cat >> "$CURL_BODY"
 printf '\n' >> "$CURL_BODY"
 exit 0
@@ -117,9 +126,33 @@ write_v2_prefs() {
   export NYANN_WEBHOOK_URL="https://secret-from-env.test/only-here"
   out=$(deliver_cfg '{"webhook":{"enabled":true,"url_env":"NYANN_WEBHOOK_URL"}}')
   [ "$?" -eq 0 ]
-  # The target URL curl was invoked with must equal the env value, proving it
-  # was resolved from the environment and never stored in the config.
-  grep -q "https://secret-from-env.test/only-here" "$CURL_ARGV"
+  # The URL curl received (via the 0600 -K config file) must equal the env
+  # value, proving it was resolved from the environment and never stored in the
+  # config. It must NOT appear on argv (where `ps` would expose the secret).
+  grep -q "https://secret-from-env.test/only-here" "$CURL_KCONF"
+  ! grep -q "https://secret-from-env.test/only-here" "$CURL_ARGV"
+}
+
+@test "slack/discord/webhook secret URL never reaches curl argv (only -K conf)" {
+  # The webhook URL embeds the auth token; it must travel via the 0600 -K
+  # config file, never on the command line where `ps`/`/proc` would leak it.
+  for spec in \
+    "slack|NYANN_SLACK_WEBHOOK|webhook_url_env|https://hooks.slack.test/T/B/seekret" \
+    "discord|NYANN_DISCORD_WEBHOOK|webhook_url_env|https://discord.test/api/webhooks/1/seekret" \
+    "webhook|NYANN_WEBHOOK_URL|url_env|https://example.test/seekret"; do
+    IFS='|' read -r ch var key url <<<"$spec"
+    : > "$CURL_ARGV"; : > "$CURL_KCONF"
+    rm -rf "$CACHE_DIR"; mkdir -p "$CACHE_DIR"
+    cfg=$(jq -nc --arg ch "$ch" --arg k "$key" --arg v "$var" '{($ch): {enabled:true, ($k): $v}}')
+    export "$var=$url"
+    printf '%s' "$BATCH" | PATH="$STUB:$PATH" bash "$DELIVER" \
+      --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+    # Secret on the -K conf, absent from argv; argv still carries -K.
+    grep -q "$url" "$CURL_KCONF"
+    ! grep -q "$url" "$CURL_ARGV"
+    grep -q -- "-K" "$CURL_ARGV"
+    unset "$var"
+  done
 }
 
 @test "email delivers via mocked sendmail with RFC822 headers" {
@@ -218,6 +251,48 @@ SH
   # Finally — now it IS marked, so a re-run does not resend (still one send).
   printf '%s' "$BATCH" | PATH="$STUB:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
   [ "$(wc -l < "$CURL_ARGV" | tr -d ' ')" -eq 1 ]
+}
+
+@test "per-channel dedup: a failed channel retries while a succeeded sibling does not" {
+  # Two channels for the SAME notification: slack confirms (exit 0), webhook
+  # fails (exit 22). With per-channel markers, slack's id is recorded so it is
+  # NOT re-sent next cycle, while webhook — left un-marked — IS retried. A
+  # single shared marker would have let slack's success suppress webhook's retry.
+  export NYANN_SLACK_WEBHOOK="https://hooks.slack.test/ok"
+  export NYANN_WEBHOOK_URL="https://example.test/down"
+  local cfg='{"slack":{"enabled":true,"webhook_url_env":"NYANN_SLACK_WEBHOOK"},"webhook":{"enabled":true,"url_env":"NYANN_WEBHOOK_URL"}}'
+
+  # Stub curl differentiates the two channels by request body: the generic
+  # webhook POSTs a raw JSON array (`[...]`) — make THAT fail (exit 22); slack
+  # POSTs `{text:...}` — let that succeed. Per-channel attempts are logged.
+  stub2="$TMP/stub2"; mkdir -p "$stub2"
+  cat > "$stub2/curl" <<SH
+#!/usr/bin/env bash
+body="\$(cat)"
+case "\$body" in
+  '['*) printf 'x\n' >> "$TMP/curl.fail.log"; exit 22 ;;
+  *)    printf 'x\n' >> "$TMP/curl.ok.log";   exit 0  ;;
+esac
+SH
+  chmod +x "$stub2/curl"
+
+  # Cycle 1: slack OK (marked), webhook FAIL (not marked).
+  printf '%s' "$BATCH" | PATH="$stub2:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  [ "$(wc -l < "$TMP/curl.ok.log" | tr -d ' ')" -eq 1 ]
+  [ "$(wc -l < "$TMP/curl.fail.log" | tr -d ' ')" -eq 1 ]
+
+  # Cycle 2: slack is up to date → NOT re-sent; webhook was never marked →
+  # retried. ok stays 1, fail grows to 2.
+  printf '%s' "$BATCH" | PATH="$stub2:$PATH" bash "$DELIVER" --repo o/r --config "$cfg" --cache-dir "$CACHE_DIR" >/dev/null 2>&1
+  [ "$(wc -l < "$TMP/curl.ok.log" | tr -d ' ')" -eq 1 ]
+  [ "$(wc -l < "$TMP/curl.fail.log" | tr -d ' ')" -eq 2 ]
+
+  # Per-channel markers: slack recorded, webhook absent (so it keeps retrying).
+  shopt -s nullglob
+  slack_marker=("$CACHE_DIR"/*.slack.delivered)
+  webhook_marker=("$CACHE_DIR"/*.webhook.delivered)
+  [ "${#slack_marker[@]}" -eq 1 ]
+  [ "${#webhook_marker[@]}" -eq 0 ]
 }
 
 # --- Security: env-var-name RCE refusal --------------------------------------

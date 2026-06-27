@@ -416,3 +416,18 @@ SH
   [ "$status" -ne 0 ]
   echo "$output" | grep -qi "supervisor"
 }
+
+@test "--daemon-loop rejects --max-interval 0 (a 0 would busy-spin on backoff)" {
+  # A 0 max-interval clamps the adaptive backoff interval to 0; the 1s-slice
+  # sleep then never sleeps → a tight gh-hammering re-poll. Reject it up front.
+  run bash "$AGG" --daemon-loop --max-interval 0 --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "max-interval"
+}
+
+@test "--daemon-loop rejects a --max-interval below --interval" {
+  run bash "$AGG" --daemon-loop --interval 300 --max-interval 100 \
+    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "max-interval"
+}

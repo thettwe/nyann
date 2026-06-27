@@ -537,6 +537,95 @@ SH
   grep -q "sentinel-aggregate" "$TMP/nohup.calls"
 }
 
+# --- delivery-secret propagation (supervised daemons don't inherit exports) --
+# launchd agents + systemd --user units do not inherit interactive shell
+# exports, so start must (a) warn for an enabled delivery channel whose secret
+# env var is unset here, and (b) hand a SET secret to the supervisor's own
+# environment WITHOUT writing it into the unit file.
+
+@test "start warns when an enabled delivery channel's secret env var is unset" {
+  make_stub launchctl 0
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{slack:{enabled:true, webhook_url_env:"NYANN_SLACK_WEBHOOK"}}}}' \
+    > "$UR/preferences.json"
+  unset NYANN_SLACK_WEBHOOK
+  NYANN_USER_ROOT="$UR" sd start --repo "$REPO" --supervisor launchd
+  [ "$status" -eq 0 ]
+  # The unset secret is surfaced loudly and the channel is flagged as skipped.
+  echo "$output" | grep -q "NYANN_SLACK_WEBHOOK"
+  echo "$output" | grep -qi "skipped"
+}
+
+@test "start propagates a SET delivery secret into the launchd environment (not the unit)" {
+  make_stub launchctl 0
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{slack:{enabled:true, webhook_url_env:"NYANN_SLACK_WEBHOOK"}}}}' \
+    > "$UR/preferences.json"
+  export NYANN_SLACK_WEBHOOK="https://hooks.slack.test/seekret"
+  NYANN_USER_ROOT="$UR" sd start --repo "$REPO" --supervisor launchd
+  [ "$status" -eq 0 ]
+  # launchctl setenv handed the daemon the secret in-memory...
+  grep -q "setenv NYANN_SLACK_WEBHOOK" "$TMP/launchctl.calls"
+  # ...and the secret was NOT written into the generated plist.
+  ! grep -q "hooks.slack.test/seekret" "$HOME/Library/LaunchAgents/com.nyann.sentinel.plist"
+  unset NYANN_SLACK_WEBHOOK
+}
+
+@test "start propagates a SET delivery secret into the systemd environment" {
+  make_stub systemctl 0
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{webhook:{enabled:true, url_env:"NYANN_HOOK"}}}}' \
+    > "$UR/preferences.json"
+  export NYANN_HOOK="https://example.test/seekret"
+  NYANN_USER_ROOT="$UR" sd start --repo "$REPO" --supervisor systemd
+  [ "$status" -eq 0 ]
+  grep -q "import-environment NYANN_HOOK" "$TMP/systemctl.calls"
+  ! grep -q "example.test/seekret" "$HOME/.config/systemd/user/nyann-sentinel.service"
+  unset NYANN_HOOK
+}
+
+# --- per-repo --pr filter honoured under launchd/systemd ---------------------
+# --pr must reach the supervised daemon (not just the nohup fallback), or a
+# launchd/systemd daemon silently watches ALL PRs instead of the requested one.
+
+@test "start --pr renders the filter into the launchd plist" {
+  make_stub launchctl 0
+  sd start --repo "$REPO" --pr 5 --supervisor launchd
+  [ "$status" -eq 0 ]
+  plist="$HOME/Library/LaunchAgents/com.nyann.sentinel.plist"
+  [ -f "$plist" ]
+  grep -q -- "--pr" "$plist"
+  grep -q "<string>5</string>" "$plist"
+  # No leftover ${...} placeholders (incl. ${PR_ARGS}) when --pr IS set.
+  ! grep -q '\${' "$plist"
+}
+
+@test "start without --pr leaves no --pr token (or leftover placeholder) in the plist" {
+  make_stub launchctl 0
+  sd start --repo "$REPO" --supervisor launchd
+  [ "$status" -eq 0 ]
+  plist="$HOME/Library/LaunchAgents/com.nyann.sentinel.plist"
+  ! grep -q -- "--pr" "$plist"
+  ! grep -q 'PR_ARGS' "$plist"
+  ! grep -q '\${' "$plist"
+}
+
+@test "start --pr renders the filter into the systemd unit ExecStart" {
+  make_stub systemctl 0
+  sd start --repo "$REPO" --pr 9 --supervisor systemd
+  [ "$status" -eq 0 ]
+  unit="$HOME/.config/systemd/user/nyann-sentinel.service"
+  [ -f "$unit" ]
+  grep -q -- "--pr 9" "$unit"
+  ! grep -q '\${' "$unit"
+}
+
+@test "start rejects a non-integer --pr" {
+  run bash "$SCRIPT" start --repo "$REPO" --pr abc --state-dir "$STATE_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "positive integer"
+}
+
 # --- schema: daemon block validates -----------------------------------------
 
 @test "SentinelState with a daemon block validates against the schema" {

@@ -157,16 +157,74 @@ select_supervisor() {
   printf 'nohup'
 }
 
+# propagate_delivery_env <supervisor> — make the configured delivery secrets
+# reachable by the supervised daemon. The channel scripts resolve their secret
+# endpoint by NAME via `printenv`, but launchd agents and systemd --user units
+# do NOT inherit interactively-exported shell vars, so under the default
+# supervisors every channel would soft-skip forever. We do NOT write the secret
+# into the unit file (that re-leaks it to disk). Instead, for each ENABLED
+# notifications.delivery.* channel that names an env var, read the NAME from
+# preferences.json and, if that var is SET in this (launching) shell, hand its
+# value to the supervisor's own environment: `launchctl setenv` (in-memory,
+# before bootstrap) for launchd, `systemctl --user import-environment` for
+# systemd. nohup already inherits this shell's env. For any enabled channel
+# whose var is UNSET here, warn loudly. Best-effort: a missing launchctl /
+# systemctl never aborts start.
+propagate_delivery_env() {
+  local sup="$1"
+  local prefs="${NYANN_USER_ROOT:-$HOME/.claude/nyann}/preferences.json"
+  [[ -f "$prefs" ]] || return 0
+  # Emit "<channel> <env-var-name>" for each enabled channel that names a var.
+  local lines
+  lines=$(jq -r '
+    (.notifications.delivery // {}) as $d
+    | [ ($d.slack   | select(.enabled == true) | {c:"slack",   e:.webhook_url_env}),
+        ($d.discord | select(.enabled == true) | {c:"discord", e:.webhook_url_env}),
+        ($d.webhook | select(.enabled == true) | {c:"webhook", e:.url_env}),
+        ($d.email   | select(.enabled == true) | {c:"email",   e:.smtp_env}) ]
+    | .[] | select(.e != null and .e != "") | "\(.c) \(.e)"
+  ' "$prefs" 2>/dev/null || true)
+  [[ -n "$lines" ]] || return 0
+
+  local channel name val
+  while read -r channel name; do
+    [[ -n "$name" ]] || continue
+    val="$(printenv -- "$name" 2>/dev/null || true)"
+    if [[ -z "$val" ]]; then
+      nyann::warn "delivery channel '$channel' uses \$$name, but it is NOT set in this shell — a launchd/systemd daemon does not inherit your shell exports, so $channel delivery will be SKIPPED. Export $name before 'start' (or run under the nohup supervisor)."
+      continue
+    fi
+    case "$sup" in
+      launchd) launchctl setenv "$name" "$val" 2>/dev/null || true ;;
+      systemd) systemctl --user import-environment "$name" 2>/dev/null || true ;;
+      *) : ;;  # nohup inherits this shell's environment — nothing to propagate
+    esac
+  done <<<"$lines"
+}
+
 # render_template <template> <out> — substitute the ${PLACEHOLDER} tokens in
 # the launchd plist / systemd unit. Pure bash string replace (the gen-ci.sh
 # convention) — no envsubst dependency.
 render_template() {
-  local tmpl="$1" out="$2" content
+  local tmpl="$1" out="$2" content pr_args=""
   [[ -f "$tmpl" ]] || { nyann::warn "supervisor template missing: $tmpl"; return 1; }
   content=$(cat "$tmpl")
+  # Render the optional --pr filter into the per-repo unit so a supervised
+  # daemon honours --pr exactly like the nohup fallback (spawn_nohup). The
+  # launchd plist needs it as two ProgramArguments <string> elements; the
+  # systemd unit needs it as a single ExecStart token. An unset filter renders
+  # empty and leaves no ${PR_ARGS} placeholder behind. Aggregate templates have
+  # no ${PR_ARGS} token, so this is a no-op there.
+  if [[ -n "$pr_filter" ]]; then
+    case "$tmpl" in
+      *.plist) pr_args=$'    <string>--pr</string>\n    <string>'"$pr_filter"$'</string>\n' ;;
+      *)       pr_args="--pr $pr_filter" ;;
+    esac
+  fi
   content="${content//\$\{SENTINEL_BIN\}/$_sentinel_bin}"
   content="${content//\$\{AGGREGATE_BIN\}/$_aggregate_bin}"
   content="${content//\$\{REPO\}/$repo}"
+  content="${content//\$\{PR_ARGS\}/$pr_args}"
   content="${content//\$\{INTERVAL\}/$interval}"
   content="${content//\$\{MAX_RUNTIME\}/$max_runtime}"
   content="${content//\$\{STATE_DIR\}/$state_dir}"
@@ -312,6 +370,10 @@ do_start_aggregate() {
   fi
 
   local sup; sup=$(select_supervisor)
+  # Make the configured delivery secrets reachable by the supervised daemon
+  # (launchd/systemd don't inherit shell exports) and warn for any enabled
+  # channel whose secret env var isn't exported in this shell.
+  propagate_delivery_env "$sup"
   local launched=""
   case "$sup" in
     launchd)
@@ -348,6 +410,12 @@ do_start() {
   # $repo is rendered UNESCAPED into the plist/unit — reject a slug that could
   # inject options or path components before it's hashed/substituted.
   valid_repo_slug "$repo" || nyann::die "start: invalid repo (expected <owner>/<repo>): $repo"
+  # --pr is substituted UNESCAPED into the plist/unit and forwarded to the loop
+  # — require a positive integer (mirrors ci-sentinel.sh) so a typo or an
+  # injected token can't reach the rendered unit.
+  if [[ -n "$pr_filter" ]] && ! [[ "$pr_filter" =~ ^[0-9]+$ ]]; then
+    nyann::die "start: --pr must be a positive integer (got: $pr_filter)"
+  fi
   local hash; hash=$(repo_hash "$repo")
   local pid_file="$state_dir/${hash}.sentinel.pid"
 
@@ -363,6 +431,10 @@ do_start() {
   fi
 
   local sup; sup=$(select_supervisor)
+  # Make the configured delivery secrets reachable by the supervised daemon
+  # (launchd/systemd don't inherit shell exports) and warn for any enabled
+  # channel whose secret env var isn't exported in this shell.
+  propagate_delivery_env "$sup"
   local launched=""
   case "$sup" in
     launchd)

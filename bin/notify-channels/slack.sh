@@ -76,16 +76,24 @@ fi
 # aggregate delivery says which repo each line is from.
 payload="$(jq -c '{text: ([.[] | "\(if .context.repo then "[\(.context.repo)] " else "" end)[\(.severity)] \(.message)"] | join("\n"))}' <<<"$batch")"
 
-# Send the body via stdin so the (secret) URL stays out of `ps`. `--fail`
-# turns a non-2xx response into a non-zero exit; `--connect-timeout` /
-# `--max-time` stop a hung endpoint from wedging the poll loop. Pass the URL
-# via `--url` (end-of-options) so a URL beginning with `-` can't be parsed as
-# a curl flag. Return curl's status: exit 0 ONLY on confirmed delivery.
+# Keep the (secret) webhook URL OFF argv: the incoming-webhook URL embeds the
+# auth token, so a `--url "$url"` would expose it to `ps`/`/proc` for the
+# request lifetime. Mirror email.sh — write `url = "..."` to a 0600 mktemp
+# config file and feed it to curl via `-K`, which reads the URL exactly like
+# `--url` (and still guards a URL beginning with `-`). The body travels on
+# stdin via `--data-binary @-`, which composes with `-K`. `--fail` turns a
+# non-2xx into a non-zero exit; the timeouts stop a hung endpoint from wedging
+# the poll loop. Return curl's status: exit 0 ONLY on confirmed delivery.
+curl_conf="$(mktemp -t nyann-slack.XXXXXX)"
+trap 'rm -f "$curl_conf"' EXIT
+( umask 077; printf 'url = "%s"\n' "$url" > "$curl_conf" )
 rc=0
 printf '%s' "$payload" \
-  | curl --fail -sS --connect-timeout 5 --max-time 15 \
+  | curl --fail -sS --connect-timeout 5 --max-time 15 -K "$curl_conf" \
       -X POST -H 'Content-Type: application/json' --data-binary @- \
-      --url "$url" >/dev/null 2>&1 || rc=$?
+      >/dev/null 2>&1 || rc=$?
+rm -f "$curl_conf"
+trap - EXIT
 if (( rc != 0 )); then
   nyann::warn "slack: delivery request failed (network or webhook error)"
 fi

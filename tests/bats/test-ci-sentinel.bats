@@ -297,3 +297,38 @@ SH
   # No channel configured → no network call.
   [ ! -f "$TMP/curl.calls" ]
 }
+
+# --- one-shot must not own the daemon's pid file -----------------------------
+# The aggregate scheduler runs ci-sentinel --one-shot per watched repo. A repo
+# that ALSO has a standalone per-repo daemon shares <repo-hash>.sentinel.pid;
+# the one-shot must leave that pid file untouched or it orphans the daemon.
+
+@test "one-shot poll does NOT create or delete the daemon's pid file" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  pidf="$STATE_DIR/${hash}.sentinel.pid"
+  echo 424242 > "$pidf"   # a (pretend) running daemon's pid file.
+
+  # Mock gh so the one-shot takes the WITH-open-PRs branch (the path that used
+  # to write $$ to the pid file and rm it at the end).
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in
+  pr) case "$2" in
+        list) echo 7; exit 0 ;;
+        view) echo '{"number":7,"headRefName":"f","baseRefName":"main","state":"OPEN","mergeable":"MERGEABLE","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[]}'; exit 0 ;;
+      esac ;;
+esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+  UR="$TMP/ur"; mkdir -p "$UR"   # no preferences → delivery is a silent no-op.
+
+  PATH="$TMP/mock:$PATH" NYANN_USER_ROOT="$UR" run bash "$REPO_ROOT/bin/ci-sentinel.sh" \
+    --repo "$repo" --one-shot --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # The daemon's pid file survives, byte-for-byte — not clobbered, not deleted.
+  [ -f "$pidf" ]
+  [ "$(cat "$pidf")" = "424242" ]
+}

@@ -66,13 +66,22 @@ fi
 # entry's context.repo, tagged by notify-deliver). Compact it first.
 payload="$(jq -c '.' <<<"$batch")"
 
-# --fail → non-2xx is a non-zero exit; timeouts stop a hung endpoint wedging
-# the loop; --url guards a URL beginning with `-`. Return curl's status.
+# Keep the (possibly credential-bearing) endpoint URL OFF argv: write
+# `url = "..."` to a 0600 mktemp config file and feed it to curl via `-K`
+# instead of `--url "$url"`, so it never appears in `ps`/`/proc`. `-K` reads
+# the URL like `--url` (and guards a leading `-`); the body travels on stdin
+# via `--data-binary @-`. --fail → non-2xx is a non-zero exit; timeouts stop a
+# hung endpoint wedging the loop. Return curl's status.
+curl_conf="$(mktemp -t nyann-webhook.XXXXXX)"
+trap 'rm -f "$curl_conf"' EXIT
+( umask 077; printf 'url = "%s"\n' "$url" > "$curl_conf" )
 rc=0
 printf '%s' "$payload" \
-  | curl --fail -sS --connect-timeout 5 --max-time 15 \
+  | curl --fail -sS --connect-timeout 5 --max-time 15 -K "$curl_conf" \
       -X POST -H 'Content-Type: application/json' --data-binary @- \
-      --url "$url" >/dev/null 2>&1 || rc=$?
+      >/dev/null 2>&1 || rc=$?
+rm -f "$curl_conf"
+trap - EXIT
 if (( rc != 0 )); then
   nyann::warn "webhook: delivery request failed (network or endpoint error)"
 fi

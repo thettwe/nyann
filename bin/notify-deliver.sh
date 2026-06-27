@@ -16,16 +16,24 @@
 # (or the --config override). OPT-IN: if no channel is configured/enabled it
 # is a silent no-op — no network, no files written.
 #
-# DEDUP (correct-by-construction): a notification's content hash is recorded
-# in a per-repo marker ONLY once at least one channel CONFIRMS delivery (exit
-# 0). A soft-skip (unset env / missing curl) or a failed POST leaves the id
-# UN-marked so the next poll retries it — the queue reader feeds us via
-# `--peek` (non-draining), so a prematurely-marked id would otherwise be
-# suppressed FOREVER. The marker is rewritten each run, under its lock, to
-# `(ids delivered this run) ∪ (existing-marker ids ∩ current-batch ids)`:
+# DEDUP (correct-by-construction, PER CHANNEL): each enabled channel dedups
+# against its OWN marker (<repo-hash>.<channel>.delivered). A content hash is
+# recorded in a channel's marker ONLY once THAT channel CONFIRMS delivery (exit
+# 0); a soft-skip (unset env / missing curl) or a failed POST leaves the id
+# UN-marked for that channel so ONLY that channel retries it next poll — a
+# sibling channel's success or failure never affects it. The queue reader feeds
+# us via `--peek` (non-draining), so a prematurely-marked id would otherwise be
+# suppressed FOREVER; per-channel markers avoid the cross-channel drop that a
+# single shared marker caused. Each marker is rewritten to `(ids that channel
+# delivered this run) ∪ (existing-channel-marker ids ∩ current-batch ids)`:
 # bounded to the live queue (no fixed cap to re-deliver past), never drops a
-# still-queued id, never re-sends a delivered one. The lock spans the dedup
-# scan AND the record so the check/record is atomic (no TOCTOU).
+# still-queued id, never re-sends a delivered one.
+#
+# LOCKING: a channel's marker lock is held ONLY around its dedup scan and its
+# post-delivery record — NEVER across the network send. The scan + record are
+# each individually atomic; holding the lock across the (up to ~15s/channel)
+# curl would let a hung channel wedge concurrent same-repo runs and could
+# strand the lock past a kill, silently stalling delivery.
 #
 # Channel scripts live in bin/notify-channels/ and each reads its secret
 # endpoint from an environment variable named in preferences — never a
@@ -101,9 +109,8 @@ fi
 total=$(jq 'length' <<<"$batch")
 [[ "$total" -eq 0 ]] && exit 0
 
-# --- Dedup against the per-repo delivered-marker -----------------------------
+# --- Per-channel dedup against per-channel delivered-markers -----------------
 repo_hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-16)
-marker="${cache_dir}/${repo_hash}.delivered"
 
 hash_id() {
   printf '%s' "$1" | (md5sum 2>/dev/null || md5 2>/dev/null || cksum 2>/dev/null) | tr -dc '0-9a-f' | cut -c1-16
@@ -114,76 +121,111 @@ hash_id() {
 # the `${!name}` arithmetic-subscript RCE, even though the channel re-checks).
 valid_env_name() { [[ "${1-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 
-# Hold the marker lock across BOTH the dedup scan and the record so the
-# check-then-record is atomic (fixes the TOCTOU). The EXIT trap guarantees the
-# lock is released even if a step trips errexit mid-way.
 mkdir -p "$cache_dir" 2>/dev/null || true
-lock_dir="${marker}.lock"
-nyann::lock "$lock_dir"
-trap 'nyann::unlock "$lock_dir"' EXIT
 
-# Compute the id of every entry in the current batch (same hashing as before),
-# and split into NEW (not yet in the marker) vs already-recorded. batch_ids is
-# the full live-queue id set — used below to bound the rewritten marker.
+# Hash every batch entry ONCE on the UNTAGGED element (stable id, identical
+# scheme across runs). batch_ids[i] is the id of batch_elems[i]; batch_ids as a
+# whole is the live-queue id set used to bound every rewritten channel marker.
 batch_ids=()
-new_elems=()
-new_ids=()
+batch_elems=()
 for (( i = 0; i < total; i++ )); do
   elem=$(jq -c ".[$i]" <<<"$batch")
-  id=$(hash_id "$elem")
-  batch_ids+=("$id")
-  if [[ -f "$marker" ]] && grep -qxF "$id" "$marker" 2>/dev/null; then
-    continue
-  fi
-  new_elems+=("$elem")
-  new_ids+=("$id")
+  batch_elems+=("$elem")
+  batch_ids+=("$(hash_id "$elem")")
 done
 
-# rewrite_marker — atomically replace the marker with
-#   (delivered_ids this run) ∪ (existing-marker ids ∩ batch_ids)
-# This bounds the marker to live-queue ids (no fixed cap to re-deliver past),
-# never drops a still-queued id, and never re-delivers a recorded one.
-delivered_ids=()
-rewrite_marker() {
+# channel_marker <channel> — path of the per-channel delivered-marker.
+channel_marker() { printf '%s' "${cache_dir}/${repo_hash}.$1.delivered"; }
+
+# scan_channel <channel> — under the channel marker's lock, populate the global
+# NEW_IDX with the batch indices NOT yet recorded for this channel, then RELEASE
+# the lock. No network is performed while the lock is held.
+NEW_IDX=()
+scan_channel() {
+  local channel="$1" marker lock i
+  marker="$(channel_marker "$channel")"
+  lock="${marker}.lock"
+  NEW_IDX=()
+  nyann::lock "$lock"
+  trap 'nyann::unlock "$lock"' EXIT
+  for (( i = 0; i < total; i++ )); do
+    if [[ -f "$marker" ]] && grep -qxF "${batch_ids[$i]}" "$marker" 2>/dev/null; then
+      continue
+    fi
+    NEW_IDX+=("$i")
+  done
+  nyann::unlock "$lock"
+  trap - EXIT
+}
+
+# record_channel <channel> [delivered_id...] — re-acquire the channel lock and
+# rewrite its marker to `(delivered ids this run) ∪ (existing-marker ∩ batch_ids)`,
+# bounded to the live queue. Called with NO delivered ids it simply PRUNES the
+# marker to the live queue (the fully-up-to-date fast path). The lock is held
+# only for this atomic record, never across the network.
+record_channel() {
+  local channel="$1"; shift
+  local marker lock
+  marker="$(channel_marker "$channel")"
+  lock="${marker}.lock"
   local tmp_ids="${marker}.batchids.$$" tmp_keep="${marker}.keep.$$" tmp_out="${marker}.rewrite.$$"
+  nyann::lock "$lock"
+  trap 'nyann::unlock "$lock"' EXIT
   : > "$tmp_keep" 2>/dev/null || true
   printf '%s\n' "${batch_ids[@]}" > "$tmp_ids" 2>/dev/null || true
   # existing-marker ids still present in the current batch
   [[ -f "$marker" ]] && grep -xF -f "$tmp_ids" "$marker" >> "$tmp_keep" 2>/dev/null || true
-  # ids confirmed delivered this run
-  (( ${#delivered_ids[@]} > 0 )) && printf '%s\n' "${delivered_ids[@]}" >> "$tmp_keep" 2>/dev/null || true
+  # ids this channel confirmed delivered this run
+  if (( $# > 0 )); then
+    printf '%s\n' "$@" >> "$tmp_keep" 2>/dev/null || true
+  fi
   sort -u "$tmp_keep" > "$tmp_out" 2>/dev/null || true
   mv "$tmp_out" "$marker" 2>/dev/null || true
   rm -f "$tmp_ids" "$tmp_keep" 2>/dev/null || true
+  nyann::unlock "$lock"
+  trap - EXIT
 }
 
-# Everything already delivered → no delivery, but still rewrite the marker to
-# bound it to the live queue (drops ids no longer queued).
-if (( ${#new_elems[@]} == 0 )); then
-  rewrite_marker
-  nyann::unlock "$lock_dir"
-  trap - EXIT
-  exit 0
-fi
+# build_new_batch — emit the repo-tagged JSON array for the entries at NEW_IDX.
+# Tagging mirrors read-notifications.sh --all; the dedup id was hashed on the
+# UNTAGGED element so tagging here can't perturb dedup across runs.
+build_new_batch() {
+  local elems=() i
+  for i in "${NEW_IDX[@]}"; do elems+=("${batch_elems[$i]}"); done
+  printf '%s\n' "${elems[@]}" | jq -s --arg r "$repo" 'map(.context = ((.context // {}) + {repo: $r}))'
+}
 
-# Tag every new entry with context.repo (mirrors read-notifications.sh --all)
-# so a multi-repo aggregate delivery says which repo each entry is from. The
-# dedup id was already computed on the UNTAGGED element, so tagging here can't
-# perturb dedup across runs.
-new_batch=$(printf '%s\n' "${new_elems[@]}" | jq -s --arg r "$repo" 'map(.context = ((.context // {}) + {repo: $r}))')
+# deliver_channel <channel> <send-cmd...> — full per-channel cycle: scan under
+# the channel lock (NEW_IDX), then OUTSIDE any lock build the repo-tagged batch
+# and run <send-cmd> with it on stdin; on a confirmed send (exit 0) record those
+# ids under the channel marker. A soft-skip/failure records nothing, so ONLY
+# this channel retries. When the channel is already up to date, prune its marker
+# to the live queue and skip the network entirely.
+deliver_channel() {
+  local channel="$1"; shift
+  scan_channel "$channel"
+  if (( ${#NEW_IDX[@]} == 0 )); then
+    record_channel "$channel"
+    return 0
+  fi
+  local nb ids=() i
+  nb="$(build_new_batch)"
+  if printf '%s' "$nb" | "$@"; then
+    for i in "${NEW_IDX[@]}"; do ids+=("${batch_ids[$i]}"); done
+    record_channel "$channel" "${ids[@]}"
+  fi
+}
 
 # --- Fan out to each enabled channel -----------------------------------------
 # Each channel reads the batch on stdin and resolves its secret endpoint from
 # the named env var itself. A channel enabled but missing/invalid its env-var
-# NAME (or email `to`) is skipped with a warning — never fatal. We track
-# whether ANY channel CONFIRMED delivery (exit 0); only then is the batch
-# marked delivered, so a soft-skip/failure leaves the ids queued for retry.
+# NAME (or email `to`) is skipped with a warning — never fatal. Dedup + record
+# are PER CHANNEL (deliver_channel), so a soft-skip/failure on one channel never
+# suppresses retry on it, and a sibling's success never marks it delivered.
 slack_enabled=$(jq -r '.slack.enabled // false'   <<<"$delivery")
 discord_enabled=$(jq -r '.discord.enabled // false' <<<"$delivery")
 webhook_enabled=$(jq -r '.webhook.enabled // false' <<<"$delivery")
 email_enabled=$(jq -r '.email.enabled // false'   <<<"$delivery")
-
-any_delivered=false
 
 if [[ "$slack_enabled" == "true" ]]; then
   env_name=$(jq -r '.slack.webhook_url_env // empty' <<<"$delivery")
@@ -191,8 +233,8 @@ if [[ "$slack_enabled" == "true" ]]; then
     nyann::warn "slack channel enabled but webhook_url_env is unset — skipping"
   elif ! valid_env_name "$env_name"; then
     nyann::warn "slack channel: invalid env var name '$env_name' — skipping"
-  elif printf '%s' "$new_batch" | bash "${channels_dir}/slack.sh" --env "$env_name"; then
-    any_delivered=true
+  else
+    deliver_channel slack bash "${channels_dir}/slack.sh" --env "$env_name"
   fi
 fi
 
@@ -202,8 +244,8 @@ if [[ "$discord_enabled" == "true" ]]; then
     nyann::warn "discord channel enabled but webhook_url_env is unset — skipping"
   elif ! valid_env_name "$env_name"; then
     nyann::warn "discord channel: invalid env var name '$env_name' — skipping"
-  elif printf '%s' "$new_batch" | bash "${channels_dir}/discord.sh" --env "$env_name"; then
-    any_delivered=true
+  else
+    deliver_channel discord bash "${channels_dir}/discord.sh" --env "$env_name"
   fi
 fi
 
@@ -213,8 +255,8 @@ if [[ "$webhook_enabled" == "true" ]]; then
     nyann::warn "webhook channel enabled but url_env is unset — skipping"
   elif ! valid_env_name "$env_name"; then
     nyann::warn "webhook channel: invalid env var name '$env_name' — skipping"
-  elif printf '%s' "$new_batch" | bash "${channels_dir}/webhook.sh" --env "$env_name"; then
-    any_delivered=true
+  else
+    deliver_channel webhook bash "${channels_dir}/webhook.sh" --env "$env_name"
   fi
 fi
 
@@ -227,24 +269,11 @@ if [[ "$email_enabled" == "true" ]]; then
   elif [[ -n "$smtp_env" ]] && ! valid_env_name "$smtp_env"; then
     nyann::warn "email channel: invalid smtp env var name '$smtp_env' — skipping"
   else
-    args=(--to "$to")
+    args=(bash "${channels_dir}/email.sh" --to "$to")
     [[ -n "$from" ]]     && args+=(--from "$from")
     [[ -n "$smtp_env" ]] && args+=(--smtp-env "$smtp_env")
-    if printf '%s' "$new_batch" | bash "${channels_dir}/email.sh" "${args[@]}"; then
-      any_delivered=true
-    fi
+    deliver_channel email "${args[@]}"
   fi
 fi
-
-# --- Record only what was actually delivered ---------------------------------
-# Mark the batch delivered ONLY if at least one channel confirmed it. Then
-# rewrite the marker (still under the lock acquired above) so the record is
-# atomic with the dedup scan and bounded to the live queue.
-if $any_delivered; then
-  delivered_ids=("${new_ids[@]}")
-fi
-rewrite_marker
-nyann::unlock "$lock_dir"
-trap - EXIT
 
 exit 0
