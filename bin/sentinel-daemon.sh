@@ -157,19 +157,23 @@ select_supervisor() {
   printf 'nohup'
 }
 
-# _delivery_env_lines — emit "<channel> <env-var-name>" for each ENABLED
-# notifications.delivery.* channel that names a secret env var. Shared by
-# propagate/unpropagate so both always act on the SAME set of names (no drift).
-# Empty (and exit 0) when prefs are absent or no channel names a var.
+# _delivery_env_lines [all] — emit "<channel> <env-var-name>" for each
+# notifications.delivery.* channel that names a secret env var. Default: only
+# ENABLED channels (what propagate should act on). With "all": EVERY configured
+# channel regardless of `enabled` — used by teardown so disabling a channel
+# between start and stop still clears its propagated secret. Shared so both
+# sides derive names the same way. Empty (exit 0) when prefs are absent.
 _delivery_env_lines() {
   local prefs="${NYANN_USER_ROOT:-$HOME/.claude/nyann}/preferences.json"
   [[ -f "$prefs" ]] || return 0
-  jq -r '
+  local all=false
+  [[ "${1-}" == "all" ]] && all=true
+  jq -r --argjson all "$all" '
     (.notifications.delivery // {}) as $d
-    | [ ($d.slack   | select(.enabled == true) | {c:"slack",   e:.webhook_url_env}),
-        ($d.discord | select(.enabled == true) | {c:"discord", e:.webhook_url_env}),
-        ($d.webhook | select(.enabled == true) | {c:"webhook", e:.url_env}),
-        ($d.email   | select(.enabled == true) | {c:"email",   e:.smtp_env}) ]
+    | [ ($d.slack   | select($all or .enabled == true) | {c:"slack",   e:.webhook_url_env}),
+        ($d.discord | select($all or .enabled == true) | {c:"discord", e:.webhook_url_env}),
+        ($d.webhook | select($all or .enabled == true) | {c:"webhook", e:.url_env}),
+        ($d.email   | select($all or .enabled == true) | {c:"email",   e:.smtp_env}) ]
     | .[] | select(.e != null and .e != "") | "\(.c) \(.e)"
   ' "$prefs" 2>/dev/null || true
 }
@@ -222,15 +226,16 @@ propagate_delivery_env() {
 # unpropagate_delivery_env <supervisor> — undo propagate_delivery_env: clear the
 # delivery secret from the per-user supervisor domain so it does not linger
 # after stop/restart (it would otherwise persist in the launchd/systemd session
-# until logout). Re-reads the SAME enabled-channel env-var NAMEs and clears each
-# from the supervisor's environment: launchd → `launchctl unsetenv`, systemd →
+# until logout). Clears EVERY configured delivery env-var NAME (not just
+# currently-enabled ones), so disabling a channel between start and stop still
+# tears its secret down. launchd → `launchctl unsetenv`, systemd →
 # `systemctl --user unset-environment`. Best-effort (never aborts stop); a
-# missing launchctl/systemctl (or nohup) is a no-op. A channel whose env-var
-# NAME was renamed between start and stop would leave the old name set —
-# acceptable: prefs are the single source of truth.
+# missing launchctl/systemctl (or nohup) is a no-op. Only renaming the env-var
+# NAME itself between start and stop would leave the old name set — acceptable:
+# prefs are the single source of truth.
 unpropagate_delivery_env() {
   local sup="$1"
-  local lines; lines=$(_delivery_env_lines)
+  local lines; lines=$(_delivery_env_lines all)
   [[ -n "$lines" ]] || return 0
 
   local channel name

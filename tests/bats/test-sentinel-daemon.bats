@@ -628,6 +628,26 @@ SH
   grep -q "unsetenv NYANN_SLACK_WEBHOOK" "$TMP/launchctl.calls"
 }
 
+@test "stop clears a delivery secret even after its channel was disabled" {
+  # Disabling a channel between start and stop must still tear its secret
+  # down (teardown clears EVERY configured *_env, not just enabled ones) —
+  # otherwise the secret lingers in the domain until logout.
+  printf '{"repo":"%s","daemon":{"pid":999999,"started_at":"2026-06-07T00:00:00Z","supervisor":"launchd"}}\n' "$REPO" > "$DAEMON_FILE"
+  make_stub launchctl 0
+  make_stub kill 0
+  cat > "$MOCK/ps" <<'SH'
+#!/bin/sh
+echo "unrelated"
+SH
+  chmod +x "$MOCK/ps"
+  UR="$TMP/ur"; mkdir -p "$UR"
+  jq -n '{schemaVersion:3, notifications:{delivery:{slack:{enabled:false, webhook_url_env:"NYANN_SLACK_WEBHOOK"}}}}' \
+    > "$UR/preferences.json"
+  NYANN_USER_ROOT="$UR" sd stop --repo "$REPO"
+  [ "$status" -eq 0 ]
+  grep -q "unsetenv NYANN_SLACK_WEBHOOK" "$TMP/launchctl.calls"
+}
+
 @test "stop --aggregate clears a propagated delivery secret from the systemd domain (unset-environment)" {
   printf '{"repo":"(aggregate)","pr_number":0,"last_poll_at":"2026-06-07T00:00:00Z","checks_status":"unknown","review_status":"unknown","daemon":{"pid":999999,"started_at":"2026-06-07T00:00:00Z","supervisor":"systemd"}}\n' > "$AGG_DAEMON_FILE"
   make_stub systemctl 0
