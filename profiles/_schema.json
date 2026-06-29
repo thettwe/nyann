@@ -622,7 +622,13 @@
         "commit":  { "$ref": "#/$defs/GuardList" },
         "pr":      { "$ref": "#/$defs/GuardList" },
         "release": { "$ref": "#/$defs/GuardList" },
-        "ship":    { "$ref": "#/$defs/GuardList" }
+        "ship":    { "$ref": "#/$defs/GuardList" },
+        "coverage_delta_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Max coverage-percentage-point drop the coverage-delta guard tolerates before it warns. 0 = any drop warns."
+        }
       }
     },
     "iac": {

@@ -619,6 +619,21 @@ JSON
   ! "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/stack-descriptor.schema.json" "$TMP/desc.json"
 }
 
+# --- CoverageBaseline (coverage-delta.sh --update-baseline) -----------------
+# The producer writes a FILE (.nyann/coverage-baseline.json), not stdout, so
+# we validate the written file directly. A JS coverage artifact feeds the
+# parser deterministically (no test suite is run).
+
+@test "coverage-baseline schema: --update-baseline writes a valid baseline" {
+  echo '{}' > "$REPO/package.json"
+  mkdir -p "$REPO/coverage"
+  echo '{"total":{"lines":{"pct":87.4}}}' > "$REPO/coverage/coverage-summary.json"
+  bash "${REPO_ROOT}/bin/guards/coverage-delta.sh" --update-baseline --target "$REPO"
+  [ -f "$REPO/.nyann/coverage-baseline.json" ]
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/coverage-baseline.schema.json" \
+    "$REPO/.nyann/coverage-baseline.json"
+}
+
 # --- Every schema is itself a valid JSON Schema -----------------------------
 # Guards against a malformed schema (bad metaschema, dangling $ref) shipping
 # unnoticed. check-jsonschema --check-metaschema validates each schema

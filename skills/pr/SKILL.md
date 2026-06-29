@@ -63,6 +63,18 @@ or ahead/behind) and `wip-commits` (advisory if the commit range still
 contains WIP/fixup commits). Profiles can promote either to `confirm` or
 `critical` via `guards.pr` in the profile.
 
+`coverage-delta` is an **opt-in** guard — off by default; enable it by
+naming it in `guards.pr` (`{name: coverage-delta}`). It warns (advisory
+by default; promote to `confirm` via the profile) when the branch lowers
+test coverage versus the cached `.nyann/coverage-baseline.json`, tolerant
+up to `guards.coverage_delta_threshold` percentage points (default 0 = any
+drop warns). It reuses an existing CI coverage artifact
+(`coverage/coverage-summary.json`, `coverage.xml`, a Go coverprofile, a
+tarpaulin report) and **soft-skips** when none is present — it never runs
+the suite, so it's best paired with a profile/CI that already produces
+coverage. Refresh the baseline on the base branch / post-merge with
+`bash bin/guards/coverage-delta.sh --update-baseline`.
+
 ## 2. Decide base branch
 
 `bin/pr.sh` resolves base in this order: `--base` arg > upstream

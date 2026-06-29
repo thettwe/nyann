@@ -83,6 +83,16 @@ bash bin/pre-action-guard.sh --flow ship --target <cwd> [--profile <resolved-pro
 Ship runs both the PR-flow guards (`branch-pushed`, `wip-commits`) and
 any profile-promoted guards under `guards.ship`.
 
+`coverage-delta` is an **opt-in** guard — off by default; enable it by
+naming it in `guards.ship` (`{name: coverage-delta}`). It warns (advisory
+by default; promote to `confirm` via the profile) when the branch lowers
+test coverage versus the cached `.nyann/coverage-baseline.json`, tolerant
+up to `guards.coverage_delta_threshold` percentage points (default 0). It
+reuses an existing CI coverage artifact and **soft-skips** when none is
+present (it never runs the suite), so it's best paired with a profile/CI
+that already produces coverage. Refresh the baseline on the base branch /
+post-merge with `bash bin/guards/coverage-delta.sh --update-baseline`.
+
 | Exit | Meaning | Action |
 |---|---|---|
 | 0 | Pass | Continue |
