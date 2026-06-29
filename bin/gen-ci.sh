@@ -60,6 +60,13 @@ stack_json="$(cat "$stack_path")"
 lang=$(jq -r '.primary_language // "unknown"' <<<"$stack_json")
 templates_dir="${_script_dir}/../templates/ci"
 
+# nyann's own version, stamped into the governance workflow's clone pin so a
+# generated governance-check.yml tracks the release that produced it (instead
+# of a hardcoded literal that goes stale). Read from the installed plugin
+# manifest; fall back to `main` only if it can't be resolved (broken install).
+nyann_version=$(jq -r '.version // empty' "${_script_dir}/../.claude-plugin/plugin.json" 2>/dev/null || true)
+[[ -n "$nyann_version" ]] || { nyann::warn "gen-ci: could not resolve nyann version for the governance pin; falling back to 'main'"; nyann_version="main"; }
+
 case "$lang" in
   typescript|javascript) template_file="${templates_dir}/typescript.yml" ;;
   python)                template_file="${templates_dir}/python.yml" ;;
@@ -270,12 +277,6 @@ ${marker_end}"
 CI_MARKER_START="# nyann:ci:start"
 CI_MARKER_END="# nyann:ci:end"
 ci_path="$target/.github/workflows/ci.yml"
-
-# nyann's own shipping version — stamped into the governance template's
-# NYANN_VERSION default (the __NYANN_VERSION__ placeholder) so the generated
-# workflow always pins the release that produced it, with no literal to drift.
-nyann_version=$(jq -r '.version // empty' "${_script_dir}/../.claude-plugin/plugin.json" 2>/dev/null || true)
-[[ -n "$nyann_version" ]] || nyann_version="latest"
 
 if [[ "$dry_run" == "true" ]]; then
   printf '%s\n' "${CI_MARKER_START}"
