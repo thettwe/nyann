@@ -73,3 +73,21 @@ setup() {
     return 1
   fi
 }
+
+@test "newest CHANGELOG entry carries no roadmap/spec IDs" {
+  cd "$REPO_ROOT"
+  # The public CHANGELOG must not leak internal increment/spec codes
+  # ((P8), (I9), (S0), (C3)-style) in user-facing entries. Gate ONLY the
+  # newest entry — the first `## [x.y.z]` section, up to the next one —
+  # so historical entries that predate this rule are grandfathered.
+  newest=$(awk '/^## \[[0-9]/{n++} n==1{print} n==2{exit}' CHANGELOG.md)
+  hits=$(printf '%s\n' "$newest" | grep -oE '\([PISC][0-9]+([–-][PISC]?[0-9]+)?\)' || true)
+  if [[ -n "$hits" ]]; then
+    echo "Roadmap/spec IDs leaked into the newest CHANGELOG entry:" >&2
+    printf '%s\n' "$hits" >&2
+    echo "" >&2
+    echo "Describe the feature, not its internal work item (see" >&2
+    echo "docs/principles/conventions.md 'No internal references')." >&2
+    return 1
+  fi
+}

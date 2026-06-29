@@ -48,12 +48,32 @@ credentials.** This applies to every gh-using path: PR creation,
 ship, GitHub release creation, branch protection audit, tag
 protection.
 
-## No internal references in code
+## No internal references in code or public release artifacts
 
 This is a public project. Never use internal tracking IDs in
 comments, function names, test names, variable names, or sentinel
 filenames. Names must be self-descriptive. Traceability belongs in
 git history, not in the source.
+
+The same applies to **the public `CHANGELOG.md` and GitHub release
+notes** — they are read by users, not the dev team:
+
+- **No roadmap / spec IDs.** Drop the `(P8)`, `(I9)`, `(S0)`, `(C3)`-style
+  increment/spec codes from entries. Describe the feature, not its
+  internal work item. (Historical entries that predate this rule are left
+  as-is; the lock below only gates the newest entry.)
+- **No internal-process meta.** Don't narrate the development process —
+  review rounds, "the test suite missed X", pre-merge bug-hunts, or which
+  internal tool found what. The changelog records what *changed for the
+  user*, not how it was built.
+- **Don't disclose vulnerabilities in unreleased code.** A defect caught
+  and fixed before it ever shipped (e.g. during pre-merge review) is not a
+  user-facing security event — publishing "we found two RCEs in our
+  pre-release branch" only alarms users and exposes internals. Real
+  advisories for *shipped* versions are a separate, deliberate process.
+
+A regression test (`tests/bats/test-internal-reference-hygiene.bats`)
+locks the newest CHANGELOG entry against roadmap-ID leakage.
 
 ## See also
 

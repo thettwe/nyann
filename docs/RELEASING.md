@@ -100,6 +100,21 @@ bin/release.sh --version 1.0.0 --yes --push --bump-manifests --gh-release
 
 If anything fails between commit and tag, see "Recovery" below.
 
+### CHANGELOG / release-notes content
+
+The CHANGELOG entry and GitHub release notes are public, user-facing
+artifacts. Per [conventions](./principles/conventions.md#no-internal-references-in-code-or-public-release-artifacts):
+
+- **No internal roadmap/spec IDs** (`(P8)`, `(I9)`, `(S0)`, …) — describe
+  the feature, not the work item. `test-internal-reference-hygiene.bats`
+  locks the newest entry against these.
+- **No internal-process meta** (review rounds, what a test missed,
+  pre-merge bug-hunts) and **no disclosure of defects in unreleased code**
+  (a bug fixed before it shipped is not a user advisory).
+
+When `release.sh` auto-renders from Conventional Commits, review the
+rendered block against the above before confirming with `--yes`.
+
 ### Flag constraints
 
 - **`--push` enables the CI gate by default.** Because a pushed tag is consumed by the marketplace, `--push` auto-enables `--wait-for-checks` when the origin is a GitHub remote and `gh` is authenticated, blocking the tag step until HEAD's PR checks pass. It degrades gracefully — no open PR, or no authenticated gh, proceeds with a warning rather than failing (so the one-shot above still works from any host). Pass `--no-wait-for-checks` to push without a gate, or `--wait-for-checks` explicitly for strict gating (no PR / no checks / no gh becomes fatal).
