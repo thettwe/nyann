@@ -22,7 +22,9 @@ for xml in cobertura.xml tarpaulin-cobertura.xml; do
   if [[ -f "$target/$xml" ]]; then
     rate=$(grep -o 'line-rate="[0-9.]*"' "$target/$xml" 2>/dev/null | head -1 | sed 's/line-rate="//;s/"//')
     if [[ "$rate" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-      awk -v r="$rate" 'BEGIN{ printf "%.1f\n", r*100 }'
+      # LC_ALL=C so a comma-decimal locale can't emit `65,3` and fail the
+      # guard's numeric regex (silently disabling the Rust stack).
+      LC_ALL=C awk -v r="$rate" 'BEGIN{ printf "%.1f\n", r*100 }'
       exit 0
     fi
   fi

@@ -50,21 +50,29 @@ detect_coverage() {
 #   Writes <target>/.nyann/coverage-baseline.json (schema:
 #   coverage-baseline.schema.json). Returns non-zero if it cannot write.
 write_baseline() {
-  local t="$1" tool="$2" pct="$3" dir ts commit
+  local t="$1" tool="$2" pct="$3" dir file ts commit tmp
   dir="$t/.nyann"
+  file="$dir/coverage-baseline.json"
   [[ "$pct" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+  # The baseline path is predictable; refuse to follow a pre-planted symlink
+  # at the dir or the file, so a hostile repo can't redirect the write out of
+  # tree. Then write to a temp file in $dir and mv into place (atomic, and
+  # `mv` replaces a symlink target rather than following it).
+  [[ -L "$dir" || -L "$file" ]] && return 1
   mkdir -p "$dir" 2>/dev/null || return 1
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   commit=$(git -C "$t" rev-parse HEAD 2>/dev/null || echo "")
+  tmp=$(mktemp "$dir/coverage-baseline.json.XXXXXX") || return 1
   if [[ -n "$commit" ]]; then
     jq -n --arg tool "$tool" --argjson pct "$pct" --arg ts "$ts" --arg commit "$commit" \
       '{tool:$tool, coverage_pct:$pct, recorded_at:$ts, commit:$commit}' \
-      > "$dir/coverage-baseline.json"
+      > "$tmp" || { rm -f "$tmp"; return 1; }
   else
     jq -n --arg tool "$tool" --argjson pct "$pct" --arg ts "$ts" \
       '{tool:$tool, coverage_pct:$pct, recorded_at:$ts}' \
-      > "$dir/coverage-baseline.json"
+      > "$tmp" || { rm -f "$tmp"; return 1; }
   fi
+  mv -f "$tmp" "$file" || { rm -f "$tmp"; return 1; }
 }
 
 # emit <pass:true|false> <message> [<skipped:true>]
@@ -126,6 +134,14 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
+# awk drives the float comparison below. If it is absent the verdict would be
+# empty and fall through to a FALSE "coverage dropped" — which a promoted
+# profile could turn into a real block. Soft-skip instead (never-block).
+if ! command -v awk >/dev/null 2>&1; then
+  emit true "awk unavailable — skipped" true
+  exit 0
+fi
+
 # Detect the applicable stack + current coverage. No tool/artifact → skip.
 if ! detected=$(detect_coverage "$target"); then
   emit true "no coverage tool/artifact — skipped" true
@@ -157,6 +173,16 @@ if [[ ! "$baseline" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
   exit 0
 fi
 
+# Stack-identity guard: in a polyglot repo detect_coverage (first-wins) may
+# pick a different stack than the one the baseline was recorded for (artifact
+# presence varies between record-time and run-time). Comparing a JS figure
+# against a Go baseline is meaningless — skip rather than false-warn.
+baseline_tool=$(jq -r '.tool // empty' "$baseline_file" 2>/dev/null || true)
+if [[ -n "$baseline_tool" && "$baseline_tool" != "$tool" ]]; then
+  emit true "baseline tool ($baseline_tool) != detected ($tool) — skipped" true
+  exit 0
+fi
+
 # Allowed drop from the profile (percentage points). Default 0 = any drop warns.
 threshold=0
 if [[ -n "$profile_file" && -f "$profile_file" ]]; then
@@ -165,13 +191,20 @@ fi
 [[ "$threshold" =~ ^[0-9]+(\.[0-9]+)?$ ]] || threshold=0
 
 # Compare with awk (float-safe): pass when current >= baseline - threshold.
-verdict=$(awk -v c="$current" -v b="$baseline" -v t="$threshold" \
+# LC_ALL=C so a comma-decimal locale neither breaks the compare nor prints a
+# `Δ-2,6` in the user-facing message.
+verdict=$(LC_ALL=C awk -v c="$current" -v b="$baseline" -v t="$threshold" \
   'BEGIN{ if (c >= b - t) print "pass"; else print "fail" }')
-delta=$(awk -v c="$current" -v b="$baseline" 'BEGIN{ printf "%+.1f", c - b }')
+delta=$(LC_ALL=C awk -v c="$current" -v b="$baseline" 'BEGIN{ printf "%+.1f", c - b }')
 
+# Only a clean pass/fail is trustworthy. Any other verdict (awk errored) is a
+# skip, NOT a false "dropped" — that would be a phantom drop a promoted
+# profile could escalate to a block.
 if [[ "$verdict" == "pass" ]]; then
   emit true "coverage ${baseline}% → ${current}% (Δ${delta}, threshold ${threshold})"
-else
+elif [[ "$verdict" == "fail" ]]; then
   emit false "coverage dropped ${baseline}% → ${current}% (Δ${delta}, threshold ${threshold})"
+else
+  emit true "coverage compare failed — skipped" true
 fi
 exit 0

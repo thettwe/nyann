@@ -260,3 +260,141 @@ need_validator() {
   # No profile → only the built-in pr guards run; coverage-delta must not appear.
   echo "$output" | jq -e '[.guards[] | select(.name == "coverage-delta")] | length == 0'
 }
+
+# --- hardening: python never execs repo code -------------------------------
+
+@test "python: never execs repo code; soft-skips on .coverage with no coverage.xml" {
+  # Python repo with a cached .coverage data file + a pyproject.toml naming a
+  # coverage plugin that would touch a marker, and NO coverage.xml. python.sh
+  # must read only the static artifact — never shell out to anything that
+  # would import the plugin (which writes the marker).
+  marker="$TMP/PWNED"
+  cat > "$REPO/pyproject.toml" <<EOF
+[tool.coverage.run]
+plugins = ["evilplugin"]
+EOF
+  cat > "$REPO/evilplugin.py" <<EOF
+import pathlib
+pathlib.Path("$marker").write_text("pwned")
+EOF
+  : > "$REPO/.coverage"
+  # A `coverage` stub on PATH that fails loudly + drops the marker if invoked.
+  STUBDIR="$TMP/pystub"; mkdir -p "$STUBDIR"
+  cat > "$STUBDIR/coverage" <<EOF
+#!/usr/bin/env bash
+echo "COVERAGE WAS EXECUTED" >&2
+touch "$marker"
+printf 'TOTAL\t10\t1\t99%%\n'
+exit 0
+EOF
+  chmod +x "$STUBDIR/coverage"
+  PATH="$STUBDIR:$PATH"
+  run bash "$TOOLS/python.sh" "$REPO"
+  # No coverage.xml → soft-skip (non-zero, no output)...
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  # ...and crucially the plugin/coverage was never run.
+  [ ! -e "$marker" ]
+}
+
+# --- hardening: go toolchain is pinned, suite never runs -------------------
+
+@test "go: pins GOTOOLCHAIN=local, reads existing profile, never runs suite" {
+  echo 'module x' > "$REPO/go.mod"
+  echo 'mode: set' > "$REPO/coverage.out"
+  STUBDIR="$TMP/gostub"; mkdir -p "$STUBDIR"
+  ENVLOG="$TMP/go-env.log"; export ENVLOG
+  cat > "$STUBDIR/go" <<'EOF'
+#!/usr/bin/env bash
+{ echo "GOTOOLCHAIN=$GOTOOLCHAIN"; echo "ARGS=$*"; } >> "$ENVLOG"
+# Fail loudly if asked to run the suite.
+if [[ "$1" == "test" ]]; then echo "SUITE WAS RUN" >> "$ENVLOG"; exit 99; fi
+printf 'x/main.go:1:\tfoo\t100.0%%\n'
+printf 'total:\t(statements)\t76.5%%\n'
+EOF
+  chmod +x "$STUBDIR/go"
+  PATH="$STUBDIR:$PATH"
+  run bash "$TOOLS/go.sh" "$REPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = "76.5" ]
+  grep -q "GOTOOLCHAIN=local" "$ENVLOG"
+  grep -q "ARGS=tool cover -func=$REPO/coverage.out" "$ENVLOG"
+  ! grep -q "SUITE WAS RUN" "$ENVLOG"
+}
+
+# --- hardening: baseline tool must match the detected stack ----------------
+
+@test "guard: baseline tool mismatch (go baseline, js detected) soft-skips" {
+  js_artifact 60                             # detected stack = js (60%)
+  mkdir -p "$REPO/.nyann"
+  # Hand-write a baseline recorded for a DIFFERENT stack (go, 85%).
+  jq -n '{tool:"go", coverage_pct:85, recorded_at:"2026-01-01T00:00:00Z"}' \
+    > "$REPO/.nyann/coverage-baseline.json"
+  run bash "$GUARD" "$REPO" main ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.pass == true'
+  echo "$output" | jq -e '.skipped == true'
+  echo "$output" | jq -e '.message | test("baseline tool")'
+  # No false "dropped 85% → 60%".
+  ! echo "$output" | jq -e '.message | test("dropped")'
+}
+
+# --- hardening: awk absence soft-skips (never a false drop) ----------------
+
+@test "guard: awk unavailable soft-skips (never false-warns a drop)" {
+  js_artifact 90
+  bash "$GUARD" "$REPO" main "" >/dev/null   # record 90 (awk present)
+  js_artifact 80                             # would be a drop
+  # Curated PATH (bash + jq + dirname only) — awk genuinely absent. dirname
+  # is needed for the guard's BASH_SOURCE resolution; the awk-skip fires
+  # before any coverage tool runs, so nothing else is required.
+  NOAWK="$TMP/noawk"; mkdir -p "$NOAWK"
+  ln -s "$(command -v bash)"    "$NOAWK/bash"
+  ln -s "$(command -v jq)"      "$NOAWK/jq"
+  ln -s "$(command -v dirname)" "$NOAWK/dirname"
+  OLDPATH="$PATH"
+  PATH="$NOAWK"
+  run bash "$GUARD" "$REPO" main ""
+  PATH="$OLDPATH"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.pass == true'
+  echo "$output" | jq -e '.skipped == true'
+  ! echo "$output" | jq -e '.pass == false'
+}
+
+# --- hardening: baseline write refuses a pre-planted symlink ---------------
+
+@test "guard: write_baseline refuses a symlinked baseline path (no follow)" {
+  js_artifact 90
+  mkdir -p "$REPO/.nyann"
+  evil="$TMP/evil-target.json"             # dangling (does not yet exist)
+  ln -s "$evil" "$REPO/.nyann/coverage-baseline.json"
+  run bash "$GUARD" "$REPO" main ""
+  [ "$status" -eq 0 ]
+  # Guard must soft-skip (write refused) and NOT create the symlink target.
+  echo "$output" | jq -e '.pass == true'
+  echo "$output" | jq -e '.skipped == true'
+  [ ! -e "$evil" ]
+}
+
+@test "--update-baseline refuses a symlinked baseline path (no follow)" {
+  js_artifact 88
+  mkdir -p "$REPO/.nyann"
+  evil="$TMP/evil-update.json"
+  ln -s "$evil" "$REPO/.nyann/coverage-baseline.json"
+  run bash "$GUARD" --update-baseline --target "$REPO"
+  [ "$status" -ne 0 ]
+  [ ! -e "$evil" ]
+}
+
+# --- hardening: numeric awk is locale-pinned -------------------------------
+
+@test "numeric awk is locale-pinned with LC_ALL=C (python, rust, guard)" {
+  # python.sh + rust.sh: the line-rate×100 conversion must be C-pinned so a
+  # comma-decimal locale can't emit `91,2` and fail the guard's numeric regex.
+  grep -q 'LC_ALL=C awk' "$TOOLS/python.sh"
+  grep -q 'LC_ALL=C awk' "$TOOLS/rust.sh"
+  # guard: both the compare and the delta awk must be C-pinned (≥2).
+  n=$(grep -c 'LC_ALL=C awk' "$GUARD")
+  [ "$n" -ge 2 ]
+}
