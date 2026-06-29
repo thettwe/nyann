@@ -454,3 +454,15 @@ EOF
     echo "$output" | jq -e --arg n "$g" '.guards[] | select(.name == $n)'
   done
 }
+
+@test "guard: out-of-range baseline (corrupt/hand-edited >100) soft-skips, no false drop" {
+  js_artifact 90
+  mkdir -p "$REPO/.nyann"
+  # A persisted baseline outside [0,100] — e.g. hand-edited / foreign tooling.
+  jq -n '{tool:"js", coverage_pct:9000, recorded_at:"2026-06-01T00:00:00Z"}' \
+    > "$REPO/.nyann/coverage-baseline.json"
+  run bash "$GUARD" "$REPO" main ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skipped == true'
+  echo "$output" | jq -e '.pass == true'   # must NOT be a false "dropped"
+}

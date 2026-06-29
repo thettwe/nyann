@@ -182,6 +182,13 @@ if [[ ! "$baseline" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
   emit true "coverage baseline malformed — skipped" true
   exit 0
 fi
+# Range-gate the persisted baseline too (symmetry with the current-figure
+# check): an externally corrupted/hand-edited out-of-[0,100] baseline must
+# soft-skip, never produce a false "dropped" advisory.
+if ! LC_ALL=C awk -v v="$baseline" 'BEGIN{exit !(v>=0 && v<=100)}'; then
+  emit true "coverage baseline out of range (${baseline}) — skipped" true
+  exit 0
+fi
 
 # Stack-identity guard: in a polyglot repo detect_coverage (first-wins) may
 # pick a different stack than the one the baseline was recorded for (artifact
