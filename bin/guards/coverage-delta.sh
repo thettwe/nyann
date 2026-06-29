@@ -64,7 +64,11 @@ write_baseline() {
   # `mv` replaces a symlink target rather than following it).
   [[ -L "$dir" || -L "$file" ]] && return 1
   mkdir -p "$dir" 2>/dev/null || return 1
-  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  # recorded_at is a required date-time in coverage-baseline.schema.json. If
+  # `date` is absent/errors, fail (→ soft-skip) rather than write an empty,
+  # schema-invalid timestamp — symmetry with the other soft-skipped deps.
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)
+  [[ -n "$ts" ]] || return 1
   commit=$(git -C "$t" rev-parse HEAD 2>/dev/null || echo "")
   tmp=$(mktemp "$dir/coverage-baseline.json.XXXXXX") || return 1
   if [[ -n "$commit" ]]; then

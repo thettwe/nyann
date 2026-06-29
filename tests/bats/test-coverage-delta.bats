@@ -466,3 +466,12 @@ EOF
   echo "$output" | jq -e '.skipped == true'
   echo "$output" | jq -e '.pass == true'   # must NOT be a false "dropped"
 }
+
+@test "write_baseline guards an absent date (no empty recorded_at written)" {
+  # recorded_at is a required date-time; an empty ts must fail the write
+  # (→ soft-skip) rather than emit a schema-invalid baseline. Assert the
+  # guard is present right after the date call (date is near-universal, so a
+  # curated no-date PATH is brittle; lock the guard structurally instead).
+  grep -Eq 'ts=\$\(date .* \|\| true\)' "$GUARD"
+  grep -Eq '\[\[ -n "\$ts" \]\] \|\| return 1' "$GUARD"
+}
