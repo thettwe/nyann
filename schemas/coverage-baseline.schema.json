@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/coverage-baseline/v1.json",
+  "title": "CoverageBaseline",
+  "description": "Cached test-coverage floor for the coverage-delta PR guard. Lives at <repo>/.nyann/coverage-baseline.json. Written by `bin/guards/coverage-delta.sh --update-baseline` (run on the base branch / post-merge) and by the guard's first run when no baseline exists. The guard compares the branch's current coverage against this baseline and warns (advisory) on a drop beyond the profile's guards.coverage_delta_threshold.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "coverage_pct", "recorded_at"],
+  "properties": {
+    "tool": {
+      "description": "Which coverage-tools stack produced the figure.",
+      "type": "string",
+      "enum": ["js", "python", "go", "rust"]
+    },
+    "coverage_pct": {
+      "description": "Total line-coverage percentage at baseline time (0–100).",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "recorded_at": {
+      "description": "ISO 8601 timestamp of when the baseline was recorded.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "commit": {
+      "description": "Optional git commit the baseline was recorded at (HEAD when written). Free-form so short or full SHAs both validate.",
+      "type": "string"
+    }
+  }
+}

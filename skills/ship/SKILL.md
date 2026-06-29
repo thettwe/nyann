@@ -80,8 +80,22 @@ call the `AskUserQuestion` tool** (not plain text):
 bash bin/pre-action-guard.sh --flow ship --target <cwd> [--profile <resolved-profile.json>]
 ```
 
-Ship runs both the PR-flow guards (`branch-pushed`, `wip-commits`) and
-any profile-promoted guards under `guards.ship`.
+By default ship runs the PR-flow guards (`branch-pushed`, `wip-commits`). A
+`guards.ship` array REPLACES that default set (subset semantics — it does
+not append) and may promote severities.
+
+`coverage-delta` is an **opt-in** guard — off by default. Since
+`guards.ship` replaces the default set, enable it by re-listing the
+built-ins alongside it:
+`"guards":{"ship":[{"name":"branch-pushed"},{"name":"wip-commits"},{"name":"coverage-delta"}]}`.
+Naming only `coverage-delta` would silently drop them. It warns (advisory
+by default; promote to `confirm` via the profile) when the branch lowers
+test coverage versus the cached `.nyann/coverage-baseline.json`, tolerant
+up to `guards.coverage_delta_threshold` percentage points (default 0). It
+reuses an existing CI coverage artifact and **soft-skips** when none is
+present (it never runs the suite), so it's best paired with a profile/CI
+that already produces coverage. Refresh the baseline on the base branch /
+post-merge with `bash bin/guards/coverage-delta.sh --update-baseline`.
 
 | Exit | Meaning | Action |
 |---|---|---|

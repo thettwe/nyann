@@ -3,7 +3,7 @@
   "$id": "https://nyann.dev/schemas/workspace-release-result/v1.json",
   "title": "WorkspaceReleaseResult",
   "description": "Per-workspace release output from release-workspace.sh.",
-  "$comment": "v1.11.0 — monorepo release support.",
+  "$comment": "v1.11.0 — monorepo release support. v1.13.0 I10 — optional unit_kind for IaC units.",
   "oneOf": [
     {
       "title": "WorkspaceReleaseSuccess",
@@ -30,7 +30,12 @@
         },
         "changelog_section": { "type": "string" },
         "status":            { "type": "string", "enum": ["released", "noop", "preview"] },
-        "dry_run":           { "type": "boolean" }
+        "dry_run":           { "type": "boolean" },
+        "unit_kind": {
+          "type": "string",
+          "enum": ["module", "chart", "stack", "overlay", "role", "playbook"],
+          "description": "IaC unit kind (v1.13.0 I10). Present only when the released unit is an IaC unit from the descriptor's iac.units[]; absent for code-package workspaces."
+        }
       }
     },
     {

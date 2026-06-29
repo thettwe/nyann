@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/notification-delivery-config/v1.json",
+  "title": "NotificationDeliveryConfig",
+  "description": "Shape of preferences.json `notifications.delivery`. Per-channel opt-in config for fanning queued Notification entries out to external sinks (Slack/Discord/generic webhook/email). SECURITY: this object holds only the NAMES of environment variables that carry secret endpoints (webhook_url_env, url_env, smtp_env) plus non-secret toggles and addresses — never a literal URL or token. nyann reads the actual endpoint from the named env var at delivery time so secrets never land in preferences.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "slack": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Slack incoming-webhook channel.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "webhook_url_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Name of the env var holding the Slack incoming-webhook URL (e.g. NYANN_SLACK_WEBHOOK). NOT the URL itself."
+        }
+      }
+    },
+    "discord": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Discord webhook channel.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "webhook_url_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Name of the env var holding the Discord webhook URL (e.g. NYANN_DISCORD_WEBHOOK). NOT the URL itself."
+        }
+      }
+    },
+    "webhook": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Generic webhook channel — POSTs the raw notification JSON.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "url_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Name of the env var holding the target webhook URL (e.g. NYANN_WEBHOOK_URL). NOT the URL itself."
+        }
+      }
+    },
+    "email": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Email channel via local sendmail or a curl SMTP relay.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "to":   { "type": "string", "description": "Recipient address (not a secret)." },
+        "from": { "type": "string", "description": "Sender address (not a secret)." },
+        "smtp_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Name of the env var holding the SMTP relay URL (e.g. NYANN_SMTP_URL, smtp://user:pass@host:587). Optional — when unset and `sendmail` exists, delivery uses sendmail. NOT the URL itself."
+        }
+      }
+    }
+  }
+}

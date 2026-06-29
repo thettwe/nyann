@@ -88,6 +88,26 @@ teardown() { rm -rf "$TMP"; }
   [ "$(jq -r '.default_profile' "$USER_ROOT/preferences.json")" = "node-api" ]
 }
 
+@test "non-incremental re-run preserves notifications.delivery and does not downgrade schemaVersion" {
+  # Configure a user with a v3 delivery block (as /nyann:settings would write).
+  bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" >/dev/null 2>&1
+  prefs="$USER_ROOT/preferences.json"
+  tmp="$TMP/p.json"
+  jq '.schemaVersion = 3
+      | .notifications.delivery = {webhook:{enabled:true, url_env:"NYANN_HOOK"}}' \
+    "$prefs" > "$tmp"
+  mv "$tmp" "$prefs"
+  # A PLAIN (non-incremental) re-run must NOT drop the delivery block or
+  # silently downgrade schemaVersion 3 -> 2.
+  bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
+    --default-profile go-service >/dev/null 2>&1
+  [ "$(jq -r '.schemaVersion' "$prefs")" = "3" ]
+  [ "$(jq -r '.notifications.delivery.webhook.url_env' "$prefs")" = "NYANN_HOOK" ]
+  [ "$(jq -r '.notifications.delivery.webhook.enabled' "$prefs")" = "true" ]
+  # ...and the re-run still applied its own field.
+  [ "$(jq -r '.default_profile' "$prefs")" = "go-service" ]
+}
+
 @test "setup rejects invalid branching strategy" {
   run bash "${REPO_ROOT}/bin/setup.sh" --user-root "$USER_ROOT" \
     --branching-strategy invalid

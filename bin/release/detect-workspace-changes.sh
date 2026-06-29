@@ -3,11 +3,21 @@
 #
 # Usage:
 #   detect-workspace-changes.sh --target <repo> --workspace <path>
-#                               --from <ref> [--scopes <csv>]
+#                               --from <ref> [--scopes <csv>] [--kind <kind>]
 #
-# A commit counts toward this workspace if:
+# A "workspace" here is any releasable unit — a code package (package.json /
+# Cargo.toml monorepo) OR an IaC unit (a Helm chart, a terraform module, a
+# stack/overlay/role/playbook, from the descriptor's iac.units[]). The path-diff
+# below treats every unit identically: a unit's path IS its workspace path.
+#
+# A commit counts toward this unit if:
 #   - Any of its changed files live under <workspace>/ (git log -- <path>), OR
 #   - Its CC scope matches one of --scopes (e.g. feat(core): → "core")
+#
+# --kind is accepted for IaC units (module|chart|stack|overlay|role|playbook).
+# It does not change change-detection (paths diff identically) — it is plumbed
+# so release-workspace.sh can carry the unit kind through to its result. A code
+# workspace omits --kind and is unaffected.
 #
 # Output: same JSON array as collect-commits.sh
 #   [ {sha, type, scope, subject, breaking}, ... ]
@@ -24,6 +34,7 @@ target="$PWD"
 workspace=""
 from_ref=""
 scope_csv=""
+kind=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,7 +46,9 @@ while [[ $# -gt 0 ]]; do
     --from=*)      from_ref="${1#--from=}"; shift ;;
     --scopes)      scope_csv="${2:-}"; shift 2 ;;
     --scopes=*)    scope_csv="${1#--scopes=}"; shift ;;
-    -h|--help)     sed -n '2,14p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --kind)        kind="${2:-}"; shift 2 ;;
+    --kind=*)      kind="${1#--kind=}"; shift ;;
+    -h|--help)     sed -n '2,23p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) nyann::die "detect-workspace-changes: unknown argument: $1" ;;
   esac
 done
@@ -43,6 +56,15 @@ done
 [[ -d "$target" ]] || nyann::die "detect-workspace-changes: --target must be a directory"
 [[ -n "$workspace" ]] || nyann::die "detect-workspace-changes: --workspace is required"
 [[ -n "$from_ref" ]] || nyann::die "detect-workspace-changes: --from is required"
+
+# --kind, when set, must be a known IaC unit kind. Validated (not consumed in
+# diffing) so a typo surfaces here rather than silently flowing into a tag.
+if [[ -n "$kind" ]]; then
+  case "$kind" in
+    module|chart|stack|overlay|role|playbook) ;;
+    *) nyann::die "detect-workspace-changes: --kind must be one of module|chart|stack|overlay|role|playbook: got '$kind'" ;;
+  esac
+fi
 
 log_range="${from_ref}..HEAD"
 

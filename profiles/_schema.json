@@ -72,7 +72,7 @@
       "properties": {
         "primary_language": {
           "type": "string",
-          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "hcl", "unknown"]
+          "enum": ["typescript", "javascript", "python", "go", "rust", "swift", "kotlin", "shell", "java", "csharp", "php", "dart", "ruby", "elixir", "cpp", "hcl", "yaml", "unknown"]
         },
         "framework": {
           "oneOf": [
@@ -83,7 +83,7 @@
         "package_manager": {
           "oneOf": [
             { "type": "null" },
-            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix"] }
+            { "type": "string", "enum": ["npm", "pnpm", "yarn", "bun", "pip", "uv", "poetry", "pipenv", "cargo", "go", "spm", "gradle", "maven", "dotnet", "composer", "pub", "bundler", "deno", "mix", "terraform", "opentofu"] }
           ]
         }
       }
@@ -328,8 +328,8 @@
               },
               "format": {
                 "type": "string",
-                "enum": ["json-version-key", "toml-version-key", "script"],
-                "description": "How to mutate the file. json-version-key uses jq; toml-version-key sed-edits a single-line `version = \"x.y.z\"` within a section; script invokes a user-provided command with $NEW_VERSION."
+                "enum": ["json-version-key", "toml-version-key", "yaml-version-key", "text-version", "script"],
+                "description": "How to mutate the file. json-version-key uses jq; toml-version-key sed-edits a single-line `version = \"x.y.z\"` within a section; yaml-version-key rewrites a top-level `version:` (Helm Chart.yaml) and optionally `appVersion:`; text-version overwrites a whole-file VERSION sentinel (terraform module); script invokes a user-provided command with $NEW_VERSION."
               },
               "key": {
                 "type": "string",
@@ -347,6 +347,10 @@
                 "type": "string",
                 "maxLength": 512,
                 "description": "script: shell command run with $NEW_VERSION exported. The command is responsible for mutating the file at .path. REQUIRED for script."
+              },
+              "app_version": {
+                "type": "boolean",
+                "description": "yaml-version-key only: when true, ALSO rewrite the chart's `appVersion:` to the release version (mirrors the deployed app's release tag for a paired Helm chart). Ignored by other formats."
               }
             },
             "allOf": [
@@ -618,7 +622,76 @@
         "commit":  { "$ref": "#/$defs/GuardList" },
         "pr":      { "$ref": "#/$defs/GuardList" },
         "release": { "$ref": "#/$defs/GuardList" },
-        "ship":    { "$ref": "#/$defs/GuardList" }
+        "ship":    { "$ref": "#/$defs/GuardList" },
+        "coverage_delta_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Max coverage-percentage-point drop the coverage-delta guard tolerates before it warns. 0 = any drop warns."
+        }
+      }
+    },
+    "iac": {
+      "$comment": "v1.13.0 — optional Infrastructure-as-Code pinning block. Mirrors the stack-descriptor iac shape so a profile can pin the tool and declare which repo-relative paths are deployable units when auto-discovery (detect-iac.sh / discover-iac-units.sh) is ambiguous. Additive and fully optional: absent on non-infra profiles; presence overrides nothing for repos that ignore it.",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Infrastructure-as-Code overrides. Pins the IaC tool and/or declares deployable units so per-unit versioning, drift, and doc routing key off real paths instead of guessing.",
+      "properties": {
+        "tool": {
+          "type": "string",
+          "enum": ["terraform", "opentofu", "aws-cdk", "pulumi", "kubernetes", "kustomize", "helm", "ansible"]
+        },
+        "units": {
+          "type": "array",
+          "description": "Deployable/versionable units declared by the operator. Each maps a kind + repo-relative path to a logical name; version is an optional pin.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "path", "name"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["module", "stack", "chart", "overlay", "playbook", "role"]
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.][A-Za-z0-9._/-]*$",
+                "not": { "pattern": "(^|/)\\.{1,2}(/|$)" },
+                "maxLength": 256,
+                "description": "Repo-relative path to the unit (e.g. 'modules/vpc'). Must not start with '-' (option injection); the `not` clause rejects '.'/'..' path segments (traversal), matching release.bump_files[].path."
+              },
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$",
+                "description": "Lowercase-kebab logical identifier for the unit. Same shape as the top-level profile `name`."
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+                "maxLength": 64,
+                "description": "Optional pinned version of the unit (e.g. a Helm chart version or module ref). Free-form within a safe charset."
+              }
+            }
+          }
+        },
+        "drift_check": {
+          "$comment": "v1.13.0 (I8) — IaC drift governance. Read by bin/iac-drift-scan.sh, doctor's iac-drift probe, and the unpinned-iac-refs/committed-secrets guards. Flat-boolean per-detector toggles (mirroring documentation.readme_badges, and matching the spec's flag names verbatim). Master `enabled` short-circuits the whole subsystem. All additive and default-on; absent block = all detectors run.",
+          "type": "object",
+          "additionalProperties": false,
+          "description": "IaC drift governance. Master `enabled` plus per-detector boolean toggles. Read by bin/iac-drift-scan.sh.",
+          "properties": {
+            "enabled":          { "type": "boolean", "default": true, "description": "Master switch. false short-circuits the iac-drift scan to an empty report." },
+            "unpinned_refs":    { "type": "boolean", "default": true, "description": "Toggle the unpinned-refs detector (moving module refs, unpinned providers/deps). Severity: high." },
+            "missing_lockfile": { "type": "boolean", "default": true, "description": "Toggle the missing-lockfile detector (.terraform.lock.hcl / Chart.lock / Pulumi plugins). Severity: medium." },
+            "secrets_in_vars":  { "type": "boolean", "default": true, "description": "Toggle the secrets-in-vars detector (committed credentials in var files). Severity: critical." },
+            "version_lag":      { "type": "boolean", "default": true, "description": "Toggle the version-lag detector (Helm appVersion behind the latest git tag). Severity: medium." },
+            "scanned_files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional explicit scan set (repo-relative paths). Overrides the default multi-pattern find when present."
+            }
+          }
+        }
       }
     }
   },

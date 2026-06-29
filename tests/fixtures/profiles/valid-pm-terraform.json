@@ -1,0 +1,32 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "valid-pm-terraform",
+  "description": "BUG 10 lock: stack.package_manager = \"terraform\" must validate. The descriptor (stack-descriptor.schema.json) already allows it; the profile schema previously omitted it, so a profile pinning package_manager:\"terraform\" was wrongly rejected. Mirrors the descriptor enum addition.",
+  "schemaVersion": 1,
+  "archetype": "infra",
+  "stack": {
+    "primary_language": "hcl",
+    "framework": "terraform",
+    "package_manager": "terraform"
+  },
+  "branching": {
+    "strategy": "trunk-based",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": [],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": ["architecture", "runbook"],
+    "storage_strategy": "local",
+    "claude_md_mode": "router"
+  }
+}

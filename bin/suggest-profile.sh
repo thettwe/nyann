@@ -139,7 +139,10 @@ score_profiles() {
       # Score computation
       0 as $s |
 
-      # Language match (strongest signal)
+      # Language match (strong signal, but less specific than an exact
+      # framework match below — a polyglot framework profile, e.g. the
+      # TS-default aws-cdk-app on a CDK-Python repo, must still win on the
+      # framework signal rather than lose to a same-language generic profile).
       (if $pl == $ml and $pl != "unknown" then
          { s: ($s + 50), r: ["language match: " + $ml] }
        elif $pl == "unknown" and $ml == "unknown" then
@@ -152,10 +155,12 @@ score_profiles() {
          { s: $s, r: [] }
        end) as $lang_result |
 
-      # Framework match
+      # Framework match (MOST specific signal — weighted above a bare
+      # language match so an exact-framework profile wins even when its
+      # default language differs from the repo language, e.g. CDK-Python).
       ($lang_result |
        if $pf != "null" and $mf != "null" and $pf == $mf then
-         { s: (.s + 40), r: (.r + ["framework match: " + $mf]) }
+         { s: (.s + 55), r: (.r + ["framework match: " + $mf]) }
        elif $pf == "null" and $mf == "null" and .s > 0 then
          { s: (.s + 5), r: (.r + ["no framework (matches generic profile)"]) }
        else . end) as $fw_result |

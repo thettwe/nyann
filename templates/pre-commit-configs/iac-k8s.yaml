@@ -1,0 +1,43 @@
+# nyann template v1 — Kubernetes / Kustomize pre-commit.com config
+# Wires kubeconform, kube-linter, and kustomize-build-check as local hooks that
+# delegate to the corresponding scripts under templates/hooks/iac/k8s/ (copied
+# to .nyann/hooks/iac/k8s/ by install-hooks.sh --iac --iac-tool kustomize). Each
+# script soft-skips when its underlying tool is missing, so an absent binary
+# downgrades to a warning rather than blocking the commit. Merge-safe:
+# install-hooks.sh merges by repo URL.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+
+      - id: kubeconform
+        name: kubeconform (schema-validate K8s manifests)
+        entry: .nyann/hooks/iac/k8s/kubeconform.sh
+        language: script
+        files: \.(yaml|yml)$
+        pass_filenames: false
+
+      - id: kube-linter
+        name: kube-linter (security / best-practice lint)
+        entry: .nyann/hooks/iac/k8s/kube-linter.sh
+        language: script
+        files: \.(yaml|yml)$
+        pass_filenames: false
+
+      - id: kustomize-build-check
+        name: kustomize build per overlay
+        entry: .nyann/hooks/iac/k8s/kustomize-build-check.sh
+        language: script
+        files: \.(yaml|yml)$
+        pass_filenames: false

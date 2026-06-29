@@ -1,0 +1,42 @@
+# nyann template v1 — Ansible / IaC pre-commit.com config
+# Wires ansible-lint, yamllint, and ansible-playbook --syntax-check as local
+# hooks that delegate to the corresponding scripts under
+# .nyann/hooks/iac/ansible/. Each script soft-skips when its underlying tool
+# is missing, so a missing ansible-lint binary downgrades to a warning rather
+# than blocking the commit. Merge-safe: install-hooks.sh merges by repo URL.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+
+      - id: ansible-lint
+        name: ansible-lint
+        entry: .nyann/hooks/iac/ansible/ansible-lint.sh
+        language: script
+        files: \.(ya?ml)$
+        pass_filenames: false
+
+      - id: yamllint
+        name: yamllint
+        entry: .nyann/hooks/iac/ansible/yamllint.sh
+        language: script
+        files: \.(ya?ml)$
+        pass_filenames: false
+
+      - id: ansible-syntax-check
+        name: ansible-playbook --syntax-check
+        entry: .nyann/hooks/iac/ansible/ansible-syntax-check.sh
+        language: script
+        files: \.(ya?ml)$
+        pass_filenames: false

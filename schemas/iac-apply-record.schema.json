@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/iac-apply-record/v1.json",
+  "title": "IacApplyRecord",
+  "description": "Audit record written by bin/iac-apply.sh AFTER all gates pass and the tool apply has been invoked. Lives at memory/.nyann/iac-applies/<ISO-ts>/manifest.json (analogous to a BootRecord). Records WHAT was applied — tool, unit, the plan's add/change/destroy summary, the gate flags that were satisfied, and the apply command's exit status — so a teammate can audit the change after the fact. CRITICAL PRIVACY INVARIANT: this record contains NO credentials, NO secrets, NO full state, and NO raw plan/state file contents. nyann shells out to the user's already-authenticated CLI and never reads/stores/logs/passes credentials. The record stores only metadata (counts, basenames, exit code, the plan's sha256), never the .tfstate / .tfvars / plan-binary bytes. additionalProperties:false enforces the closed shape so a leak can't sneak in via an extra key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at",
+    "target",
+    "tool",
+    "unit",
+    "summary",
+    "destructive",
+    "gates",
+    "apply"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "IacApplyRecord schema version. Bump in lockstep with the schema's $id when v2 ships.",
+      "const": 1
+    },
+    "created_at": {
+      "description": "ISO 8601 timestamp of when iac-apply.sh began the apply.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "description": "Repo basename at record time (NOT an absolute path). Mirrors BootRecord.target — the absolute path would leak the operator's username and filesystem layout to anyone the record is shared with.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tool": {
+      "description": "The iac.tool that was applied (long-form, schema-aligned).",
+      "type": "string",
+      "enum": ["terraform", "opentofu", "aws-cdk", "pulumi", "kubernetes", "kustomize", "helm", "ansible"]
+    },
+    "unit": {
+      "description": "Repo-relative path of the applied unit ('.' for root, or the whole target when no --unit was scoped).",
+      "type": "string"
+    },
+    "summary": {
+      "description": "The add/change/destroy counts from the IacPlan that gated this apply. For advisory tools these are 0 (the structured count was unavailable).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["add", "change", "destroy"],
+      "properties": {
+        "add":     { "type": "integer", "minimum": 0 },
+        "change":  { "type": "integer", "minimum": 0 },
+        "destroy": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "destructive": {
+      "description": "Whether the gating plan was destructive (summary.destroy > 0, or advisory destructive_known:false treated as potentially-destructive).",
+      "type": "boolean"
+    },
+    "destructive_known": {
+      "description": "Whether the destructive verdict came from a structured plan (true) or an advisory text diff (false). Recorded for audit so a reviewer knows the confidence of the destroy count.",
+      "type": "boolean"
+    },
+    "plan_sha256": {
+      "description": "Hex SHA-256 of the canonicalised IacPlan JSON that gated this apply. Binds the audit record to the exact preview the operator confirmed. NOT a hash of any state/secret — only of the normalized, credential-free IacPlan.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gates": {
+      "description": "Which safety gates were required and satisfied for this apply. An apply record only exists when every required gate was satisfied — this block records the proof.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apply_flag", "confirm_destroy", "confirmation_guard"],
+      "properties": {
+        "apply_flag": {
+          "description": "True — --apply was explicitly passed. Always true in a written record (no record is written for a preview).",
+          "const": true
+        },
+        "confirm_destroy": {
+          "description": "True when --confirm-destroy was required (destructive plan) AND passed. False when the plan was non-destructive (the flag was not required).",
+          "type": "boolean"
+        },
+        "confirmation_guard": {
+          "description": "Result of bin/guards/iac-apply-confirmation.sh — 'pass' (gate satisfied), or 'not-required' for a non-destructive plan where the guard is a no-op.",
+          "type": "string",
+          "enum": ["pass", "not-required"]
+        }
+      }
+    },
+    "apply": {
+      "description": "Outcome of the tool apply invocation. Stores the exit code and a redacted, one-line command shape — NEVER the full argv with secret-bearing var values, NEVER the tool's stdout/stderr (which can echo state).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exit_code"],
+      "properties": {
+        "command": {
+          "description": "The tool subcommand shape that was run (e.g. 'terraform apply <plan>', 'pulumi up'). A descriptive label, not the literal argv — no var-file values, no -var assignments, no env.",
+          "type": "string"
+        },
+        "exit_code": {
+          "description": "Exit code of the apply command. 0 = success; non-zero = the tool reported failure (recorded honestly for audit).",
+          "type": "integer"
+        }
+      }
+    },
+    "message": {
+      "description": "Human-readable one-line outcome summary. Must not echo tool output.",
+      "type": "string"
+    }
+  }
+}

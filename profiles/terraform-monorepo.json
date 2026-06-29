@@ -54,6 +54,16 @@
       { "name": "wip-commits", "severity": "confirm" }
     ]
   },
+  "iac": {
+    "tool": "terraform",
+    "drift_check": {
+      "enabled": true,
+      "unpinned_refs": true,
+      "missing_lockfile": true,
+      "secrets_in_vars": true,
+      "version_lag": false
+    }
+  },
   "documentation": {
     "use_archetype_scaffolds": true,
     "scaffold_types": [

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "invalid-iac-tool",
+  "description": "v1.13.0 negative control: iac.tool outside the enum must be rejected. Guards against a future relaxation that drops the tool enum.",
+  "schemaVersion": 1,
+  "archetype": "infra",
+  "stack": {
+    "primary_language": "hcl",
+    "framework": "terraform",
+    "package_manager": "opentofu"
+  },
+  "branching": {
+    "strategy": "trunk-based",
+    "base_branches": ["main"]
+  },
+  "hooks": {
+    "pre_commit": ["block-main"],
+    "commit_msg": ["conventional-commits"],
+    "pre_push": []
+  },
+  "iac": {
+    "tool": "cloudformation"
+  }
+}

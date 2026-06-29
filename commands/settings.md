@@ -19,13 +19,18 @@ Read `skills/settings/SKILL.md` for the full flow.
 
 # /nyann:settings
 
-Wraps `bin/settings.sh`. Interactive menu over the eleven preferences
-managed in `~/.claude/nyann/preferences.json`.
+Wraps `bin/settings.sh`. Interactive menu over the preferences managed in
+`~/.claude/nyann/preferences.json` — core defaults, proactive toggles, and the
+opt-in external notification delivery channels (Slack/Discord/webhook/email).
 
 - No arguments → show the current table, then ask "Which setting to
   change?" via `AskUserQuestion`.
 - `<key> <value>` (two positional args) → bypass the menu and run
   `bin/settings.sh --set <key> <value>` directly.
+
+Delivery endpoints are secrets: the `notifications.delivery.*` `*_env` keys
+store only the NAME of an environment variable (e.g. `NYANN_SLACK_WEBHOOK`),
+never the URL. `bin/settings.sh` refuses a literal `http(s)://` value.
 
 Use for ongoing preference management. Use `/nyann:setup` only for
 first-run onboarding.

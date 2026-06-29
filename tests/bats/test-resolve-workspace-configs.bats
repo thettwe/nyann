@@ -555,3 +555,169 @@ EOF
   hooks=$(echo "$output" | jq -r '.[0].hooks.pre_commit | join(",")')
   [ "$hooks" = "go-vet,gofmt" ]
 }
+
+# --- IaC units as workspaces (v1.13.0 I7) ------------------------------------
+# detect-stack emits iac.units[]; the resolver folds non-root units into the
+# workspace list so per-workspace machinery (versioning especially) keys off
+# real IaC unit paths. Synthesized entries get LANGUAGE DEFAULTS only (hcl/yaml
+# → [] hooks) plus any explicit profile override — no forced per-unit CI/docs.
+
+# An IaC-only terraform descriptor: NOT is_monorepo, but carries iac.units.
+write_iac_only_stack() {
+  cat > "$TMP/stack.json" <<'EOF'
+{
+  "primary_language": "hcl",
+  "is_monorepo": false,
+  "workspaces": [],
+  "iac": {
+    "tool": "terraform",
+    "language": "hcl",
+    "units": [
+      {"kind": "stack",  "path": ".",                  "name": "root",       "version": null},
+      {"kind": "stack",  "path": "environments/prod",  "name": "prod",       "version": null, "depends_on": ["modules/db"]},
+      {"kind": "module", "path": "modules/db",         "name": "db",         "version": null, "depends_on": ["modules/networking"]},
+      {"kind": "module", "path": "modules/networking", "name": "networking", "version": null}
+    ],
+    "lockfiles": [],
+    "var_files": []
+  }
+}
+EOF
+}
+
+@test "iac-only repo (not is_monorepo): iac.units become workspaces, root '.' excluded" {
+  write_iac_only_stack
+  write_profile_no_ws
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  # 3 of 4 units become workspaces — the root "." unit is dropped (path-safety
+  # guard + a repo-root unit is not a sub-workspace).
+  [ "$(echo "$output" | jq 'length')" -eq 3 ]
+  echo "$output" | jq -e 'all(.[]; .path != ".")'
+  echo "$output" | jq -e 'any(.[]; .path == "environments/prod")'
+  echo "$output" | jq -e 'any(.[]; .path == "modules/db")'
+  echo "$output" | jq -e 'any(.[]; .path == "modules/networking")'
+}
+
+@test "iac unit workspace carries iac.language + iac.tool, null package_manager" {
+  write_iac_only_stack
+  write_profile_no_ws
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  db=$(echo "$output" | jq -c '.[] | select(.path == "modules/db")')
+  [ "$(echo "$db" | jq -r '.primary_language')" = "hcl" ]
+  [ "$(echo "$db" | jq -r '.framework')" = "terraform" ]
+  [ "$(echo "$db" | jq -r '.package_manager')" = "null" ]
+}
+
+@test "iac unit workspace: hcl gets [] default hooks, no forced ci/docs" {
+  write_iac_only_stack
+  write_profile_no_ws
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  # hcl/yaml → empty default hooks (safe no-op).
+  echo "$output" | jq -e 'all(.[]; .hooks.pre_commit == [])'
+  # No ci / documentation forced onto a bare IaC unit (opt-in via profile only).
+  echo "$output" | jq -e 'all(.[]; has("ci") | not)'
+  echo "$output" | jq -e 'all(.[]; has("documentation") | not)'
+}
+
+@test "iac unit workspaces validate against the workspace-configs schema" {
+  write_iac_only_stack
+  write_profile_no_ws
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  if command -v check-jsonschema >/dev/null 2>&1 || command -v uvx >/dev/null 2>&1; then
+    echo "$output" > "$TMP/resolved.json"
+    if command -v check-jsonschema >/dev/null 2>&1; then
+      check-jsonschema --schemafile "${REPO_ROOT}/schemas/workspace-configs.schema.json" "$TMP/resolved.json"
+    else
+      uvx check-jsonschema --schemafile "${REPO_ROOT}/schemas/workspace-configs.schema.json" "$TMP/resolved.json"
+    fi
+  else
+    skip "check-jsonschema not available"
+  fi
+}
+
+@test "profile wildcard can opt an iac unit into hooks (override still applies)" {
+  write_iac_only_stack
+  cat > "$TMP/profile.json" <<'EOF'
+{
+  "name": "test", "schemaVersion": 1,
+  "stack": {"primary_language": "unknown"},
+  "branching": {"strategy": "trunk-based", "base_branches": ["main"]},
+  "hooks": {"pre_commit": [], "commit_msg": [], "pre_push": []},
+  "extras": {}, "conventions": {"commit_format": "conventional-commits"},
+  "workspaces": {
+    "*": { "hooks": {"pre_commit": ["terraform-fmt"]} }
+  },
+  "documentation": {"scaffold_types": [], "storage_strategy": "local", "claude_md_mode": "router"}
+}
+EOF
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  # The wildcard hook override reaches synthesized IaC unit workspaces.
+  echo "$output" | jq -e 'all(.[]; .hooks.pre_commit | index("terraform-fmt"))'
+}
+
+@test "iac unit already present as a real workspace is not duplicated" {
+  # A JS/TS monorepo that ALSO has an iac block whose unit path collides with a
+  # real workspace path: the real workspace wins, no duplicate entry.
+  cat > "$TMP/stack.json" <<'EOF'
+{
+  "primary_language": "typescript",
+  "is_monorepo": true,
+  "monorepo_tool": "pnpm-workspaces",
+  "workspaces": [
+    {"path": "infra", "primary_language": "typescript", "framework": "next", "package_manager": "pnpm"}
+  ],
+  "iac": {
+    "tool": "terraform",
+    "language": "hcl",
+    "units": [
+      {"kind": "stack", "path": "infra", "name": "infra", "version": null}
+    ],
+    "lockfiles": [],
+    "var_files": []
+  }
+}
+EOF
+  write_profile_no_ws
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  # exactly one entry for "infra" — the real workspace (typescript), not a dup.
+  [ "$(echo "$output" | jq '[.[] | select(.path == "infra")] | length')" -eq 1 ]
+  [ "$(echo "$output" | jq -r '.[] | select(.path == "infra") | .primary_language')" = "typescript" ]
+}
+
+@test "iac-only repo with ONLY a root unit resolves to empty (root excluded)" {
+  cat > "$TMP/stack.json" <<'EOF'
+{
+  "primary_language": "yaml",
+  "is_monorepo": false,
+  "workspaces": [],
+  "iac": {
+    "tool": "helm",
+    "language": "yaml",
+    "units": [
+      {"kind": "chart", "path": ".", "name": "my-chart", "version": "1.0.0"}
+    ],
+    "lockfiles": [],
+    "var_files": []
+  }
+}
+EOF
+  write_profile_no_ws
+  run bash "${REPO_ROOT}/bin/resolve-workspace-configs.sh" \
+    --stack "$TMP/stack.json" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  # Only a root unit → no sub-workspaces → empty array (versioning sees the
+  # root unit via iac.units[] directly; it needs no workspace shim).
+  [ "$(echo "$output" | jq 'length')" -eq 0 ]
+}

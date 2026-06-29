@@ -1,0 +1,34 @@
+# nyann template v1 — Pulumi / IaC pre-commit.com config
+# Wires an advisory `pulumi preview --diff` as a local hook that delegates to
+# the script under .nyann/hooks/iac/pulumi/. The script soft-skips when the
+# `pulumi` CLI is missing (and is advisory regardless: preview needs a backend +
+# credentials a pre-commit run may not have), so an absent binary or
+# unconfigured backend downgrades to a no-op rather than blocking the commit.
+# Merge-safe: install-hooks.sh merges by repo URL. install-hooks.sh --iac
+# --iac-tool pulumi installs this config.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-main
+        name: block commits to main/master
+        entry: bash -c 'b=$(git rev-parse --abbrev-ref HEAD); case "$b" in main|master) echo "[nyann] direct commits to $b are blocked"; exit 1;; esac'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+
+      - id: pulumi-preview-check
+        name: pulumi preview --diff (advisory)
+        entry: .nyann/hooks/iac/pulumi/pulumi-preview-check.sh
+        language: script
+        # Pulumi programs are polyglot; gate on the project manifests plus the
+        # language sources Pulumi code commonly ships in. Pulumi.yaml is the
+        # canonical marker, but stack edits won't touch it, so include the
+        # language sources too.
+        files: (^Pulumi\.ya?ml$|^Pulumi\.[^.]+\.ya?ml$|\.(ts|js|py|go|cs|fs|java)$)
+        pass_filenames: false

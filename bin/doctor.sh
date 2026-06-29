@@ -164,6 +164,38 @@ dd_total=$(jq -r '.summary.total // 0' <<<"$docs_drift_json")
 dd_critical=$(jq -r '.summary.by_severity.critical // 0' <<<"$docs_drift_json")
 dd_high=$(jq -r '.summary.by_severity.high // 0' <<<"$docs_drift_json")
 
+# --- IaC drift probe (read-only) --------------------------------------------
+# unpinned-refs, missing-lockfile, secrets-in-vars, version-lag findings in
+# *.tf / Chart.yaml / Pulumi / tfvars / Ansible-vars files. Filesystem + git
+# only — no terraform plan, no cloud CLI. Soft signal: surfaced in its own
+# section but never blocks beyond exit-code escalation, exactly like
+# docs-drift. Score-isolated: it does NOT fold into the numeric health score
+# (compute-health-score reads only the DriftReport), only the exit code.
+iac_drift_json=$("${_script_dir}/iac-drift-scan.sh" \
+  --target "$target" --profile "$tmp_profile" 2>/dev/null || echo '{}')
+if [[ -z "$iac_drift_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$iac_drift_json" 2>/dev/null || echo "")" != "object" ]]; then
+  iac_drift_json='{}'
+fi
+id_total=$(jq -r '.summary.total // 0' <<<"$iac_drift_json")
+id_critical=$(jq -r '.summary.by_severity.critical // 0' <<<"$iac_drift_json")
+id_high=$(jq -r '.summary.by_severity.high // 0' <<<"$iac_drift_json")
+
+# --- Backgrounded sentinel probe (read-only) --------------------------------
+# Report any running / stale CI-sentinel daemon (v1.13.0 P8) so a
+# backgrounded watcher is never invisible — "doctor reports a running
+# sentinel". Purely informational: it never escalates the exit code or
+# touches the health score; a daemon is an operator choice, not drift. State
+# lives under the user root, independent of the target repo, so this works
+# even when --target isn't the watched repo.
+sentinel_json=$("${_script_dir}/sentinel-daemon.sh" report --json 2>/dev/null || echo '[]')
+if [[ -z "$sentinel_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$sentinel_json" 2>/dev/null || echo "")" != "array" ]]; then
+  sentinel_json='[]'
+fi
+sd_running=$(jq -r '[.[] | select(.running)] | length' <<<"$sentinel_json" 2>/dev/null || echo 0)
+sd_stale=$(jq -r '[.[] | select(.stale)] | length' <<<"$sentinel_json" 2>/dev/null || echo 0)
+
 # --- Compute drift ONCE -------------------------------------------------------
 # Previously text mode ran retrofit.sh twice (once --json, once --report-only).
 # Now compute-drift.sh runs once; JSON mode wraps via retrofit.sh, text mode
@@ -187,7 +219,9 @@ if $json_out; then
     --argjson sb "$stale_branches_json" \
     --argjson ds "$docs_staleness_json" \
     --argjson dd "$docs_drift_json" \
-    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd }'
+    --argjson id "$iac_drift_json" \
+    --argjson sd "$sentinel_json" \
+    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd, iac_drift: $id, sentinel_daemons: $sd }'
 else
   # Single compute-drift call replaces two retrofit.sh calls.
   report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile" --scope "$scope") \
@@ -497,14 +531,50 @@ if ! $json_out; then
       retro_rc=4
     fi
   fi
+  # IaC drift — committed secrets (critical), unpinned refs / unpinned
+  # providers / unpinned deps (high), missing lockfiles + version-lag
+  # (medium). critical/high escalate exit code (mirrors gh-protection +
+  # docs-drift); medium/low are informational only. Score-isolated: this
+  # section never touches the numeric health score.
+  if (( id_total > 0 )); then
+    printf '\nIAC DRIFT: %s finding(s) (%s critical, %s high)\n' \
+      "$id_total" "$id_critical" "$id_high"
+    jq -r '.findings[] | "  " + (if .severity == "critical" or .severity == "high" then "✗" else "⚠" end) + " " + .file + (if .line then ":\(.line)" else "" end) + " — " + .message' \
+      <<<"$iac_drift_json" 2>/dev/null | head -10
+    if (( id_total > 10 )); then
+      printf '  … and %s more (re-run with --json for the full list)\n' "$(( id_total - 10 ))"
+    fi
+    if (( id_critical > 0 )) && (( retro_rc < 5 )); then
+      retro_rc=5
+    elif (( id_high > 0 )) && (( retro_rc < 4 )); then
+      retro_rc=4
+    fi
+  fi
+  # Backgrounded sentinel — informational; never changes the exit code. A
+  # running daemon is surfaced so the operator knows it's there; a stale one
+  # (pid file present, process dead) is flagged with the reap CTA.
+  if (( sd_running > 0 )) || (( sd_stale > 0 )); then
+    printf '\nCI SENTINEL: %s running, %s stale\n' "$sd_running" "$sd_stale"
+    jq -r '.[] | "  " + (if .running then "●" elif .stale then "✗" else "○" end)
+      + " " + (.repo // "?")
+      + (if .pid then " (pid \(.pid)" else " (" end)
+      + (if .supervisor then ", \(.supervisor)" else "" end) + ")"
+      + (if .stale then " — STALE; run /nyann:watch --stop to reap" else "" end)' \
+      <<<"$sentinel_json" 2>/dev/null | head -10
+  fi
 fi
 
-# Apply doc-drift exit-code escalation in JSON mode too (text mode does
-# it inline above). The text-mode block is gated on `! $json_out`.
+# Apply doc-drift + iac-drift exit-code escalation in JSON mode too (text mode
+# does it inline above). The text-mode blocks are gated on `! $json_out`.
 if $json_out; then
   if (( dd_critical > 0 )) && (( retro_rc < 5 )); then
     retro_rc=5
   elif (( dd_high > 0 )) && (( retro_rc < 4 )); then
+    retro_rc=4
+  fi
+  if (( id_critical > 0 )) && (( retro_rc < 5 )); then
+    retro_rc=5
+  elif (( id_high > 0 )) && (( retro_rc < 4 )); then
     retro_rc=4
   fi
 fi

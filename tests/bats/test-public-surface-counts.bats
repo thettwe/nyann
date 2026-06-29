@@ -8,9 +8,9 @@ setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
 }
 
-@test "skill count matches the documented number (37)" {
+@test "skill count matches the documented number (39)" {
   count=$(find "$REPO_ROOT/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-  [ "$count" = "37" ]
+  [ "$count" = "39" ]
 }
 
 @test "every skill has a SKILL.md" {
@@ -19,19 +19,19 @@ setup() {
   done < <(find "$REPO_ROOT/skills" -mindepth 1 -maxdepth 1 -type d)
 }
 
-@test "command file count matches the documented number (37 — one per skill)" {
+@test "command file count matches the documented number (39 — one per skill)" {
   count=$(find "$REPO_ROOT/commands" -maxdepth 1 -name '*.md' -type f | wc -l | tr -d ' ')
-  [ "$count" = "37" ]
+  [ "$count" = "39" ]
 }
 
-@test "starter profile count matches the documented number (27)" {
+@test "starter profile count matches the documented number (32)" {
   count=$(find "$REPO_ROOT/profiles" -maxdepth 1 -name '*.json' -type f -not -name '_schema.json' | wc -l | tr -d ' ')
-  [ "$count" = "27" ]
+  [ "$count" = "32" ]
 }
 
-@test "schema count matches the documented number (63)" {
+@test "schema count matches the documented number (69)" {
   count=$(find "$REPO_ROOT/schemas" -maxdepth 1 -name '*.schema.json' -type f | wc -l | tr -d ' ')
-  [ "$count" = "63" ]
+  [ "$count" = "69" ]
 }
 
 @test "every schema is documented in schemas/README.md" {

@@ -61,6 +61,76 @@ nogh_path() {
   [ "$status" -eq 0 ]
 }
 
+# --- --daemon-loop (v1.13.0 P8) ---------------------------------------------
+# These exercise the supervised loop with a SHORT --max-runtime so it
+# self-terminates in a couple of seconds — never a real long-running daemon.
+
+@test "--daemon-loop rejects a non-numeric --interval" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop --repo o/r --interval abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "interval"
+}
+
+@test "--daemon-loop rejects a non-numeric --max-runtime" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop --repo o/r --max-runtime abc --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "max-runtime"
+}
+
+@test "--daemon-loop rejects an unknown --supervisor" {
+  run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop --repo o/r --supervisor cron --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "supervisor"
+}
+
+@test "--daemon-loop self-terminates at --max-runtime and reaps its state" {
+  # Mock gh returning no open PRs so each pass is a cheap no-op. With a 2s
+  # cap the loop exits cleanly almost immediately — bounded, not long-running.
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+  hash=$(printf '%s' "o/r" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  PATH="$TMP/mock:$PATH" run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop \
+    --repo o/r --interval 1 --max-runtime 2 \
+    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "max-runtime"
+  # Clean exit reaps the pid file + daemon liveness block.
+  [ ! -f "$STATE_DIR/${hash}.sentinel.pid" ]
+  [ ! -f "$STATE_DIR/${hash}.sentinel.daemon.json" ]
+}
+
+@test "--daemon-loop refuses to start a second daemon for the same repo" {
+  # Pre-seed a pid file pointing at a live *ci-sentinel*-looking process so
+  # the single-instance guard fires. Use a stub ps to make the cmdline match.
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+  cat > "$TMP/mock/ps" <<'SH'
+#!/bin/sh
+echo "bash bin/ci-sentinel.sh --daemon-loop --repo o/r"
+SH
+  chmod +x "$TMP/mock/ps"
+  hash=$(printf '%s' "o/r" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  echo $$ > "$STATE_DIR/${hash}.sentinel.pid"   # live pid = this bats process.
+  PATH="$TMP/mock:$PATH" run bash "$REPO_ROOT/bin/ci-sentinel.sh" --daemon-loop \
+    --repo o/r --interval 1 --max-runtime 2 \
+    --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR" --supervisor nohup
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "already running"
+  # The pre-existing pid file (pointing at us) must NOT have been reaped.
+  [ -f "$STATE_DIR/${hash}.sentinel.pid" ]
+  [ "$(cat "$STATE_DIR/${hash}.sentinel.pid")" = "$$" ]
+}
+
 @test "read-notifications returns [] when queue file missing" {
   out=$(bash "$REPO_ROOT/bin/read-notifications.sh" --repo o/r --notif-dir "$NOTIF_DIR")
   echo "$out" | jq -e '. == []'
@@ -157,4 +227,108 @@ nogh_path() {
   fi
   jq -n '{repo:"o/r", pr_number:42, base_branch:"main", head_branch:"feature/x", last_poll_at:"2026-05-28T00:00:00Z", checks_status:"pending", review_status:"no-reviews", merged:false}' > "$TMP/s.json"
   "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/sentinel-state.schema.json" "$TMP/s.json"
+}
+
+# --- P9 delivery wiring (v1.13.0) -------------------------------------------
+# End-to-end: a one-shot poll must fan QUEUED notifications out to a configured
+# delivery channel via notify-deliver.sh. Mirrors the INC-1 lesson — wire-level
+# integrations need an e2e test, not just unit coverage of notify-deliver.
+
+@test "one-shot poll delivers queued notifications to a configured channel" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  # Seed an undelivered notification.
+  jq -n '{timestamp:"2026-05-28T00:00:00Z", source:"sentinel", severity:"warning", message:"PR #42: CI failed", context:{pr:42}}' \
+    > "$NOTIF_DIR/${hash}.jsonl"
+
+  # Configure a generic webhook channel; secret URL lives only in the env var.
+  USER_ROOT="$TMP/userroot"; mkdir -p "$USER_ROOT"
+  jq -n '{schemaVersion:3, notifications:{delivery:{webhook:{enabled:true, url_env:"NYANN_TEST_WEBHOOK"}}}}' \
+    > "$USER_ROOT/preferences.json"
+
+  # Mock gh (no open PRs → one-shot hits the no-PR flush path) and curl
+  # (records the delivery so we can assert it fired).
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  cat > "$TMP/mock/curl" <<SH
+#!/bin/sh
+echo "called \$*" >> "$TMP/curl.calls"
+exit 0
+SH
+  chmod +x "$TMP/mock/gh" "$TMP/mock/curl"
+
+  PATH="$TMP/mock:$PATH" NYANN_USER_ROOT="$USER_ROOT" NYANN_TEST_WEBHOOK="https://example.test/hook" \
+    run bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo "$repo" \
+      --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # Delivery fired: curl was invoked at least once.
+  [ -f "$TMP/curl.calls" ]
+  # Peek-based delivery does NOT truncate the queue — session-start still sees it.
+  [ -s "$NOTIF_DIR/${hash}.jsonl" ]
+}
+
+@test "one-shot poll is a silent no-op when no delivery channel is configured" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  jq -n '{timestamp:"2026-05-28T00:00:00Z", source:"sentinel", severity:"info", message:"x", context:{}}' \
+    > "$NOTIF_DIR/${hash}.jsonl"
+  USER_ROOT="$TMP/userroot"; mkdir -p "$USER_ROOT"
+  jq -n '{schemaVersion:3}' > "$USER_ROOT/preferences.json"   # no delivery block
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in pr) echo "" ; exit 0 ;; esac
+exit 0
+SH
+  cat > "$TMP/mock/curl" <<SH
+#!/bin/sh
+echo "called" >> "$TMP/curl.calls"
+exit 0
+SH
+  chmod +x "$TMP/mock/gh" "$TMP/mock/curl"
+  PATH="$TMP/mock:$PATH" NYANN_USER_ROOT="$USER_ROOT" \
+    run bash "$REPO_ROOT/bin/ci-sentinel.sh" --repo "$repo" \
+      --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # No channel configured → no network call.
+  [ ! -f "$TMP/curl.calls" ]
+}
+
+# --- one-shot must not own the daemon's pid file -----------------------------
+# The aggregate scheduler runs ci-sentinel --one-shot per watched repo. A repo
+# that ALSO has a standalone per-repo daemon shares <repo-hash>.sentinel.pid;
+# the one-shot must leave that pid file untouched or it orphans the daemon.
+
+@test "one-shot poll does NOT create or delete the daemon's pid file" {
+  repo="o/r"
+  hash=$(printf '%s' "$repo" | (md5sum 2>/dev/null || md5 -q 2>/dev/null) | cut -c1-12)
+  pidf="$STATE_DIR/${hash}.sentinel.pid"
+  echo 424242 > "$pidf"   # a (pretend) running daemon's pid file.
+
+  # Mock gh so the one-shot takes the WITH-open-PRs branch (the path that used
+  # to write $$ to the pid file and rm it at the end).
+  mkdir -p "$TMP/mock"
+  cat > "$TMP/mock/gh" <<'SH'
+#!/bin/sh
+case "$1" in
+  pr) case "$2" in
+        list) echo 7; exit 0 ;;
+        view) echo '{"number":7,"headRefName":"f","baseRefName":"main","state":"OPEN","mergeable":"MERGEABLE","reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[]}'; exit 0 ;;
+      esac ;;
+esac
+exit 0
+SH
+  chmod +x "$TMP/mock/gh"
+  UR="$TMP/ur"; mkdir -p "$UR"   # no preferences → delivery is a silent no-op.
+
+  PATH="$TMP/mock:$PATH" NYANN_USER_ROOT="$UR" run bash "$REPO_ROOT/bin/ci-sentinel.sh" \
+    --repo "$repo" --one-shot --state-dir "$STATE_DIR" --notif-dir "$NOTIF_DIR"
+  [ "$status" -eq 0 ]
+  # The daemon's pid file survives, byte-for-byte — not clobbered, not deleted.
+  [ -f "$pidf" ]
+  [ "$(cat "$pidf")" = "424242" ]
 }

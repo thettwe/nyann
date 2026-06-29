@@ -8,7 +8,7 @@
   "required": ["repo", "pr_number", "last_poll_at", "checks_status", "review_status"],
   "properties": {
     "repo":          { "type": "string", "description": "<owner>/<repo>." },
-    "pr_number":     { "type": "integer", "minimum": 1 },
+    "pr_number":     { "type": "integer", "minimum": 0, "description": "PR number. 0 is reserved (v1.13.0 P8) for a per-repo daemon-liveness record that carries the `daemon` block instead of real PR state; all per-PR records are >= 1." },
     "base_branch":   { "type": "string" },
     "head_branch":   { "type": "string" },
     "last_poll_at":  { "type": "string", "format": "date-time" },
@@ -16,6 +16,17 @@
     "review_status": { "type": "string", "enum": ["no-reviews", "changes-requested", "approved", "unknown"] },
     "merged":        { "type": "boolean", "default": false },
     "behind_count":  { "type": "integer", "minimum": 0 },
-    "ahead_count":   { "type": "integer", "minimum": 0 }
+    "ahead_count":   { "type": "integer", "minimum": 0 },
+    "daemon": {
+      "type": "object",
+      "description": "Optional per-repo daemon liveness block written by bin/sentinel-daemon.sh when the supervised --daemon-loop is running. Additive (v1.13.0 P8): absent for one-shot polls. Distinct from the per-PR transition fields above — it records the lifecycle of the supervising loop, not a single PR.",
+      "additionalProperties": false,
+      "required": ["pid", "started_at", "supervisor"],
+      "properties": {
+        "pid":        { "type": "integer", "minimum": 1, "description": "PID of the supervised ci-sentinel.sh --daemon-loop process." },
+        "started_at": { "type": "string", "format": "date-time", "description": "When the daemon loop started." },
+        "supervisor": { "type": "string", "enum": ["launchd", "systemd", "nohup"], "description": "Which supervisor launched the loop. launchd on macOS, systemd user unit on Linux, nohup as the documented best-effort fallback." }
+      }
+    }
   }
 }

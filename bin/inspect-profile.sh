@@ -79,6 +79,16 @@ hook_blurb() {
     tflint)               echo "TFLint scans Terraform for best-practice violations" ;;
     tfsec)                echo "tfsec security scan on Terraform" ;;
     terraform-docs)       echo "regenerate per-module README.md from Terraform inputs/outputs" ;;
+    helm-lint)            echo "helm lint validates the chart at the repo root" ;;
+    helm-template-check)  echo "helm template renders the chart and fails on templating errors" ;;
+    kubeconform)          echo "kubeconform schema-validates Kubernetes manifests" ;;
+    kube-linter)          echo "kube-linter security/best-practice lint for Kubernetes manifests" ;;
+    kustomize-build-check) echo "kustomize build asserts every overlay still renders" ;;
+    ansible-lint)         echo "ansible-lint checks playbooks/roles for best-practice issues" ;;
+    yamllint)             echo "yamllint lints YAML syntax/style across the repo" ;;
+    ansible-syntax-check) echo "ansible-playbook --syntax-check parse-only validation" ;;
+    cdk-synth-check)      echo "cdk synth fails when the CDK app does not synthesize cleanly" ;;
+    pulumi-preview-check) echo "pulumi preview --diff advisory check for the current stack" ;;
     *)                    echo "custom hook" ;;
   esac
 }

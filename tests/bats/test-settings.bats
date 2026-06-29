@@ -111,3 +111,19 @@ teardown() { rm -rf "$TMP"; }
   [ "$status" -ne 0 ]
   echo "$output" | grep -q "requires a <value>"
 }
+
+@test "set rejects CR/LF in email.to (RFC822 header injection)" {
+  run bash "$REPO_ROOT/bin/settings.sh" --user-root "$USER_ROOT" \
+    --set notifications.delivery.email.to "$(printf 'ops@team.test\nBcc: evil@x.test')"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "CR/LF"
+  # File untouched — the injection never reached the stored value.
+  jq -e '.notifications.delivery == null' "$USER_ROOT/preferences.json"
+}
+
+@test "set rejects CR/LF in email.from (RFC822 header injection)" {
+  run bash "$REPO_ROOT/bin/settings.sh" --user-root "$USER_ROOT" \
+    --set notifications.delivery.email.from "$(printf 'nyann@team.test\rSubject: spoofed')"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "CR/LF"
+}

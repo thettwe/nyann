@@ -231,6 +231,24 @@ archetype="unknown"
 # shellcheck source=detect-stack/detect-archetype.sh
 source "${_detect_dir}/detect-archetype.sh"
 
+# --- build the optional iac block --------------------------------------------
+# detect-archetype.sh sources detect-iac.sh and, on an infra hit, leaves the
+# IAC_* globals populated. Construct the descriptor's `iac` block from them.
+# The block is OMITTED entirely for non-infra repos (iac_json stays null and
+# the final jq drops it) so legacy / non-IaC descriptors still validate.
+iac_json='null'
+if [[ "${IS_INFRA:-0}" == "1" && -n "${IAC_TOOL:-}" ]]; then
+  _iac_lang_arg="${IAC_LANGUAGE:-}"
+  iac_json=$(jq -n \
+    --arg tool "${IAC_TOOL}" \
+    --arg language "$_iac_lang_arg" \
+    --argjson units "${IAC_UNITS_JSON:-[]}" \
+    --argjson lockfiles "${IAC_LOCKFILES_JSON:-[]}" \
+    --argjson var_files "${IAC_VAR_FILES_JSON:-[]}" \
+    '{ tool: $tool, units: $units, lockfiles: $lockfiles, var_files: $var_files }
+     + (if $language != "" then { language: $language } else {} end)')
+fi
+
 # --- emit JSON ----------------------------------------------------------------
 
 jq -n \
@@ -252,7 +270,8 @@ jq -n \
   --arg reasoning_raw "$_reasons" \
   --argjson workspaces "$workspaces_json" \
   --arg archetype "$archetype" \
-  '{
+  --argjson iac "$iac_json" \
+  '({
     primary_language: $primary_language,
     secondary_languages: $secondary_languages,
     framework: $framework,
@@ -271,4 +290,5 @@ jq -n \
     confidence: $confidence,
     reasoning: ($reasoning_raw | split("\n") | map(select(. != ""))),
     workspaces: $workspaces
-  }'
+  })
+  + (if $iac != null then { iac: $iac } else {} end)'
