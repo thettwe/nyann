@@ -271,6 +271,12 @@ CI_MARKER_START="# nyann:ci:start"
 CI_MARKER_END="# nyann:ci:end"
 ci_path="$target/.github/workflows/ci.yml"
 
+# nyann's own shipping version — stamped into the governance template's
+# NYANN_VERSION default (the __NYANN_VERSION__ placeholder) so the generated
+# workflow always pins the release that produced it, with no literal to drift.
+nyann_version=$(jq -r '.version // empty' "${_script_dir}/../.claude-plugin/plugin.json" 2>/dev/null || true)
+[[ -n "$nyann_version" ]] || nyann_version="latest"
+
 if [[ "$dry_run" == "true" ]]; then
   printf '%s\n' "${CI_MARKER_START}"
   printf '%s\n' "$workflow"
@@ -279,6 +285,7 @@ if [[ "$dry_run" == "true" ]]; then
     gov_template_file="${templates_dir}/governance-check.yml"
     if [[ -f "$gov_template_file" ]]; then
       gov_workflow=$(cat "$gov_template_file")
+      gov_workflow="${gov_workflow//__NYANN_VERSION__/$nyann_version}"
       gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
       if [[ -n "$path_filters" ]]; then
         gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"
@@ -307,6 +314,7 @@ if [[ "$dry_run" != "true" ]]; then
     [[ -f "$gov_template_file" ]] || nyann::die "governance template not found: $gov_template_file"
 
     gov_workflow=$(cat "$gov_template_file")
+    gov_workflow="${gov_workflow//__NYANN_VERSION__/$nyann_version}"
     gov_workflow="${gov_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
     if [[ -n "$path_filters" ]]; then
       gov_workflow="${gov_workflow//\$\{PATH_FILTERS\}/$path_filters}"

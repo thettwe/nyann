@@ -1,3 +1,41 @@
+## [1.13.0] — 2026-06-29
+
+### Theme: Infrastructure as Code
+
+nyann becomes first-class for IaC repos — detecting and governing AWS CDK, Pulumi, Kubernetes, Helm, and Ansible alongside Terraform/OpenTofu — and completes the proactive-awareness arc started in v1.12.0: the CI sentinel now runs as a supervised background daemon, delivers to external channels, and aggregates across many repos, joined by an opt-in coverage-delta PR guard.
+
+### Features
+
+- **IaC detection + 5 first-class starter profiles (I2–I6)** — `bin/detect-stack/detect-iac.sh` now recognizes AWS CDK (`cdk.json`), Pulumi (`Pulumi.yaml`), Kubernetes / Kustomize (`kustomization.yaml`, bare manifests), Helm (`Chart.yaml`), and Ansible (playbooks / `ansible.cfg`) on top of Terraform/OpenTofu. Five new starter profiles — `aws-cdk-app`, `pulumi-app`, `kubernetes-app`, `helm-chart`, `ansible-playbook` — each ship detect signatures, per-tool hook templates, CI generation, and `infra`-archetype doc scaffolding, with every tool soft-skipping when its CLI isn't installed.
+- **Deep IaC workspace discovery (I7)** — `bin/detect-stack/discover-iac-units.sh` walks an IaC monorepo into a unit **dependency graph** (`depends_on` edges — paths for Terraform, names for Helm/Ansible), made cycle-safe and name-collision-safe, emitting the shape that drift detection and per-unit release consume.
+- **IaC drift detection (I8)** — new detectors for unpinned refs (provider / module / image / chart versions), missing lockfiles, secrets-in-vars, and version-lag against upstream, wired into `doctor` (new IaC DRIFT section) and the pre-action guards so a risky change is flagged before a plan/apply runs. New `iac-drift-report.schema.json`.
+- **Per-unit / per-chart versioning in release (I10)** — `release.sh` versions each IaC unit / Helm chart independently with scoped tags, processed in **topological (dependency) order** so a unit is never tagged before something it depends on.
+- **Plan/apply preview workflow + `/nyann:plan` and `/nyann:apply` skills (I9)** — a preview-before-mutate workflow across terraform / opentofu / aws-cdk / pulumi / helm / kubernetes / kustomize / ansible. `/nyann:plan` emits a read-only add/change/destroy summary and **never applies**; `/nyann:apply` is opt-in, previews and confirms first, gates destructive applies behind an explicit `--confirm-destroy`, keeps credentials off argv, and writes an audit `IacApplyRecord`. New `iac-plan` + `iac-apply-record` schemas.
+- **Backgrounded CI sentinel daemon (P8)** — `bin/sentinel-daemon.sh` supervises the (previously one-shot) `ci-sentinel.sh` poller as a real background daemon under **launchd** (macOS), a **systemd user unit** (Linux), or **`nohup`**. Single-instance guard, an 8h orphan backstop, and exponential backoff on failure; `doctor` surfaces running and stale daemons. Unit templates ship under `templates/launchd/` and `templates/systemd/`.
+- **External notification delivery (P9)** — `bin/notify-deliver.sh` plus Slack / Discord / generic-webhook / email channels (`bin/notify-channels/`) deliver sentinel events to real destinations. Wired at the **producer** (`ci-sentinel.sh`) so the daemon, one-shot `/nyann:watch`, and the aggregate all deliver. Secrets are referenced by env-var **NAME** in preferences (never the value), resolved at send time with `printenv`, and kept off the process argv. New `notification-delivery-config.schema.json`; `preferences` gains `notifications.delivery` (schemaVersion 3).
+- **Multi-repo sentinel aggregation (P10)** — `bin/sentinel-aggregate.sh` watches a list of repos on a globally rate-limit-aware schedule; `read-notifications.sh --all` renders a repo-tagged merged view across every queue; and `sentinel-daemon.sh --aggregate` runs the aggregator itself as a supervised background daemon (with its own launchd/systemd units). New `watch-list.schema.json`.
+- **Coverage-delta PR guard (P11)** — `bin/guards/coverage-delta.sh` (with js / python / go / rust parsers under `bin/coverage-tools/`) is an **opt-in, advisory** guard that reuses an existing CI coverage artifact, compares it against a stored baseline, and warns when coverage drops past a threshold. It never runs a test suite and never blocks the PR. New `coverage-baseline.schema.json`.
+
+The P9/P10 delivery + aggregation cluster and the P11 guard each went through multiple rounds of loop-until-dry adversarial bug-hunting before merge, which found and fixed real defects the green test suite had missed — including **two remote-code-execution paths** (an env-name `${!}` indirection and a Python `coverage report` invocation) and a **permanent-notification-drop** in the dedup path.
+
+### Schema additions
+
+- New: `iac-drift-report`, `iac-plan`, `iac-apply-record`, `notification-delivery-config`, `watch-list`, `coverage-baseline`.
+- `sentinel-state.schema.json` — adds the `daemon` liveness block (pid / started_at / supervisor).
+- `stack-descriptor.schema.json` — adds the `iac` block; `primary_language` gains `hcl` / `yaml`, `archetype` gains `infra`.
+- `profiles/_schema.json` — `framework` enum gains the IaC tools (`terraform`, `opentofu`, `aws-cdk`, `pulumi`, `kubernetes`, `kustomize`, `helm`, `ansible`); adds `guards.coverage_delta_threshold`.
+- `preferences.schema.json` — adds `notifications.delivery`; bumps to schemaVersion 3.
+
+### Stats
+
+- Skills: 37 → 39 (added `iac-plan`, `iac-apply` — slash commands `/nyann:plan`, `/nyann:apply`)
+- Commands: 37 → 39
+- Starter profiles: 27 → 32 (added `aws-cdk-app`, `pulumi-app`, `kubernetes-app`, `helm-chart`, `ansible-playbook`)
+- Schemas: 63 → 69 (the 6 new schemas above)
+- Background-daemon tooling under `templates/launchd/` + `templates/systemd/` (4 unit files — sentinel + aggregate, launchd + systemd)
+- Test count: 1583 → 2038 (v1.12.1 grew the suite 1449 → 1583 without a recorded stat)
+
+[1.13.0]: https://github.com/thettwe/nyann/releases/tag/v1.13.0
 ## [1.12.1] — 2026-06-06
 
 ### Fixes

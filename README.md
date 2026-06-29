@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-1583%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-2038%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -28,10 +28,10 @@
 
 ## What makes it different
 
-- **Working hooks for 26 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell — with hooks that run on day one. No follow-up `husky install` required.
+- **Working hooks for 31 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell, and per-tool IaC hooks (Terraform, CDK, Pulumi, Kubernetes, Helm, Ansible) — with hooks that run on day one. No follow-up `husky install` required.
 - **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
 - **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
-- **Schema-validated contracts between every script.** All 64 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **1583 bats tests** cover the surface.
+- **Schema-validated contracts between every script.** All 69 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **2038 bats tests** cover the surface.
 - **Team-shareable governance.** Profiles are pure data — register a git URL and your team's branching, hooks, conventions, and doc routing sync across every repo automatically. Stale-team-profile detection nudges before the next bootstrap.
 - **Health-graded, drift-aware.** `doctor` produces a 0–100 score with per-category deltas and trend sparklines from `memory/health.json`. Inline drift checks at commit / PR / ship time nudge (don't gate) when the repo drifts from its profile; `governance-check.yml` upgrades that to a CI gate when desired.
 
@@ -186,6 +186,9 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | **Glossary** | Auto-populates `docs/glossary.md` from detected exported types (Go, TS, JS, Python, Rust, Java, Kotlin, Swift) at bootstrap and retrofit time. Marker-bracketed auto block; user content outside markers is preserved. Profile-gated via `documentation.glossary.auto_populate`. |
 | **CLAUDE.md** | Router-mode generation under 3 KB soft / 8 KB hard cap. Standalone regeneration via `gen-claudemd`. **Usage-based optimization** trims sections Claude never references, based on `analytics/claudemd-usage.jsonl`. |
 | **Inline drift checks** | Drift detection runs at point-of-use (commit / PR / ship / release) — not on session start. Surfaces broken links, orphans, doc staleness, CLAUDE.md size, and protection drift. Non-blocking nudge by default; CI gate on opt-in. |
+| **IaC governance** | First-class support for Terraform / OpenTofu, AWS CDK, Pulumi, Kubernetes / Kustomize, Helm, and Ansible. `/nyann:plan` previews a read-only add/change/destroy summary; `/nyann:apply` is opt-in with a destroy-gate, credentials kept off argv, and an audit `IacApplyRecord`. Drift detection (unpinned refs, missing lockfiles, secrets-in-vars, version-lag) folds into `doctor`; `release` versions each unit / chart independently in dependency order. |
+| **CI sentinel** | `/nyann:watch` polls open PRs for state transitions (checks / review / merge) and queues notifications. Runs as a supervised background daemon (launchd / systemd / `nohup`), delivers to Slack / Discord / webhook / email (secrets referenced by env-var name, never stored), and aggregates across many repos with a rate-limit-aware scheduler and a `read-notifications --all` merged view. |
+| **Coverage-delta guard** | Opt-in, advisory PR guard that reuses an existing CI coverage artifact (js / python / go / rust), compares it against a stored baseline, and warns when coverage drops past a threshold. Never runs a test suite; never blocks. |
 
 ## Skills & commands
 
@@ -281,7 +284,7 @@ bin/sync-team-profiles.sh --check-updates --name our-team
 bin/sync-team-profiles.sh --accept-update --name our-team
 ```
 
-When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding. **SHA and tag pinning** (v1.11.0) keep the team source on a known-good revision; updates require explicit `--accept-update` and surface a changelog of what changed.
+When a team profile updates upstream, nyann checks for staleness at point-of-use (during bootstrap and profile migration) and prompts you to sync before proceeding. **SHA and tag pinning** (v1.11.0) keep the team source on a known-good revision; updates require explicit `--accept-update` and surface a changelog of what changed. <!-- drift-ignore: historical version reference -->
 
 ### Profile composition (`extends`)
 
@@ -361,30 +364,28 @@ Nyann never prompts for credentials. `gh auth status` is a passive read; missing
 ## Repository layout
 
 ```
-bin/                   # 87 top-level shell scripts + 39 extracted modules + 1 python helper
+bin/                   # 93 top-level shell scripts + 65 extracted modules + 1 python helper
 commands/              # 39 Claude Code slash-command registrations
-evals/                 # 24 skill-level trigger + output-quality specs
+evals/                 # 26 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse + UserPromptSubmit hooks
 profiles/              # 32 starter profiles (+ _schema.json)
-schemas/               # 62 JSON Schemas for every exchanged shape
+schemas/               # 69 JSON Schemas for every exchanged shape
 skills/                # 39 skills (SKILL.md, optionally with references/ and scripts/)
-templates/             # gitignore, pre-commit configs (incl. iac), husky, docs, CI, memory
+templates/             # gitignore, pre-commit configs (incl. iac), husky, docs, CI, memory, launchd/systemd daemon units
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 1583 bats tests + fixtures
+tests/                 # 2038 bats tests + fixtures
 ```
 
 ## Recent changes
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.12.0** — *Proactive Awareness*. nyann shifts from purely reactive to proactively surfacing drift, validating preconditions, and watching CI state — quiet unless something actually changed. Highlights:
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.13.0** — *Infrastructure as Code*. nyann becomes first-class for IaC repos and completes the proactive-awareness arc — the CI sentinel now runs in the background, delivers to external channels, and aggregates across repos. Highlights:
 
-- **Mandatory setup gate** with new `/nyann:settings` interactive menu (per-user preferences schema bumps to v2).
-- **Session-start triage** UserPromptSubmit hook with fingerprint-based dedup — silent unless drift state changed.
-- **Pre-action guards** (`commit` / `pr` / `release` / `ship`) — built-in checks for staged-files, merge-conflict markers, branch-pushed, WIP commits, clean-tree, with profile-promoted severity.
-- **Proactive commit hygiene** — scope suggestion, incomplete-staging detection, debug-artifact + dead-code scan folded into `/nyann:commit`.
-- **Public-doc governance** — version-ref, file-ref, script-ref, count-claim drift detectors fold into `/nyann:doctor`.
-- **README SVG toolkit** — shields.io badge + skillicons.dev tech-stack generators with marker-bracketed idempotent rewrites.
-- **CI sentinel** — `/nyann:watch` polls open PRs and queues state-transition notifications surfaced by the session-start hook.
-- **IaC minimal** — `infra` archetype + `terraform-monorepo` starter profile + 5 IaC hook templates (fmt / validate / tflint / tfsec / terraform-docs) with `install-hooks --iac` phase.
+- **First-class IaC** for AWS CDK, Pulumi, Kubernetes / Kustomize, Helm, and Ansible (alongside Terraform / OpenTofu) — 5 new starter profiles, deep workspace discovery (unit dependency graph), drift detection, and per-unit / per-chart versioning.
+- **Plan/apply preview** — `/nyann:plan` (read-only add/change/destroy summary, never applies) and `/nyann:apply` (opt-in, confirm-first, destroy-gated, credentials off argv) writing an audit `IacApplyRecord`.
+- **Backgrounded CI sentinel daemon** — supervised under launchd / systemd user unit / `nohup`, with single-instance guard, 8h orphan backstop, and exponential backoff; `doctor` surfaces running and stale daemons.
+- **External notification delivery** — Slack / Discord / webhook / email channels wired at the producer; secrets referenced by env-var name (never stored in preferences).
+- **Multi-repo aggregation** — a watch-list + rate-limit-aware scheduler, `read-notifications --all` repo-tagged merged view, and a backgrounded aggregate daemon.
+- **Coverage-delta PR guard** — opt-in, advisory: reuses an existing CI coverage artifact and warns when coverage drops past a threshold; never runs a suite, never blocks.
 
 ---
 
