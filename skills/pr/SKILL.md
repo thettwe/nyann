@@ -63,8 +63,12 @@ or ahead/behind) and `wip-commits` (advisory if the commit range still
 contains WIP/fixup commits). Profiles can promote either to `confirm` or
 `critical` via `guards.pr` in the profile.
 
-`coverage-delta` is an **opt-in** guard — off by default; enable it by
-naming it in `guards.pr` (`{name: coverage-delta}`). It warns (advisory
+`coverage-delta` is an **opt-in** guard — off by default. Note `guards.pr`
+REPLACES the built-in list (subset semantics — it does not append), so
+enable it by re-listing the built-ins alongside it:
+`"guards":{"pr":[{"name":"branch-pushed"},{"name":"wip-commits"},{"name":"coverage-delta"}]}`.
+Naming only `coverage-delta` would silently drop `branch-pushed` and
+`wip-commits`. It warns (advisory
 by default; promote to `confirm` via the profile) when the branch lowers
 test coverage versus the cached `.nyann/coverage-baseline.json`, tolerant
 up to `guards.coverage_delta_threshold` percentage points (default 0 = any

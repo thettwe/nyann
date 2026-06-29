@@ -433,7 +433,24 @@ EOF
 
 @test "--update-baseline --target with no value does not hang" {
   # --target as the final arg must not spin forever (shift-past-end guard).
-  run timeout 10 bash "$GUARD" --update-baseline --target || true
-  # The point is it TERMINATED (timeout would yield 124); any prompt exit is fine.
-  [ "$status" -ne 124 ]
+  # Needs a real timeout binary to catch a hang regression; skip where absent
+  # (stock macOS) rather than pass vacuously on a command-not-found 127.
+  tmo=$(command -v timeout || command -v gtimeout) || skip "no timeout binary"
+  run "$tmo" 10 bash "$GUARD" --update-baseline --target
+  [ "$status" -ne 124 ]            # 124 == timed out (hung)
+  [ "$status" -eq 1 ]              # empty target → "not a directory" → exit 1
+  echo "$output" | grep -q "not a directory"
+}
+
+@test "enabling coverage-delta the documented way keeps the built-in pr guards" {
+  # The docs tell users to re-list the built-ins alongside coverage-delta
+  # (guards.<flow> REPLACES, not appends). Lock that guidance in: all three run.
+  js_artifact 90
+  echo '{"guards":{"pr":[{"name":"branch-pushed"},{"name":"wip-commits"},{"name":"coverage-delta"}]}}' \
+    > "$TMP/profile.json"
+  run bash "$REPO_ROOT/bin/pre-action-guard.sh" --flow pr --target "$REPO" --profile "$TMP/profile.json"
+  [ "$status" -eq 0 ]
+  for g in branch-pushed wip-commits coverage-delta; do
+    echo "$output" | jq -e --arg n "$g" '.guards[] | select(.name == $n)'
+  done
 }
