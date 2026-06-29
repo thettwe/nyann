@@ -16,8 +16,6 @@ nyann becomes first-class for IaC repos — detecting and governing AWS CDK, Pul
 - **Multi-repo sentinel aggregation (P10)** — `bin/sentinel-aggregate.sh` watches a list of repos on a globally rate-limit-aware schedule; `read-notifications.sh --all` renders a repo-tagged merged view across every queue; and `sentinel-daemon.sh --aggregate` runs the aggregator itself as a supervised background daemon (with its own launchd/systemd units). New `watch-list.schema.json`.
 - **Coverage-delta PR guard (P11)** — `bin/guards/coverage-delta.sh` (with js / python / go / rust parsers under `bin/coverage-tools/`) is an **opt-in, advisory** guard that reuses an existing CI coverage artifact, compares it against a stored baseline, and warns when coverage drops past a threshold. It never runs a test suite and never blocks the PR. New `coverage-baseline.schema.json`.
 
-The P9/P10 delivery + aggregation cluster and the P11 guard each went through multiple rounds of loop-until-dry adversarial bug-hunting before merge, which found and fixed real defects the green test suite had missed — including **two remote-code-execution paths** (an env-name `${!}` indirection and a Python `coverage report` invocation) and a **permanent-notification-drop** in the dedup path.
-
 ### Schema additions
 
 - New: `iac-drift-report`, `iac-plan`, `iac-apply-record`, `notification-delivery-config`, `watch-list`, `coverage-baseline`.
