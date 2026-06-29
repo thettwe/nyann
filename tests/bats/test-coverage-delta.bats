@@ -398,3 +398,42 @@ EOF
   n=$(grep -c 'LC_ALL=C awk' "$GUARD")
   [ "$n" -ge 2 ]
 }
+
+# --- robustness regressions (adversarial follow-up) -------------------------
+
+@test "go: applicable (go.mod) but no profile → soft-skip (non-zero, no output)" {
+  echo 'module x' > "$REPO/go.mod"   # applicable, but NO coverage.out
+  run bash "$TOOLS/go.sh" "$REPO"
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
+
+@test "rust: applicable (Cargo.toml) but no artifact → soft-skip (non-zero, no output)" {
+  echo '[package]' > "$REPO/Cargo.toml"   # applicable, but NO cobertura.xml
+  run bash "$TOOLS/rust.sh" "$REPO"
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
+
+@test "guard: out-of-range coverage (>100 from a corrupt artifact) soft-skips, writes no baseline" {
+  py_artifact 1.5   # cobertura line-rate=1.5 → 150% (corrupt)
+  run bash "$GUARD" "$REPO" main ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skipped == true'
+  echo "$output" | jq -e '.pass == true'   # never a false "dropped"
+  [ ! -f "$REPO/.nyann/coverage-baseline.json" ]   # no out-of-range baseline written
+}
+
+@test "--update-baseline refuses to write an out-of-range figure" {
+  py_artifact 1.5   # 150%
+  run bash "$GUARD" --update-baseline --target "$REPO"
+  [ "$status" -ne 0 ]
+  [ ! -f "$REPO/.nyann/coverage-baseline.json" ]
+}
+
+@test "--update-baseline --target with no value does not hang" {
+  # --target as the final arg must not spin forever (shift-past-end guard).
+  run timeout 10 bash "$GUARD" --update-baseline --target || true
+  # The point is it TERMINATED (timeout would yield 124); any prompt exit is fine.
+  [ "$status" -ne 124 ]
+}

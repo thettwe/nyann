@@ -54,6 +54,10 @@ write_baseline() {
   dir="$t/.nyann"
   file="$dir/coverage-baseline.json"
   [[ "$pct" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+  # Bound to the schema's 0–100 range so a corrupt artifact (e.g. a cobertura
+  # line-rate="1.5" → 150) can't write a baseline that fails
+  # coverage-baseline.schema.json (maximum:100).
+  LC_ALL=C awk -v v="$pct" 'BEGIN{exit !(v>=0 && v<=100)}' || return 1
   # The baseline path is predictable; refuse to follow a pre-planted symlink
   # at the dir or the file, so a hostile repo can't redirect the write out of
   # tree. Then write to a temp file in $dir and mv into place (atomic, and
@@ -95,7 +99,7 @@ if [[ "${1-}" == --* ]]; then
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --update-baseline) shift ;;
-      --target)   target="${2-}"; shift 2 ;;
+      --target)   target="${2-}"; shift; [[ $# -gt 0 ]] && shift ;;
       --target=*) target="${1#--target=}"; shift ;;
       -h|--help)  sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
       *) shift ;;
@@ -150,6 +154,12 @@ fi
 tool="${detected%% *}"; current="${detected#* }"
 if [[ ! "$current" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
   emit true "coverage figure unparseable — skipped" true
+  exit 0
+fi
+# A corrupt artifact can yield an out-of-range figure (e.g. line-rate>1 → >100);
+# soft-skip rather than record/compare a nonsense baseline.
+if ! LC_ALL=C awk -v v="$current" 'BEGIN{exit !(v>=0 && v<=100)}'; then
+  emit true "coverage figure out of range (${current}) — skipped" true
   exit 0
 fi
 
