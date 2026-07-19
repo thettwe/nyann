@@ -64,7 +64,7 @@ jobs:
       #     --jq '.object.sha' \
       #     | xargs -I{} gh api repos/github/codeql-action/git/tags/{} --jq '.object.sha'
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v3
+        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v3
         with:
           # bash isn't a first-class CodeQL language; `actions` is the
           # one that matters here (workflow-injection coverage).
