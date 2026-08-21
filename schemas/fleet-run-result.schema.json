@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/fleet-run-result/v1.json",
+  "title": "FleetRunResult",
+  "description": "State of a bulk fleet remediation run, produced and updated by bin/fleet-retrofit.sh across its three phases. `--plan` emits phase=plan with each repo classified (clean / drifted / ungoverned / error) and a suggested action; the skill layer then walks the repos, driving the EXISTING single-repo machinery (retrofit → plan-bootstrap → preview → confirm → bootstrap) per repo, recording each outcome with `--record` (phase=in-progress); `--finalize` stamps phase=final, converts unreached pending rows to skipped, and fills the summary counts. The script layer never mutates a repo — every mutation flows through the per-repo preview-and-confirm contract.",
+  "type": "object",
+  "required": ["generated_at", "phase", "bootstrap_missing", "repos", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": { "type": "string", "format": "date-time" },
+    "phase": { "type": "string", "enum": ["plan", "in-progress", "final"] },
+    "bootstrap_missing": {
+      "type": "boolean",
+      "description": "Whether ungoverned repos were planned for bootstrap (--bootstrap-missing) or marked skipped."
+    },
+    "repos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "profile", "profile_source", "classification", "suggested_action", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "profile": { "type": "string" },
+          "profile_source": { "type": "string", "enum": ["pin", "repo", "fallback"] },
+          "classification": {
+            "type": "string",
+            "enum": ["clean", "drifted", "ungoverned", "error"],
+            "description": "clean/drifted from a report-only drift computation; ungoverned = no boot record and no resolvable profile; error = dead path or the drift computation failed."
+          },
+          "suggested_action": { "type": "string", "enum": ["none", "retrofit", "bootstrap", "skip"] },
+          "drift": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "missing": { "type": "integer", "minimum": 0 },
+              "misconfigured": { "type": "integer", "minimum": 0 },
+              "non_compliant": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "action": {
+            "type": "string",
+            "enum": ["pending", "retrofitted", "bootstrapped", "clean", "skipped", "declined", "failed"],
+            "description": "What actually happened. pending until recorded; declined = the user said no at the per-repo confirm; skipped = ungoverned without --bootstrap-missing, or never reached before finalize."
+          },
+          "exit_code": { "type": ["integer", "null"] },
+          "detail": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["count"],
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "clean": { "type": "integer", "minimum": 0 },
+        "drifted": { "type": "integer", "minimum": 0 },
+        "ungoverned": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "retrofitted": { "type": "integer", "minimum": 0 },
+        "bootstrapped": { "type": "integer", "minimum": 0 },
+        "declined": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

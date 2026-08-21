@@ -177,35 +177,6 @@ run_capped() {
   fi
 }
 
-# resolve_profile <path> <pin> — prints "<profile>\t<source>". Ladder mirrors
-# the doctor skill / explain-state.sh: pin → .nyann/profile → CLAUDE.md
-# declaration → `default` fallback.
-resolve_profile() {
-  local path="$1" pin="$2" hint=""
-  if [[ -n "$pin" ]]; then
-    printf '%s\tpin\n' "$pin"
-    return 0
-  fi
-  if [[ -f "$path/.nyann/profile" ]]; then
-    hint=$(head -n1 "$path/.nyann/profile" 2>/dev/null | tr -d '[:space:]')
-    if [[ "$hint" =~ ^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$ ]]; then
-      printf '%s\trepo\n' "$hint"
-      return 0
-    fi
-  fi
-  if [[ -f "$path/CLAUDE.md" ]]; then
-    hint=$(grep -Eo 'nyann profile[: ]+[a-z0-9][a-z0-9-]*' "$path/CLAUDE.md" 2>/dev/null | head -n1 | awk '{print $NF}' || true)
-    # Backticks in the pattern are literal markdown delimiters.
-    # shellcheck disable=SC2016
-    [[ -z "$hint" ]] && hint=$(grep -Eo 'Profile: `[a-z0-9][a-z0-9-]*`' "$path/CLAUDE.md" 2>/dev/null | head -n1 | tr -d '`' | awk '{print $NF}' || true)
-    if [[ -n "$hint" ]]; then
-      printf '%s\trepo\n' "$hint"
-      return 0
-    fi
-  fi
-  printf 'default\tfallback\n'
-}
-
 # trend_fields <path> — prints a JSON object {direction, delta, sparkline,
 # health_age_days, last_score} from the repo's persisted health history
 # (all-null object when there is none).
@@ -253,7 +224,7 @@ audit_one() {
     return 0
   fi
 
-  IFS=$'\t' read -r prof prof_src < <(resolve_profile "$path" "$pin")
+  IFS=$'\t' read -r prof prof_src < <(nyann::resolve_repo_profile "$path" "$pin")
   tf=$(trend_fields "$path")
 
   if $cached; then
