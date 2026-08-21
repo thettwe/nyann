@@ -17,7 +17,10 @@
 #   notifications.delivery.discord.enabled, .discord.webhook_url_env,
 #   notifications.delivery.webhook.enabled, .webhook.url_env,
 #   notifications.delivery.email.enabled, .email.to, .email.from,
-#   .email.smtp_env
+#   .email.smtp_env,
+#   notifications.delivery.github_issues.enabled, .github_issues.repo,
+#   .github_issues.labels (CSV in, stored as array),
+#   notifications.delivery.native.enabled
 #
 # SECURITY: the delivery *_env keys store the NAME of an environment
 # variable that holds the secret endpoint (e.g. NYANN_SLACK_WEBHOOK), never
@@ -86,6 +89,7 @@ if [[ "$mode" == "show" ]]; then
   # enabled flag and the env-var NAME each channel reads its endpoint from
   # (never the secret itself). Absent → "off" / "(unset)".
   for ch in slack discord webhook email; do
+    # github_issues / native render after this loop — they carry no env key.
     case "$ch" in
       slack|discord) envk="webhook_url_env" ;;
       webhook)       envk="url_env" ;;
@@ -95,6 +99,14 @@ if [[ "$mode" == "show" ]]; then
     ev=$(jq -r --arg ch "$ch" --arg k "$envk" '.notifications.delivery[$ch][$k] // "(unset)"' "$prefs_path")
     printf '%-32s %s (%s=%s)\n' "delivery.$ch" "$en" "$envk" "$ev"
   done
+  # Secret-free channels (v1.14.0): github_issues shows its target override +
+  # labels; native is a bare toggle.
+  gi_en=$(jq -r 'if .notifications.delivery.github_issues.enabled == true then "on" else "off" end' "$prefs_path")
+  gi_repo=$(jq -r '.notifications.delivery.github_issues.repo // "(notification repo)"' "$prefs_path")
+  gi_labels=$(jq -r '(.notifications.delivery.github_issues.labels // ["nyann-sentinel"]) | join(",")' "$prefs_path")
+  printf '%-32s %s (repo=%s, labels=%s)\n' "delivery.github_issues" "$gi_en" "$gi_repo" "$gi_labels"
+  nv_en=$(jq -r 'if .notifications.delivery.native.enabled == true then "on" else "off" end' "$prefs_path")
+  printf '%-32s %s\n' "delivery.native" "$nv_en"
   printf '\nTo update one: bin/settings.sh --set <key> <value>\n'
   exit 0
 fi
@@ -138,10 +150,21 @@ case "$set_key" in
   git_identity.name|git_identity.email)
     [[ -n "$set_value" ]] || nyann::die "invalid value for $set_key: empty"
     ;;
-  notifications.delivery.slack.enabled|notifications.delivery.discord.enabled|notifications.delivery.webhook.enabled|notifications.delivery.email.enabled)
+  notifications.delivery.slack.enabled|notifications.delivery.discord.enabled|notifications.delivery.webhook.enabled|notifications.delivery.email.enabled|notifications.delivery.github_issues.enabled|notifications.delivery.native.enabled)
     case "$set_value" in true|false) ;;
       *) nyann::die "invalid value for $set_key: $set_value (expected true|false)" ;;
     esac
+    ;;
+  notifications.delivery.github_issues.repo)
+    # Not a secret, but it reaches gh's argv — enforce the <owner>/<repo>
+    # slug shape (option-injection / traversal guard).
+    [[ "$set_value" != -* && "$set_value" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] \
+      || nyann::die "invalid value for $set_key: $set_value (expected <owner>/<repo>)"
+    ;;
+  notifications.delivery.github_issues.labels)
+    # CSV in, stored as an array (see the assignment special-case below).
+    [[ "$set_value" =~ ^[A-Za-z0-9._\ -]+(,[A-Za-z0-9._\ -]+)*$ ]] \
+      || nyann::die "invalid value for $set_key: $set_value (expected a CSV of label names)"
     ;;
   notifications.delivery.slack.webhook_url_env|notifications.delivery.discord.webhook_url_env|notifications.delivery.webhook.url_env|notifications.delivery.email.smtp_env)
     # SECURITY: delivery endpoints are secrets. We store only the NAME of an
@@ -175,7 +198,7 @@ esac
 
 # Coerce booleans for jq.
 case "$set_key" in
-  gh_integration|auto_sync_team_profiles|session_triage|notifications.sentinel|notifications.staleness_alerts|git_identity.confirmed|notifications.delivery.slack.enabled|notifications.delivery.discord.enabled|notifications.delivery.webhook.enabled|notifications.delivery.email.enabled)
+  gh_integration|auto_sync_team_profiles|session_triage|notifications.sentinel|notifications.staleness_alerts|git_identity.confirmed|notifications.delivery.slack.enabled|notifications.delivery.discord.enabled|notifications.delivery.webhook.enabled|notifications.delivery.email.enabled|notifications.delivery.github_issues.enabled|notifications.delivery.native.enabled)
     jq_value="$set_value"  # raw true/false
     jq_arg="--argjson"
     ;;
@@ -197,6 +220,13 @@ trap 'rm -f "$tmp"' EXIT
 # delivery keys floor at 3 (the 2→3 upgrade — existing values are preserved
 # by the setpath merge below).
 case "$set_key" in
+  notifications.delivery.github_issues.labels)
+    # CSV → array so the stored shape matches the schema's labels[].
+    path_json=$(printf '%s' "$set_key" | jq -R 'split(".")')
+    jq --arg v "$jq_value" --argjson path "$path_json" \
+      'setpath($path; ($v | split(",") | map(select(. != "")))) | .schemaVersion = ([.schemaVersion // 1, 3] | max)' \
+      "$prefs_path" > "$tmp"
+    ;;
   notifications.delivery.*)
     # Build the jq path array from the dotted key and merge via setpath so
     # sibling channels and notifications.{sentinel,staleness_alerts} survive.

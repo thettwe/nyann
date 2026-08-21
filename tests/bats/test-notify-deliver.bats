@@ -442,3 +442,129 @@ SH
   }' > "$TMP/prefs.json"
   "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/preferences.schema.json" "$TMP/prefs.json"
 }
+
+# --- v1.14.0 channels: github_issues + native --------------------------------
+
+# gh stub for the dispatch tests: auth OK, one existing digest issue, comment
+# captured. Dropped into $STUB so deliver_cfg's PATH picks it up.
+write_gh_stub() {
+  export GH_LOG="$TMP/gh.log" GH_COMMENT_BODY="$TMP/comment.body"
+  cat > "$STUB/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'gh %s\n' "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "auth status")   exit 0 ;;
+  "issue list")    echo '[{"number": 9, "title": "nyann sentinel digest"}]'; exit 0 ;;
+  "issue comment") cat >> "$GH_COMMENT_BODY"; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$STUB/gh"
+}
+
+@test "github_issues channel dispatches to the notification repo with default labels" {
+  write_gh_stub
+  deliver_cfg '{"github_issues":{"enabled":true}}' >/dev/null
+  grep -q "issue list --repo o/r" "$GH_LOG"
+  grep -q "issue comment 9 --repo o/r" "$GH_LOG"
+  grep -q '\[critical\]' "$GH_COMMENT_BODY"
+  shopt -s nullglob
+  markers=("$CACHE_DIR"/*.github-issues.delivered)
+  [ "${#markers[@]}" -eq 1 ]
+  [ -s "${markers[0]}" ]
+}
+
+@test "github_issues target override is used when valid, refused when invalid" {
+  write_gh_stub
+  deliver_cfg '{"github_issues":{"enabled":true,"repo":"team/central"}}' >/dev/null
+  grep -q "issue list --repo team/central" "$GH_LOG"
+  rm -f "$GH_LOG"
+  run deliver_cfg '{"github_issues":{"enabled":true,"repo":"--danger"}}'
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "invalid target repo"
+  [ ! -f "$GH_LOG" ]
+}
+
+@test "gh failure leaves the batch unmarked so github_issues retries next poll" {
+  export GH_LOG="$TMP/gh.log"
+  cat > "$STUB/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'gh %s\n' "$*" >> "$GH_LOG"
+[[ "$1 $2" == "auth status" ]] && exit 0
+exit 1
+SH
+  chmod +x "$STUB/gh"
+  run deliver_cfg '{"github_issues":{"enabled":true}}'
+  [ "$status" -eq 0 ]
+  shopt -s nullglob
+  markers=("$CACHE_DIR"/*.github-issues.delivered)
+  [ "${#markers[@]}" -eq 0 ]
+}
+
+@test "native channel dispatches one toast and records its own marker" {
+  export OSA_LOG="$TMP/osa.log"
+  cat > "$STUB/osascript" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$OSA_LOG"
+exit 0
+SH
+  chmod +x "$STUB/osascript"
+  deliver_cfg '{"native":{"enabled":true}}' >/dev/null
+  grep -q '\[critical\]' "$OSA_LOG"
+  shopt -s nullglob
+  markers=("$CACHE_DIR"/*.native.delivered)
+  [ "${#markers[@]}" -eq 1 ]
+  [ -s "${markers[0]}" ]
+}
+
+@test "settings toggles the new channels and stores labels CSV as an array" {
+  write_v2_prefs
+  run bash "$SETTINGS" --user-root "$USER_ROOT" \
+    --set notifications.delivery.github_issues.enabled true
+  [ "$status" -eq 0 ]
+  prefs="$USER_ROOT/preferences.json"
+  [ "$(jq -r '.schemaVersion' "$prefs")" = "3" ]
+  jq -e '.notifications.delivery.github_issues.enabled == true' "$prefs"
+  run bash "$SETTINGS" --user-root "$USER_ROOT" \
+    --set notifications.delivery.github_issues.labels "ci,nyann-sentinel"
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.notifications.delivery.github_issues.labels' "$prefs")" = '["ci","nyann-sentinel"]' ]
+  run bash "$SETTINGS" --user-root "$USER_ROOT" \
+    --set notifications.delivery.native.enabled true
+  [ "$status" -eq 0 ]
+  jq -e '.notifications.delivery.native.enabled == true' "$prefs"
+}
+
+@test "settings rejects a malformed github_issues repo override" {
+  write_v2_prefs
+  run bash "$SETTINGS" --user-root "$USER_ROOT" \
+    --set notifications.delivery.github_issues.repo "not-a-slug"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "expected <owner>/<repo>"
+}
+
+@test "delivery config with github_issues + native validates against both schemas" {
+  if ! command -v uvx >/dev/null 2>&1 && ! command -v check-jsonschema >/dev/null 2>&1; then
+    skip "no schema validator"
+  fi
+  if command -v check-jsonschema >/dev/null 2>&1; then
+    VALIDATE=(check-jsonschema)
+  else
+    VALIDATE=(uvx --quiet check-jsonschema)
+  fi
+  jq -n '{
+    slack:         { enabled: false, webhook_url_env: "NYANN_SLACK_WEBHOOK" },
+    github_issues: { enabled: true, repo: "team/central", labels: ["nyann-sentinel"] },
+    native:        { enabled: true }
+  }' > "$TMP/cfg.json"
+  "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/notification-delivery-config.schema.json" "$TMP/cfg.json"
+  jq -n '{
+    schemaVersion: 3,
+    default_profile: "auto-detect",
+    notifications: {
+      sentinel: true,
+      delivery: { github_issues: { enabled: true }, native: { enabled: true } }
+    }
+  }' > "$TMP/prefs.json"
+  "${VALIDATE[@]}" --schemafile "$REPO_ROOT/schemas/preferences.schema.json" "$TMP/prefs.json"
+}

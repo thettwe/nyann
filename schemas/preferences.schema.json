@@ -71,7 +71,7 @@
         "staleness_alerts":  { "type": "boolean", "default": true,  "description": "Documentation staleness notifications." },
         "delivery": {
           "type": "object",
-          "description": "Opt-in external delivery channels (Slack/Discord/webhook/email). Mirrors notification-delivery-config.schema.json. Holds only env-var NAMES + toggles, never secrets. Added in schemaVersion 3.",
+          "description": "Opt-in external delivery channels (Slack/Discord/webhook/email/GitHub issue digest/native OS toast). Mirrors notification-delivery-config.schema.json. Holds only env-var NAMES + toggles, never secrets. Added in schemaVersion 3; github_issues/native are additive within it (v1.14.0).",
           "additionalProperties": false,
           "properties": {
             "slack": {
@@ -106,6 +106,22 @@
                 "to":       { "type": "string" },
                 "from":     { "type": "string" },
                 "smtp_env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the env var holding the SMTP relay URL. NOT the URL itself." }
+              }
+            },
+            "github_issues": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false },
+                "repo":    { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", "description": "Optional <owner>/<repo> override for the digest issue. Default: the notification's own repo." },
+                "labels":  { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9._ -]+$" }, "description": "Best-effort labels for the digest issue. Default: [\"nyann-sentinel\"]." }
+              }
+            },
+            "native": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false }
               }
             }
           }
