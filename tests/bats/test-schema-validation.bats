@@ -644,3 +644,40 @@ JSON
   if [ "$status" -ne 0 ]; then echo "$output" >&2; fi
   [ "$status" -eq 0 ]
 }
+
+# --- Fleet schemas (v1.14.0) -------------------------------------------------
+# fleet-registry: validate the FILE fleet.sh writes. fleet-report: cached
+# mode keeps the producer fast (no per-repo doctor run). fleet-run-result:
+# a --plan over the same one-repo fleet.
+
+@test "fleet-registry schema: fleet.sh --add writes a valid registry" {
+  fleet="$TMP/fleet.json"
+  bash "${REPO_ROOT}/bin/fleet.sh" --add "$REPO" --repo o/r --profile default \
+    --tag t1 --fleet-file "$fleet" 2>/dev/null
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/fleet-registry.schema.json" "$fleet"
+}
+
+@test "fleet-report schema: fleet-doctor --json --cached emits a valid report" {
+  fleet="$TMP/fleet.json"
+  bash "${REPO_ROOT}/bin/fleet.sh" --add "$REPO" --fleet-file "$fleet" 2>/dev/null
+  # A no-history repo is status=missing → worst-of exit 4; the JSON is
+  # complete either way.
+  rc=0
+  bash "${REPO_ROOT}/bin/fleet-doctor.sh" --fleet-file "$fleet" --json --cached \
+    > "$TMP/fleet-report.json" 2>/dev/null || rc=$?
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 4 ]
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/fleet-report.schema.json" "$TMP/fleet-report.json"
+}
+
+@test "fleet-run-result schema: fleet-retrofit --plan emits a valid result" {
+  fleet="$TMP/fleet.json"
+  bash "${REPO_ROOT}/bin/fleet.sh" --add "$REPO" --fleet-file "$fleet" 2>/dev/null
+  mkdir -p "$REPO/.nyann"
+  echo "default" > "$REPO/.nyann/profile"
+  # A drifted plan legitimately exits 4 — capture the JSON either way.
+  rc=0
+  bash "${REPO_ROOT}/bin/fleet-retrofit.sh" --plan --fleet-file "$fleet" \
+    > "$TMP/plan.json" 2>/dev/null || rc=$?
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 4 ]
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/fleet-run-result.schema.json" "$TMP/plan.json"
+}
