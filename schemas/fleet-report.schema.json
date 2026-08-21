@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/fleet-report/v1.json",
+  "title": "FleetReport",
+  "description": "Aggregated health + drift view across the fleet registry, produced by bin/fleet-doctor.sh. `repos[]` is sorted worst-first (unscored error/missing rows first, then ascending score). In live mode each row carries the repo's doctor exit code and drift counters; in cached mode rows are read from each repo's persisted memory/health.json without invoking doctor, and staleness is flagged instead. With --drift (live only), each drifted row embeds the repo's full doctor JSON under drift_report. Self-contained by design: this shape is the integration point for future exporters.",
+  "type": "object",
+  "required": ["generated_at", "mode", "repos", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": { "type": "string", "format": "date-time" },
+    "mode": { "type": "string", "enum": ["live", "cached"] },
+    "repos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "profile", "profile_source", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "score": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Health score — computed live, or the last persisted entry in cached mode. Null when unavailable (error / no history)."
+          },
+          "direction": {
+            "type": ["string", "null"],
+            "enum": ["up", "down", "stable", null],
+            "description": "Trend direction from the repo's persisted health history (null when no history)."
+          },
+          "delta": { "type": ["integer", "null"] },
+          "sparkline": { "type": ["string", "null"] },
+          "drift": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "description": "Drift counters from the live doctor run (null in cached mode / on error).",
+            "properties": {
+              "missing": { "type": "integer", "minimum": 0 },
+              "misconfigured": { "type": "integer", "minimum": 0 },
+              "non_compliant": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "worst_category": {
+            "type": ["string", "null"],
+            "description": "Health-score breakdown category with the largest deduction (null when the score is clean or unavailable)."
+          },
+          "profile": { "type": "string" },
+          "profile_source": {
+            "type": "string",
+            "enum": ["pin", "repo", "fallback"],
+            "description": "pin = fleet-entry override; repo = the repo's own hint (.nyann/profile or CLAUDE.md); fallback = audited against `default` because nothing resolved."
+          },
+          "health_age_days": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Age of the newest persisted health entry (null when no history)."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "stale", "missing", "error"],
+            "description": "ok = audited/read cleanly; stale = cached entry older than --stale-days; missing = cached mode with no health history; error = repo path dead, doctor failed, or timed out."
+          },
+          "exit_code": {
+            "type": ["integer", "null"],
+            "description": "The repo's drift severity in live mode, derived from the doctor JSON with doctor's text-mode exit rules (0 clean / 4 warn / 5 critical; the probe-escalated doctor rc is folded in as a floor). Null in cached mode or on error."
+          },
+          "error": {
+            "type": ["string", "null"],
+            "description": "Short reason when status = error."
+          },
+          "drift_report": {
+            "type": "object",
+            "description": "Full doctor --json output for the repo. Present only with --drift (live mode) on drifted rows."
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["count"],
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "avg": { "type": ["integer", "null"] },
+        "min": { "type": ["integer", "null"] },
+        "max": { "type": ["integer", "null"] },
+        "below_threshold": { "type": "integer", "minimum": 0 },
+        "threshold": { "type": "integer" },
+        "critical_repos": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
