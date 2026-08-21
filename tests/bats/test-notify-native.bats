@@ -15,22 +15,18 @@ setup() {
   export OSA_LOG NS_LOG
   export OSA_RC=0
 
-  # base: the real PATH minus osascript/notify-send, so availability is
-  # controlled entirely by which stub dir we prepend.
+  # base: a minimal PATH containing just what native.sh + _lib.sh need —
+  # and NO osascript/notify-send, so availability is controlled entirely by
+  # which stub dir we prepend. An allowlist beats mirroring the real PATH:
+  # ubuntu runners carry thousands of entries including dangling symlinks
+  # (where `-e` is false but the link name exists, so `ln -s` fails and
+  # aborts bats setup), and the full mirror cost ~19s per test.
   BASE="$TMP/base"
   mkdir -p "$BASE"
-  local_ifs=:
-  IFS="$local_ifs"
-  for d in $PATH; do
-    [ -d "$d" ] || continue
-    for exe in "$d"/*; do
-      b="$(basename "$exe")"
-      [ "$b" = "osascript" ] && continue
-      [ "$b" = "notify-send" ] && continue
-      [ -e "$BASE/$b" ] || ln -s "$exe" "$BASE/$b" 2>/dev/null
-    done
+  for t in bash jq cat sed grep dirname basename head tr hostname; do
+    p="$(command -v "$t" 2>/dev/null || true)"
+    [ -n "$p" ] && ln -s "$p" "$BASE/$t" 2>/dev/null || true
   done
-  unset IFS
 
   OSA="$TMP/osa"
   mkdir -p "$OSA"

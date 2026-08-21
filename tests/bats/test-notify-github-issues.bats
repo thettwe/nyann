@@ -47,19 +47,16 @@ send() { # args pass through; batch on stdin
   printf '%s' "${1-$BATCH}" | PATH="$STUB:$PATH" bash "$CH" --repo o/r "${@:2}" 2>&1
 }
 
-# gh_absent_path — the real PATH minus any gh, so "no gh installed" holds
-# even on machines where gh sits next to coreutils.
+# gh_absent_path — a minimal PATH with what the channel needs and NO gh, so
+# "no gh installed" holds even on machines where gh sits next to coreutils.
+# Allowlist rather than a real-PATH mirror: giant runner PATHs are slow to
+# mirror and their dangling symlinks make the `[ -e ] || ln -s` idiom fail.
 gh_absent_path() {
-  local dir="$TMP/nogh" d exe b
+  local dir="$TMP/nogh" t p
   mkdir -p "$dir"
-  local IFS=:
-  for d in $PATH; do
-    [ -d "$d" ] || continue
-    for exe in "$d"/*; do
-      b="$(basename "$exe")"
-      [ "$b" = "gh" ] && continue
-      [ -e "$dir/$b" ] || ln -s "$exe" "$dir/$b" 2>/dev/null
-    done
+  for t in bash jq cat sed grep dirname basename head tr date hostname; do
+    p="$(command -v "$t" 2>/dev/null || true)"
+    [ -n "$p" ] && ln -s "$p" "$dir/$t" 2>/dev/null || true
   done
   printf '%s' "$dir"
 }
