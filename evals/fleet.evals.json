@@ -1,0 +1,20 @@
+{
+  "skill": "fleet",
+  "trigger_cases": [
+    { "prompt": "show my fleet",                                        "should_trigger": true,  "tag": "fleet-show" },
+    { "prompt": "how are all my repos doing?",                          "should_trigger": true,  "tag": "org-health" },
+    { "prompt": "which of my repos are drifting?",                      "should_trigger": true,  "tag": "drift-question" },
+    { "prompt": "run doctor across every repo I have",                  "should_trigger": true,  "tag": "bulk-doctor" },
+    { "prompt": "add this repo to my fleet",                            "should_trigger": true,  "tag": "registry-add" },
+    { "prompt": "scan ~/Works for repos to manage",                     "should_trigger": true,  "tag": "registry-scan" },
+    { "prompt": "give me a health dashboard for all my projects",       "should_trigger": true,  "tag": "dashboard" },
+    { "prompt": "list the repos in my fleet",                           "should_trigger": true,  "tag": "registry-list" },
+    { "prompt": "/nyann:fleet",                                         "should_trigger": true,  "tag": "slash" },
+    { "prompt": "watch all my repos for CI failures",                   "should_trigger": false, "tag": "watch-distractor" },
+    { "prompt": "fix drift across all my repos",                        "should_trigger": false, "tag": "fleet-retrofit-distractor" },
+    { "prompt": "is this repo healthy?",                                "should_trigger": false, "tag": "doctor-distractor" },
+    { "prompt": "bootstrap this repo",                                  "should_trigger": false, "tag": "bootstrap-distractor" },
+    { "prompt": "what's for dinner?",                                   "should_trigger": false, "tag": "unrelated" }
+  ],
+  "output_quality_scenarios": []
+}

@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (69)
+## Schemas in this directory (72)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -99,6 +99,9 @@ identifier consumers can pin against.
 | `watch-list.schema.json` | `bin/sentinel-aggregate.sh` (`--add`/`--remove`/`--list`) | `bin/sentinel-aggregate.sh` (`--poll`), `bin/read-notifications.sh --all` |
 | `session-triage.schema.json` | `bin/session-triage.sh` (reserved JSON variant) | future `--json` consumer |
 | `derived-codeowners.schema.json` | `bin/derive-codeowners.sh` | `bin/gen-codeowners.sh --derived-owners` |
+| `fleet-registry.schema.json` | `bin/fleet.sh` (`--add`/`--remove`/`--scan --apply`/`--prune --apply`; writes `~/.claude/nyann/fleet.json`) | `bin/fleet-doctor.sh`, `bin/fleet-retrofit.sh`, `skills/fleet/SKILL.md` |
+| `fleet-report.schema.json` | `bin/fleet-doctor.sh --json` | `skills/fleet/SKILL.md`; the integration point for future exporters |
+| `fleet-run-result.schema.json` | `bin/fleet-retrofit.sh` (`--plan`/`--record`/`--finalize`) | `skills/fleet-retrofit/SKILL.md` |
 
 ### Cross-referenced schemas (live elsewhere)
 

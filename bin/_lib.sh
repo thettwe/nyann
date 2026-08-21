@@ -636,3 +636,38 @@ nyann::archetype_scaffold_map() {
 nyann::archetype_scaffold_types() {
   nyann::archetype_scaffold_map "$1" | cut -d: -f1
 }
+
+# --- Fleet per-repo profile resolution (v1.14.0) ------------------------------
+# nyann::resolve_repo_profile <path> <pin>
+# Print "<profile>\t<source>" where source ∈ pin|repo|fallback. The ladder
+# mirrors the doctor skill / explain-state.sh: explicit pin → the repo's
+# .nyann/profile hint file → a CLAUDE.md profile declaration → `default`.
+# Shared by fleet-doctor.sh and fleet-retrofit.sh so the two fleet verbs can
+# never disagree about which profile a repo is audited against. Never
+# prompts — a fleet iteration resolves quietly and marks fallbacks so the
+# skill layer can offer pinning AFTER the run.
+nyann::resolve_repo_profile() {
+  local path="${1-}" pin="${2-}" hint=""
+  if [[ -n "$pin" ]]; then
+    printf '%s\tpin\n' "$pin"
+    return 0
+  fi
+  if [[ -f "$path/.nyann/profile" ]]; then
+    hint=$(head -n1 "$path/.nyann/profile" 2>/dev/null | tr -d '[:space:]')
+    if [[ "$hint" =~ ^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$ ]]; then
+      printf '%s\trepo\n' "$hint"
+      return 0
+    fi
+  fi
+  if [[ -f "$path/CLAUDE.md" ]]; then
+    hint=$(grep -Eo 'nyann profile[: ]+[a-z0-9][a-z0-9-]*' "$path/CLAUDE.md" 2>/dev/null | head -n1 | awk '{print $NF}' || true)
+    # Backticks in the pattern are literal markdown delimiters.
+    # shellcheck disable=SC2016
+    [[ -z "$hint" ]] && hint=$(grep -Eo 'Profile: `[a-z0-9][a-z0-9-]*`' "$path/CLAUDE.md" 2>/dev/null | head -n1 | tr -d '`' | awk '{print $NF}' || true)
+    if [[ -n "$hint" ]]; then
+      printf '%s\trepo\n' "$hint"
+      return 0
+    fi
+  fi
+  printf 'default\tfallback\n'
+}

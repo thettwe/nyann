@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nyann.dev/schemas/notification-delivery-config/v1.json",
   "title": "NotificationDeliveryConfig",
-  "description": "Shape of preferences.json `notifications.delivery`. Per-channel opt-in config for fanning queued Notification entries out to external sinks (Slack/Discord/generic webhook/email). SECURITY: this object holds only the NAMES of environment variables that carry secret endpoints (webhook_url_env, url_env, smtp_env) plus non-secret toggles and addresses — never a literal URL or token. nyann reads the actual endpoint from the named env var at delivery time so secrets never land in preferences.json.",
+  "description": "Shape of preferences.json `notifications.delivery`. Per-channel opt-in config for fanning queued Notification entries out to external sinks (Slack/Discord/generic webhook/email/GitHub issue digest/native OS toast). SECURITY: this object holds only the NAMES of environment variables that carry secret endpoints (webhook_url_env, url_env, smtp_env) plus non-secret toggles and addresses — never a literal URL or token. nyann reads the actual endpoint from the named env var at delivery time so secrets never land in preferences.json. The github_issues and native channels carry no secrets at all (gh's own auth / a local display).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -58,6 +58,32 @@
           "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
           "description": "Name of the env var holding the SMTP relay URL (e.g. NYANN_SMTP_URL, smtp://user:pass@host:587). Optional — when unset and `sendmail` exists, delivery uses sendmail. NOT the URL itself."
         }
+      }
+    },
+    "github_issues": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GitHub issue digest channel: one open 'nyann sentinel digest' issue per repo collects one comment per delivered batch (never issue-per-notification — spam control). Uses gh's own auth; no secrets here. Enabling this on a team repo is a team-visible act.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+          "description": "Optional <owner>/<repo> override for where the digest issue lives. Default: the notification's own repo."
+        },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._ -]+$" },
+          "description": "Labels applied to the digest issue at creation, best-effort (a label missing from the repo is dropped, not fatal). Default: [\"nyann-sentinel\"]."
+        }
+      }
+    },
+    "native": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Native OS notification channel (macOS osascript / Linux notify-send). A batch collapses to ONE toast. Local display only; no secrets, no network.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false }
       }
     }
   }

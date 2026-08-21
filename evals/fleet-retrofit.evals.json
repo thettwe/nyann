@@ -1,0 +1,18 @@
+{
+  "skill": "fleet-retrofit",
+  "trigger_cases": [
+    { "prompt": "fix drift across all my repos",                        "should_trigger": true,  "tag": "bulk-fix" },
+    { "prompt": "retrofit the fleet",                                   "should_trigger": true,  "tag": "explicit" },
+    { "prompt": "bring every repo into compliance",                     "should_trigger": true,  "tag": "compliance" },
+    { "prompt": "bootstrap all my repos",                               "should_trigger": true,  "tag": "bulk-bootstrap" },
+    { "prompt": "set up nyann on every repo I have",                    "should_trigger": true,  "tag": "bulk-setup" },
+    { "prompt": "remediate my whole fleet",                             "should_trigger": true,  "tag": "remediate" },
+    { "prompt": "/nyann:fleet-retrofit",                                "should_trigger": true,  "tag": "slash" },
+    { "prompt": "fix this repo's drift",                                "should_trigger": false, "tag": "single-retrofit-distractor" },
+    { "prompt": "bootstrap this repo",                                  "should_trigger": false, "tag": "single-bootstrap-distractor" },
+    { "prompt": "which of my repos are drifting?",                      "should_trigger": false, "tag": "fleet-readonly-distractor" },
+    { "prompt": "show my fleet health",                                 "should_trigger": false, "tag": "dashboard-distractor" },
+    { "prompt": "watch all my repos",                                   "should_trigger": false, "tag": "watch-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

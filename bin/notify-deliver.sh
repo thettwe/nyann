@@ -91,7 +91,8 @@ fi
 [[ "$(jq -r 'type' <<<"$delivery" 2>/dev/null || echo error)" == "object" ]] || delivery='{}'
 
 # Short-circuit: nothing enabled → silent no-op, no stdin work, no network.
-any_enabled=$(jq -r '[.slack.enabled, .discord.enabled, .webhook.enabled, .email.enabled]
+any_enabled=$(jq -r '[.slack.enabled, .discord.enabled, .webhook.enabled, .email.enabled,
+                      .github_issues.enabled, .native.enabled]
                      | map(. == true) | any' <<<"$delivery" 2>/dev/null || echo false)
 if [[ "$any_enabled" != "true" ]]; then
   exit 0
@@ -120,6 +121,20 @@ hash_id() {
 # fails this must never reach a channel's resolver (defense in depth against
 # the `${!name}` arithmetic-subscript RCE, even though the channel re-checks).
 valid_env_name() { [[ "${1-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
+
+# valid_repo_slug <slug> — <owner>/<repo> shape guard for the github_issues
+# target override (option-injection / traversal defense before gh argv; the
+# channel re-checks — defense in depth like valid_env_name).
+valid_repo_slug() {
+  local r="${1-}"
+  [[ -n "$r" ]] || return 1
+  [[ "$r" != -* ]] || return 1
+  [[ "$r" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+  case "$r" in
+    .|..|./*|../*|*/.|*/..|*/./*|*/../*) return 1 ;;
+  esac
+  return 0
+}
 
 mkdir -p "$cache_dir" 2>/dev/null || true
 
@@ -274,6 +289,27 @@ if [[ "$email_enabled" == "true" ]]; then
     [[ -n "$smtp_env" ]] && args+=(--smtp-env "$smtp_env")
     deliver_channel email "${args[@]}"
   fi
+fi
+
+ghis_enabled=$(jq -r '.github_issues.enabled // false' <<<"$delivery")
+native_enabled=$(jq -r '.native.enabled // false' <<<"$delivery")
+
+if [[ "$ghis_enabled" == "true" ]]; then
+  # Digest issues land in the notification's own repo unless the config
+  # overrides the target. No secrets involved — gh's own auth carries it.
+  target=$(jq -r '.github_issues.repo // empty' <<<"$delivery")
+  labels=$(jq -r '(.github_issues.labels // ["nyann-sentinel"]) | join(",")' <<<"$delivery")
+  if [[ -n "$target" ]] && ! valid_repo_slug "$target"; then
+    nyann::warn "github_issues channel: invalid target repo '$target' — skipping"
+  else
+    args=(bash "${channels_dir}/github-issues.sh" --repo "${target:-$repo}")
+    [[ -n "$labels" ]] && args+=(--labels "$labels")
+    deliver_channel github-issues "${args[@]}"
+  fi
+fi
+
+if [[ "$native_enabled" == "true" ]]; then
+  deliver_channel native bash "${channels_dir}/native.sh"
 fi
 
 exit 0
