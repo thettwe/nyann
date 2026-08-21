@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/fleet-registry/v1.json",
+  "title": "FleetRegistry",
+  "description": "Local repos the fleet verbs (bin/fleet.sh registry CRUD, bin/fleet-doctor.sh bulk audit, bin/fleet-retrofit.sh bulk remediation planning) operate on. Stored at ~/.claude/nyann/fleet.json. Distinct from the sentinel watch-list (GitHub slugs for remote CI polling): fleet entries are LOCAL working-copy paths for governance verbs, and the optional `repo` slug is the join key between the two lists. Pure data — nothing in an entry is ever executed.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["path"],
+    "properties": {
+      "path": {
+        "type": "string",
+        "pattern": "^/",
+        "description": "Absolute path to a local git working copy (the repo toplevel)."
+      },
+      "name": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "description": "Display name, unique across the registry. Defaults to basename(path) at add time; hand-edited files may omit it (readers fall back to the basename)."
+      },
+      "repo": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+        "description": "Optional GitHub slug in <owner>/<repo> form — the join key to the sentinel watch-list (--watch mirroring)."
+      },
+      "profile": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$",
+        "description": "Optional profile pin. Overrides the repo's own profile hint during fleet runs. Accepts a bare starter/user name or a namespaced team/name."
+      },
+      "tags": {
+        "type": "array",
+        "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "description": "Optional grouping labels consumed by the fleet verbs' --tag filter."
+      }
+    }
+  }
+}
