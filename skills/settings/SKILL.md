@@ -154,7 +154,9 @@ single enum.
 ### Step 3a: Notification delivery sub-flow
 
 External delivery fans queued notifications out to Slack, Discord, a generic
-webhook, or email. First pick the channel:
+webhook, email, a GitHub issue digest, or a native OS toast. First pick the
+channel (AskUserQuestion caps at 4 options — split into two pages, secrets
+first):
 
 ```json
 {
@@ -166,11 +168,13 @@ webhook, or email. First pick the channel:
       { "label": "Slack",   "description": "Incoming webhook ({text: ...})" },
       { "label": "Discord", "description": "Webhook ({content: ...})" },
       { "label": "Webhook", "description": "Generic endpoint — raw JSON POST" },
-      { "label": "Email",   "description": "sendmail or an SMTP relay" }
+      { "label": "More…",   "description": "Email, GitHub issue digest, native OS toast" }
     ]
   }]
 }
 ```
+
+On **More…**, offer Email / GitHub issues / Native as the second page.
 
 Then, **because delivery secrets must never live in `preferences.json`**, ask
 for the *name of an environment variable* that holds the endpoint URL — never
@@ -188,6 +192,18 @@ direct `--set` calls (one per field):
   `notifications.delivery.email.from <addr>`, optional
   `notifications.delivery.email.smtp_env <ENV_NAME>`, then
   `notifications.delivery.email.enabled true`
+
+Two channels carry NO secrets (skip the env-var step entirely):
+
+- GitHub issues: one open "nyann sentinel digest" issue per repo collects a
+  comment per batch (never issue-per-notification), through gh's own auth.
+  Optional `notifications.delivery.github_issues.repo <owner/repo>` routes
+  every digest to one central repo; optional `.labels <csv>` (stored as an
+  array; default `nyann-sentinel`); then
+  `notifications.delivery.github_issues.enabled true`. Warn that enabling
+  this on a team repo is team-visible.
+- Native OS toast (macOS osascript / Linux notify-send; a batch collapses
+  to one toast): just `notifications.delivery.native.enabled true`.
 
 `bin/settings.sh` REFUSES any value that looks like a URL (`http(s)://`) for a
 delivery key and prints why — surface that error verbatim and re-ask for the
