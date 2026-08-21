@@ -1,3 +1,30 @@
+## [1.14.0] — 2026-08-22
+
+### Theme: Fleet
+
+nyann's governance verbs go multi-repo. A fleet registry of your local repos powers bulk audit with a worst-first cross-repo health dashboard and bulk remediation with per-repo preview and confirmation — and the CI sentinel gains two secret-free delivery channels: a per-repo GitHub issue digest and native OS notifications.
+
+### Features
+
+- **Fleet registry** — `bin/fleet.sh` manages `~/.claude/nyann/fleet.json`, a pure-data list of local working copies, deliberately distinct from the sentinel watch-list (GitHub slugs for remote CI polling); an entry's optional `repo` slug is the join key and `--add --watch` mirrors it into the watch-list (slug parsed from the origin remote when not given). `--add` canonicalises to the git toplevel (re-adding a subdir dedupes), merges tags / slug / profile pin on re-add, and refuses name collisions; `--scan <dir>` discovers repos and `--prune` drops dead entries — both preview-first, writing only with `--apply`; `--suggest-org` lists unregistered org repos via `gh` (best-effort, advisory — nyann never clones). Locked, atomic writes. New `fleet-registry.schema.json`.
+- **Bulk audit + cross-repo health dashboard (`/nyann:fleet`)** — `bin/fleet-doctor.sh` iterates the registry running the existing per-repo doctor (the fleet layer is iteration only) and renders a worst-first dashboard: score, trend arrow + sparkline from each repo's persisted health history, missing/misconfigured counts, worst category, and profile — with per-repo profile resolution that never prompts mid-run (fleet pin → the repo's own `.nyann/profile` / CLAUDE.md hint → `default`, fallbacks marked on the board). `--cached` is an instant snapshot from `memory/health.json` with staleness flags and a labeled header; `--markdown` emits a paste-ready, escaped table; `--drift` appends repo-tagged findings per drifted repo (and embeds the full report in `--json`); `--explain` adds a plain-English narrative. Failure isolation (one broken repo never kills the run), per-repo `--timeout`, opt-in `--jobs` parallelism, `--tag`/`--only` filters, and worst-of exit codes mirroring doctor's 0/4/5. New `fleet-report.schema.json`.
+- **Bulk remediation (`/nyann:fleet-retrofit`)** — `bin/fleet-retrofit.sh` is a plan/record/finalize bookkeeping engine that never mutates a repo: `--plan` classifies every entry read-only (clean / drifted / ungoverned / error), then the skill walks repos worst-first driving the existing single-repo chain per repo — retrofit's remediation for drifted repos, and with `--bootstrap-missing` a full bootstrap for un-governed ones — each behind its own preview, SHA-bound ActionPlan, and an explicit per-repo confirmation. There is no "yes to all"; every mutated repo writes its own BootRecord (individually reversible via `/nyann:undo-bootstrap`), outcomes land in a run file, and non-interactive contexts stop at the plan. New `fleet-run-result.schema.json`.
+- **GitHub issue digest delivery** — `bin/notify-channels/github-issues.sh` posts sentinel notification batches as comments on one open "nyann sentinel digest" issue per repo (found by exact title; labels applied best-effort) — a digest model, never issue-per-notification. `gh` best-effort throughout (missing CLI or failed auth soft-skips; no secrets handled); messages are stripped of CR/LF and backticks and wrapped in code spans so a PR title can neither break the digest structure nor ping @mentions. Config: `notifications.delivery.github_issues.{enabled, repo, labels}` — the optional `repo` override routes every digest to one central repo.
+- **Native OS notification delivery** — `bin/notify-channels/native.sh` collapses a batch to one toast via macOS `osascript` or Linux `notify-send` (picked by availability). Notification text is attacker-influenceable, so hardening is the point: control characters stripped, length capped, backslashes and quotes escaped before AppleScript interpolation, a leading-dash argv guard, and headless sessions soft-skip so the batch retries when a display exists. Config: `notifications.delivery.native.enabled`.
+
+### Schema additions
+
+- New: `fleet-registry`, `fleet-report`, `fleet-run-result`.
+- `notification-delivery-config.schema.json` + the mirrored block in `preferences.schema.json` — `notifications.delivery` gains the `github_issues` and `native` channels (additive; schemaVersion stays 3).
+
+### Stats
+
+- Skills: 39 → 41 (added `fleet`, `fleet-retrofit` — slash commands `/nyann:fleet`, `/nyann:fleet-retrofit`)
+- Commands: 39 → 41
+- Schemas: 69 → 72 (the 3 new schemas above)
+- Test count: 2038 → 2136
+
+[1.14.0]: https://github.com/thettwe/nyann/releases/tag/v1.14.0
 ## [1.13.0] — 2026-06-29
 
 ### Theme: Infrastructure as Code

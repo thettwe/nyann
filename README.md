@@ -381,14 +381,13 @@ tests/                 # 2136 bats tests + fixtures
 
 ## Recent changes
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.13.0** — *Infrastructure as Code*. nyann becomes first-class for IaC repos and completes the proactive-awareness arc — the CI sentinel now runs in the background, delivers to external channels, and aggregates across repos. Highlights:
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. Most recent: **v1.14.0** — *Fleet*. nyann's governance verbs go multi-repo: a fleet registry of your local repos powers bulk audit, a cross-repo health dashboard, and bulk remediation with per-repo confirmation. Highlights:
 
-- **First-class IaC** for AWS CDK, Pulumi, Kubernetes / Kustomize, Helm, and Ansible (alongside Terraform / OpenTofu) — 5 new starter profiles, deep workspace discovery (unit dependency graph), drift detection, and per-unit / per-chart versioning.
-- **Plan/apply preview** — `/nyann:plan` (read-only add/change/destroy summary, never applies) and `/nyann:apply` (opt-in, confirm-first, destroy-gated, credentials off argv) writing an audit `IacApplyRecord`.
-- **Backgrounded CI sentinel daemon** — supervised under launchd / systemd user unit / `nohup`, with single-instance guard, 8h orphan backstop, and exponential backoff; `doctor` surfaces running and stale daemons.
-- **External notification delivery** — Slack / Discord / webhook / email channels wired at the producer; secrets referenced by env-var name (never stored in preferences).
-- **Multi-repo aggregation** — a watch-list + rate-limit-aware scheduler, `read-notifications --all` repo-tagged merged view, and a backgrounded aggregate daemon.
-- **Coverage-delta PR guard** — opt-in, advisory: reuses an existing CI coverage artifact and warns when coverage drops past a threshold; never runs a suite, never blocks.
+- **Fleet registry** — `~/.claude/nyann/fleet.json` holds your local repos (add one, or `--scan` a directory — preview-first); an entry's optional GitHub slug joins it to the CI watch-list (`--add --watch` mirrors it).
+- **Cross-repo health dashboard** — `/nyann:fleet` runs the per-repo doctor across the fleet: worst-first board with scores, trend sparklines, and drift counts; instant `--cached` snapshots with staleness flags; `--markdown` export; a repo-tagged drift roll-up with plain-English `--explain`.
+- **Bulk remediation** — `/nyann:fleet-retrofit` walks the fleet fixing drift (and, opt-in, bootstrapping un-governed repos) with a preview and explicit confirmation **per repo**; every repo writes its own BootRecord and stays individually undoable.
+- **GitHub issue digest delivery** — sentinel notifications land as comments on one per-repo digest issue (never issue-per-notification), through `gh`'s own auth; messages are hardened against markdown/@mention injection.
+- **Native OS notifications** — one toast per batch via macOS `osascript` / Linux `notify-send`, with injection hardening and headless soft-skips.
 
 ---
 
