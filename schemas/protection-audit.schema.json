@@ -206,7 +206,12 @@
           "properties": {
             "commit_gpgsign":          { "type": "boolean", "description": "git config commit.gpgsign value." },
             "tag_gpgsign":             { "type": "boolean", "description": "git config tag.gpgsign value." },
-            "user_signingkey_present": { "type": "boolean", "description": "git config user.signingkey resolves to a non-empty value." }
+            "user_signingkey_present": { "type": "boolean", "description": "git config user.signingkey resolves to a non-empty value." },
+            "mode": {
+              "type": "string",
+              "enum": ["gpg", "ssh", "x509", "gitsign"],
+              "description": "The signing mechanism the repo is actually configured for, derived from gpg.format (+ gpg.x509.program): ssh, gitsign (keyless x509 — a missing user.signingkey is correct there), plain x509, or classic gpg. Added v1.15.0; optional for older producers."
+            }
           }
         },
         "drift": {

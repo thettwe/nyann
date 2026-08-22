@@ -167,6 +167,10 @@ allow_merge_commit_expected=$(jq -r 'if .github.allow_merge_commit == null then 
 delete_branch_on_merge_expected=$(jq -r 'if .github.delete_branch_on_merge == null then "null" else (.github.delete_branch_on_merge|tostring) end' "$tmp_profile")
 # shellcheck disable=SC2034
 default_branch_expected=$(jq -r '.branching.base_branches[0] // "main"' "$tmp_profile")
+# Declared local signing mode (v1.15.0) — consumed by audit-signing.sh;
+# must be extracted HERE because tmp_profile is deleted on the next line.
+# shellcheck disable=SC2034
+profile_signing_mode=$(jq -r '.security.commit_signing.mode // "off"' "$tmp_profile")
 rm -f "$tmp_profile"
 
 if [[ "$enable" != "true" ]] && ! $check_only; then
