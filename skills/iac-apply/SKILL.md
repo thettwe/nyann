@@ -69,6 +69,21 @@ stop: there is nothing to apply. If the plan was `status:"refused"`
 (unknown tool / `--unit` traversal), apply emits `status:"refused"`
 exit 1 — relay `.message` and fix the input.
 
+### 1a. Policy gate (when the repo has Conftest policies)
+
+Before the confirm step, evaluate the preview's plan against the repo's
+policies (skips silently when conftest / policies are absent):
+
+```
+bin/guards/iac-policy.sh --plan-file <iacplan.json> --target <cwd> [--profile <profile.json>]
+```
+
+On `pass:false`, the violations JOIN the confirmation below — show them
+in the AskUserQuestion so the human decides with the policy findings in
+front of them. Never silently block on a violation and never skip the
+confirm because policies passed; the gate informs the human, it does not
+replace them.
+
 ## 2. Confirm before applying (MANDATORY on destroy)
 
 This is the human gate. How you confirm depends on whether the plan is
