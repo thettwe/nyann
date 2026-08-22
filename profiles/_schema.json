@@ -628,6 +628,86 @@
           "minimum": 0,
           "default": 0,
           "description": "Max coverage-percentage-point drop the coverage-delta guard tolerates before it warns. 0 = any drop warns."
+        },
+        "iac_policy_dir": {
+          "type": "string",
+          "default": ".nyann/policies",
+          "description": "Repo-relative directory of Conftest (.rego) policies the opt-in iac-policy guard evaluates. The guard skips silently when the directory has no policies or conftest is not installed."
+        }
+      }
+    },
+    "security": {
+      "$comment": "v1.15.0 — optional supply-chain posture block. Everything defaults OFF: this is posture users turn on, not posture nyann imposes. Advisory-first throughout; promotable severities live in the guards block, not here.",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Supply-chain posture: SBOM emission, dependency-license allowlist, local commit-signing mode, and secret-rotation reminders.",
+      "properties": {
+        "sbom": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "format": {
+              "type": "string",
+              "enum": ["cyclonedx", "spdx"],
+              "default": "cyclonedx",
+              "description": "SBOM document format emitted by the generated CI job and the release-time attachment."
+            },
+            "attach_to_release": {
+              "type": "boolean",
+              "default": true,
+              "description": "Attach an SBOM asset to each GitHub release (requires the syft CLI at release time; soft-skips without it)."
+            }
+          }
+        },
+        "license_check": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "allowlist": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "default": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD", "Unlicense"],
+              "description": "SPDX license identifiers considered acceptable. A disjunctive dependency license (A OR B) passes when ANY branch is allowed."
+            },
+            "ignore_packages": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Exact package names exempted from the allowlist check."
+            }
+          }
+        },
+        "commit_signing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "ssh", "gitsign", "gpg"],
+              "default": "off",
+              "description": "The LOCAL signing configuration bin/setup-signing.sh applies (repo-local git config; previewed, recorded, undoable). The remote-enforcement half stays in github.require_signed_commits/tags."
+            }
+          }
+        },
+        "rotation_reminder": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "files": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "default": [".env.example"],
+              "description": "Repo-relative globs of secret-bearing files whose last-commit age doctor should watch."
+            },
+            "max_age_days": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 90,
+              "description": "Age threshold (days since last commit touching the file) past which doctor surfaces a rotation reminder."
+            }
+          }
         }
       }
     },
