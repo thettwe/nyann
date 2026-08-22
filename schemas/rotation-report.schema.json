@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/rotation-report/v1.json",
+  "title": "RotationReport",
+  "description": "Secret-rotation reminders produced by bin/check-secret-rotation.sh: tracked files matching security.rotation_reminder.files[] whose last-commit age exceeds max_age_days. A reminder, not verification (touching a file does not prove the secret rotated). Consumed by doctor's informational SECRET ROTATION section — never an exit-code signal.",
+  "type": "object",
+  "required": ["enabled", "findings", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "max_age_days": { "type": ["integer", "null"], "minimum": 1 },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "age_days", "max_age_days"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string" },
+          "age_days": { "type": "integer", "minimum": 0 },
+          "max_age_days": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["checked", "stale"],
+      "additionalProperties": false,
+      "properties": {
+        "checked": { "type": "integer", "minimum": 0 },
+        "stale": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
