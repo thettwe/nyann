@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/thettwe/nyann/actions/workflows/ci.yml/badge.svg)](https://github.com/thettwe/nyann/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-2136%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-2206%20passing-brightgreen)](tests/)
 [![Release](https://img.shields.io/github/v/release/thettwe/nyann)](https://github.com/thettwe/nyann/releases)
 
 ## Is nyann for you?
@@ -31,7 +31,7 @@
 - **Working hooks for 31 stacks, not just configs.** nyann installs the right framework — Husky for JS/TS, pre-commit.com for Python, lefthook for Go/Rust, native `.git/hooks` for shell, and per-tool IaC hooks (Terraform, CDK, Pulumi, Kubernetes, Helm, Ansible) — with hooks that run on day one. No follow-up `husky install` required.
 - **Preview before every mutation.** Every destructive path emits a JSON `ActionPlan`, renders a unified diff for merges, and waits for confirmation. The plan is SHA-bound, so the bytes you approve are the bytes that land — no TOCTOU between preview and execute.
 - **Reversible.** `bootstrap` and `retrofit` write a `BootRecord` (manifest + pre-state file copies) before mutating. `/nyann:undo-bootstrap` consumes it to restore your repo to its pre-setup state — refusing to clobber files you've edited since.
-- **Schema-validated contracts between every script.** All 72 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **2136 bats tests** cover the surface.
+- **Schema-validated contracts between every script.** All 75 cross-layer JSON shapes (`ActionPlan`, `DriftReport`, `StackDescriptor`, `BootRecord`, …) are locked by JSON Schema. A field rename without a schema bump fails CI. **2206 bats tests** cover the surface.
 - **Team-shareable governance.** Profiles are pure data — register a git URL and your team's branching, hooks, conventions, and doc routing sync across every repo automatically. Stale-team-profile detection nudges before the next bootstrap.
 - **Health-graded, drift-aware.** `doctor` produces a 0–100 score with per-category deltas and trend sparklines from `memory/health.json`. Inline drift checks at commit / PR / ship time nudge (don't gate) when the repo drifts from its profile; `governance-check.yml` upgrades that to a CI gate when desired.
 
@@ -190,6 +190,7 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | **CI sentinel** | `/nyann:watch` polls open PRs for state transitions (checks / review / merge) and queues notifications. Runs as a supervised background daemon (launchd / systemd / `nohup`), delivers to Slack / Discord / webhook / email (secrets referenced by env-var name, never stored), a per-repo GitHub issue digest (one issue, one comment per batch), or a native OS toast (macOS / Linux) — and aggregates across many repos with a rate-limit-aware scheduler and a `read-notifications --all` merged view. |
 | **Coverage-delta guard** | Opt-in, advisory PR guard that reuses an existing CI coverage artifact (js / python / go / rust), compares it against a stored baseline, and warns when coverage drops past a threshold. Never runs a test suite; never blocks. |
 | **Fleet** | A registry of your local repos (`fleet.json` — add one, or scan a directory) powering bulk governance: `/nyann:fleet` renders a worst-first cross-repo health dashboard (score, trend sparkline, drift counts; live or instant-cached; markdown export for team channels) with a repo-tagged drift roll-up, and `/nyann:fleet-retrofit` walks the fleet fixing drift — and optionally bootstrapping un-governed repos — with a preview and explicit confirmation **per repo**, each individually undoable. |
+| **Security posture** | Opt-in, advisory-first supply-chain posture via the profile's `security` block: **SBOM** emission (a SHA-pinned syft CI workflow + an SBOM asset attached to each GitHub release), a **license allowlist** scan (cross-stack collectors normalized to one report; PR guard + doctor section), **commit signing** turn-on (`/nyann:setup-signing` — SSH / sigstore-gitsign / GPG, previewed, recorded, undoable, with a mode-aware audit), **secret-rotation reminders** in doctor, and an **OPA/Conftest policy gate** over IaC changes (filesystem-mode PR guard + plan-mode gate inside `/nyann:plan` / `/nyann:apply`). Everything soft-skips when its tool isn't installed. |
 
 ## Skills & commands
 
@@ -236,8 +237,9 @@ Every skill also has a slash command (`/nyann:commit`, `/nyann:doctor`, etc.) li
 | `/nyann:apply [--unit <path>] [--apply] [--confirm-destroy]` | Apply an IaC change. Opt-in: previews + confirms first; destructive applies require an explicit confirmation. Writes an audit IacApplyRecord. |
 | `/nyann:fleet [--cached] [--drift] [--markdown]` | Manage the fleet registry (add / scan / prune) and render the cross-repo health dashboard. Read-only. |
 | `/nyann:fleet-retrofit [--bootstrap-missing] [--tag <t>] [--only <csv>]` | Bulk remediation across the fleet — per-repo preview + confirmation, per-repo BootRecord. |
+| `/nyann:setup-signing [--mode ssh\|gitsign\|gpg] [--key <k>] [--undo]` | Configure local commit + tag signing — previewed, recorded, reversible. Remote enforcement stays in `/nyann:gh-protect`. |
 
-All 41 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
+All 42 skills respond to natural language, not just slash commands. See `skills/*/SKILL.md` for trigger-phrase lists. Every skill above also has a `commands/*.md` slash entry — invoke either way.
 
 ## Profiles
 
@@ -372,11 +374,11 @@ commands/              # 39 Claude Code slash-command registrations
 evals/                 # 26 skill-level trigger + output-quality specs
 hooks/                 # Claude Code PreToolUse + UserPromptSubmit hooks
 profiles/              # 32 starter profiles (+ _schema.json)
-schemas/               # 72 JSON Schemas for every exchanged shape
-skills/                # 41 skills (SKILL.md, optionally with references/ and scripts/)
+schemas/               # 75 JSON Schemas for every exchanged shape
+skills/                # 42 skills (SKILL.md, optionally with references/ and scripts/)
 templates/             # gitignore, pre-commit configs (incl. iac), husky, docs, CI, memory, launchd/systemd daemon units
 monitors/              # Monitor manifest (monitors.json, currently empty)
-tests/                 # 2136 bats tests + fixtures
+tests/                 # 2206 bats tests + fixtures
 ```
 
 ## Recent changes

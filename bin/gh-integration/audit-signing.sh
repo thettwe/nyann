@@ -43,6 +43,25 @@
   [[ "$tag_gpgsign" == "true" ]] || tag_gpgsign=false
   [[ -n "$user_signingkey" ]] && user_signingkey_present=true || user_signingkey_present=false
 
+  # Mode awareness (v1.15.0): gpg.format distinguishes ssh signing
+  # (needs a signingkey path) from sigstore/gitsign x509 signing, which
+  # is KEYLESS — a missing user.signingkey is correct there, not drift.
+  # local_mode is what the repo is actually configured for; profile_mode
+  # is what security.commit_signing.mode declares (off = no declaration).
+  gpg_format=$(git -C "$target" config --get gpg.format 2>/dev/null || echo "")
+  x509_program=$(git -C "$target" config --get gpg.x509.program 2>/dev/null || echo "")
+  local_mode="gpg"
+  [[ "$gpg_format" == "ssh" ]] && local_mode="ssh"
+  if [[ "$gpg_format" == "x509" ]]; then
+    local_mode="x509"
+    [[ "$x509_program" == *gitsign* ]] && local_mode="gitsign"
+  fi
+  keyless=false
+  [[ "$local_mode" == "gitsign" ]] && keyless=true
+  # Extracted by the parent BEFORE it deletes tmp_profile (reading the
+  # file here would race that deletion and silently read "off").
+  profile_mode="${profile_signing_mode:-off}"
+
   if [[ "$require_signed_commits" == "true" && "$commit_gpgsign" != "true" ]]; then
     signing_drift=$(jq '. + [{field:"local commit.gpgsign", expected:true, actual:false, severity:"warn"}]' <<<"$signing_drift")
     total_drift=$((total_drift + 1))
@@ -54,8 +73,17 @@
     total_warn=$((total_warn + 1))
   fi
   if { [[ "$require_signed_commits" == "true" ]] || [[ "$require_signed_tags" == "true" ]]; } \
-     && [[ "$user_signingkey_present" != "true" ]]; then
+     && [[ "$user_signingkey_present" != "true" ]] && [[ "$keyless" != "true" ]]; then
     signing_drift=$(jq '. + [{field:"user.signingkey", expected:"present", actual:"unset", severity:"warn"}]' <<<"$signing_drift")
+    total_drift=$((total_drift + 1))
+    total_warn=$((total_warn + 1))
+  fi
+  # Profile-declared signing mode vs. actual repo configuration. Only
+  # meaningful when the profile declares one (off = no expectation); a
+  # mismatch is warn-level drift (the fix is bin/setup-signing.sh).
+  if [[ "$profile_mode" != "off" && "$profile_mode" != "$local_mode" ]]; then
+    signing_drift=$(jq --arg exp "$profile_mode" --arg act "$local_mode" \
+      '. + [{field:"security.commit_signing.mode", expected:$exp, actual:$act, severity:"warn"}]' <<<"$signing_drift")
     total_drift=$((total_drift + 1))
     total_warn=$((total_warn + 1))
   fi
@@ -67,6 +95,7 @@
     --argjson cs "$commit_gpgsign" \
     --argjson ts "$tag_gpgsign" \
     --argjson sk "$user_signingkey_present" \
+    --arg mode "$local_mode" \
     --argjson drift "$signing_drift" \
     '{
       commit_signing_required_in_profile: $req_commits,
@@ -75,7 +104,8 @@
       local_config: {
         commit_gpgsign:          $cs,
         tag_gpgsign:             $ts,
-        user_signingkey_present: $sk
+        user_signingkey_present: $sk,
+        mode:                    $mode
       },
       drift: $drift
     }')

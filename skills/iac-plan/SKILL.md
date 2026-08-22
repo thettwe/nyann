@@ -109,6 +109,23 @@ Read these fields off the IacPlan and show them back plainly:
   counts are 0 because they're *unknown*, not because the change is
   safe, and point them at `.raw_path` to read the actual diff.
 
+### 5a. Policy gate (when the repo has Conftest policies)
+
+After rendering a `status: planned` summary, run the policy gate when
+the repo carries policies — save the IacPlan JSON to a temp file and:
+
+```
+bin/guards/iac-policy.sh --plan-file <iacplan.json> --target <cwd> [--profile <profile.json>]
+```
+
+It evaluates the plan against the repo's `.nyann/policies` (or the
+profile's `guards.iac_policy_dir`) and skips silently when conftest or
+policies are absent — running it unconditionally is safe and cheap.
+Render the fragment's `.message`; on `pass:false`, show the violations
+alongside the summary. Violations are advisory here (plan is read-only),
+but carry them into the apply conversation. Policy authoring + the
+plan-mode input contract: `<plugin_root>/templates/policies/README.md`.
+
 ## 6. Destructive plan → ask before offering apply
 
 When `.destructive` is `true` (a structured plan with `destroy > 0`, OR

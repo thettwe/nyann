@@ -26,7 +26,7 @@ identifier consumers can pin against.
 - A producer that needs to emit a brand-new shape introduces a fresh
   schema with `$id` `/v1.json` rather than versioning an existing one.
 
-## Schemas in this directory (72)
+## Schemas in this directory (75)
 
 | Schema | Producer(s) | Consumer(s) |
 |---|---|---|
@@ -102,6 +102,9 @@ identifier consumers can pin against.
 | `fleet-registry.schema.json` | `bin/fleet.sh` (`--add`/`--remove`/`--scan --apply`/`--prune --apply`; writes `~/.claude/nyann/fleet.json`) | `bin/fleet-doctor.sh`, `bin/fleet-retrofit.sh`, `skills/fleet/SKILL.md` |
 | `fleet-report.schema.json` | `bin/fleet-doctor.sh --json` | `skills/fleet/SKILL.md`; the integration point for future exporters |
 | `fleet-run-result.schema.json` | `bin/fleet-retrofit.sh` (`--plan`/`--record`/`--finalize`) | `skills/fleet-retrofit/SKILL.md` |
+| `license-scan-report.schema.json` | `bin/license-scan.sh` (orchestrates `bin/license-tools/{js,python,go,rust}.sh`) | `bin/guards/license-allowlist.sh`, `bin/doctor.sh` (LICENSES sibling probe) |
+| `rotation-report.schema.json` | `bin/check-secret-rotation.sh` | `bin/doctor.sh` (SECRET ROTATION sibling probe) |
+| `signing-setup-record.schema.json` | `bin/setup-signing.sh --apply` (writes `memory/.nyann/signing-setup.json`) | `bin/setup-signing.sh --undo`, `skills/setup-signing/SKILL.md` |
 
 ### Cross-referenced schemas (live elsewhere)
 

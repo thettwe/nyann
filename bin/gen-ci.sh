@@ -248,16 +248,31 @@ ${marker_end}"
 
   if [[ -f "$out_path" ]]; then
     if grep -Fxq "$marker_start" "$out_path" && grep -Fxq "$marker_end" "$out_path"; then
-      local before after
-      before=$(sed -n "1,/^${marker_start}/{ /^${marker_start}/d; p; }" "$out_path")
-      after=$(sed -n "/^${marker_end}/,\${ /^${marker_end}/d; p; }" "$out_path")
-      {
-        [[ -n "$before" ]] && printf '%s\n' "$before"
-        printf '%s\n' "$marked"
-        [[ -n "$after" ]] && printf '%s\n' "$after"
-      } > "$wtmp"
-      mv "$wtmp" "$out_path"
-      nyann::log "regenerated workflow (markers preserved): $out_path"
+      # Split on the EXACT marker LINES by line number. The previous sed
+      # ranges (`1,/^start/` / `/^end/,$`) had two failure modes: a start
+      # marker on line 1 never terminated the range (sed's `1,/re/` only
+      # searches for the end address AFTER line 1, so `before` swallowed
+      # the whole file), and a regex anchor without an end anchor could
+      # collide with template prose that mentions the marker string.
+      local sline eline before after
+      sline=$(grep -nFx "$marker_start" "$out_path" | head -1 | cut -d: -f1)
+      eline=$(grep -nFx "$marker_end" "$out_path" | head -1 | cut -d: -f1)
+      if [[ "$sline" =~ ^[0-9]+$ && "$eline" =~ ^[0-9]+$ ]] && (( eline > sline )); then
+        before=""
+        (( sline > 1 )) && before=$(head -n $((sline - 1)) "$out_path")
+        after=$(tail -n +$((eline + 1)) "$out_path")
+        {
+          [[ -n "$before" ]] && printf '%s\n' "$before"
+          printf '%s\n' "$marked"
+          [[ -n "$after" ]] && printf '%s\n' "$after"
+        } > "$wtmp"
+        mv "$wtmp" "$out_path"
+        nyann::log "regenerated workflow (markers preserved): $out_path"
+      else
+        nyann::warn "skip $out_path (markers out of order — end before start); fix the file by hand"
+        rm -f "$wtmp"
+        return 0
+      fi
     elif $allow_merge; then
       printf '\n%s\n' "$marked" >> "$out_path"
       nyann::warn "appended marked block to existing file (user content above preserved): $out_path"
@@ -278,10 +293,39 @@ CI_MARKER_START="# nyann:ci:start"
 CI_MARKER_END="# nyann:ci:end"
 ci_path="$target/.github/workflows/ci.yml"
 
+# --- SBOM workflow substitution (security.sbom, v1.15.0) ---------------------
+# Profile-gated like every other template input: no CLI flag. cyclonedx →
+# anchore/sbom-action format cyclonedx-json; spdx → spdx-json.
+sbom_enabled=$(jq -r '.security.sbom.enabled // false' "$profile_path" 2>/dev/null || echo false)
+sbom_workflow=""
+if [[ "$sbom_enabled" == "true" ]]; then
+  sbom_template_file="${templates_dir}/sbom.yml"
+  if [[ -f "$sbom_template_file" ]]; then
+    sbom_format=$(jq -r '.security.sbom.format // "cyclonedx"' "$profile_path" 2>/dev/null || echo cyclonedx)
+    case "$sbom_format" in
+      spdx) sbom_action_format="spdx-json" ;;
+      *)    sbom_format="cyclonedx"; sbom_action_format="cyclonedx-json" ;;
+    esac
+    sbom_workflow=$(cat "$sbom_template_file")
+    sbom_workflow="${sbom_workflow//\$\{BASE_BRANCHES\}/$base_branches}"
+    sbom_workflow="${sbom_workflow//\$\{SBOM_FORMAT\}/$sbom_format}"
+    sbom_workflow="${sbom_workflow//\$\{SBOM_ACTION_FORMAT\}/$sbom_action_format}"
+    sbom_workflow="${sbom_workflow//\$\{SBOM_FILE\}/sbom.${sbom_format}.json}"
+  else
+    nyann::warn "gen-ci: security.sbom enabled but template missing: $sbom_template_file"
+  fi
+fi
+
 if [[ "$dry_run" == "true" ]]; then
   printf '%s\n' "${CI_MARKER_START}"
   printf '%s\n' "$workflow"
   printf '%s\n' "${CI_MARKER_END}"
+  if [[ -n "$sbom_workflow" ]]; then
+    printf '\n---\n'
+    printf '# nyann:sbom:start\n'
+    printf '%s\n' "$sbom_workflow"
+    printf '# nyann:sbom:end\n'
+  fi
   if $governance; then
     gov_template_file="${templates_dir}/governance-check.yml"
     if [[ -f "$gov_template_file" ]]; then
@@ -325,6 +369,13 @@ if [[ "$dry_run" != "true" ]]; then
 
     gov_path="$target/.github/workflows/governance-check.yml"
     write_workflow "$gov_path" "# nyann:governance:start" "# nyann:governance:end" "$gov_workflow"
+  fi
+
+  # --- SBOM workflow (security.sbom) -----------------------------------------
+
+  if [[ -n "$sbom_workflow" ]]; then
+    sbom_path="$target/.github/workflows/sbom.yml"
+    write_workflow "$sbom_path" "# nyann:sbom:start" "# nyann:sbom:end" "$sbom_workflow"
   fi
 fi
 

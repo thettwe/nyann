@@ -1,0 +1,18 @@
+{
+  "skill": "setup-signing",
+  "trigger_cases": [
+    { "prompt": "sign my commits",                                      "should_trigger": true,  "tag": "sign-commits" },
+    { "prompt": "set up commit signing for this repo",                  "should_trigger": true,  "tag": "setup" },
+    { "prompt": "make my commits show as verified",                     "should_trigger": true,  "tag": "verified" },
+    { "prompt": "enable gitsign here",                                  "should_trigger": true,  "tag": "gitsign" },
+    { "prompt": "configure keyless signing",                            "should_trigger": true,  "tag": "keyless" },
+    { "prompt": "use my ssh key to sign commits",                       "should_trigger": true,  "tag": "ssh" },
+    { "prompt": "undo the signing setup",                               "should_trigger": true,  "tag": "undo" },
+    { "prompt": "/nyann:setup-signing",                                 "should_trigger": true,  "tag": "slash" },
+    { "prompt": "require signed commits on the main branch",            "should_trigger": false, "tag": "gh-protect-distractor" },
+    { "prompt": "enforce signing in branch protection",                 "should_trigger": false, "tag": "protection-distractor" },
+    { "prompt": "sign me up for the beta",                              "should_trigger": false, "tag": "unrelated-sign" },
+    { "prompt": "commit these changes",                                 "should_trigger": false, "tag": "commit-distractor" }
+  ],
+  "output_quality_scenarios": []
+}

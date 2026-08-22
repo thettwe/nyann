@@ -217,3 +217,25 @@ setup() {
   run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-workspace-key.json"
   [ "$status" -eq 4 ]
 }
+
+# --- security block (v1.15.0) ------------------------------------------------
+
+@test "fixture: valid-security → exit 0 (full security block + iac_policy_dir)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/valid-security.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "fixture: invalid-security-mode → non-zero (unknown commit_signing mode)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-security-mode.json"
+  [ "$status" -ne 0 ]
+}
+
+@test "fixture: invalid-security-sbom-format → non-zero (unknown SBOM format)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-security-sbom-format.json"
+  [ "$status" -ne 0 ]
+}
+
+@test "fixture: invalid-security-extra-prop → non-zero (additionalProperties locked)" {
+  run bash "$VALIDATE" "${REPO_ROOT}/tests/fixtures/profiles/invalid-security-extra-prop.json"
+  [ "$status" -ne 0 ]
+}

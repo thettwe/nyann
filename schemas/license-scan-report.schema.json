@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nyann.dev/schemas/license-scan-report/v1.json",
+  "title": "LicenseScanReport",
+  "description": "Cross-stack dependency-license inventory + allowlist evaluation, produced by bin/license-scan.sh. Rows come from the per-stack collectors under bin/license-tools/ (each soft-skipping when its manifest or ecosystem CLI is absent — tools_skipped records which). An allowlist nudge, not an SCA product: violations are advisory findings carried by the opt-in license-allowlist guard and doctor's informational LICENSES section, never a block.",
+  "type": "object",
+  "required": ["enabled", "scanned", "tools_run", "tools_skipped", "packages_total", "violations", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "scanned": {
+      "type": "boolean",
+      "description": "True when at least one collector produced rows. False + enabled means no ecosystem tool was applicable/installed."
+    },
+    "tools_run": { "type": "array", "items": { "type": "string", "enum": ["js", "python", "go", "rust"] } },
+    "tools_skipped": { "type": "array", "items": { "type": "string", "enum": ["js", "python", "go", "rust"] } },
+    "packages_total": { "type": "integer", "minimum": 0 },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["package", "license", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "package": { "type": "string" },
+          "version": { "type": ["string", "null"] },
+          "license": { "type": ["string", "null"] },
+          "tool": { "type": "string" },
+          "reason": {
+            "type": "string",
+            "enum": ["not-allowlisted", "unknown-license"],
+            "description": "not-allowlisted = a declared license outside the allowlist; unknown-license = the tool could not determine one (never guessed)."
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "violations"],
+      "additionalProperties": false,
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "violations": { "type": "integer", "minimum": 0 },
+        "by_reason": { "type": "object", "additionalProperties": { "type": "integer" } }
+      }
+    }
+  }
+}

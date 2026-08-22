@@ -681,3 +681,27 @@ JSON
   [ "$rc" -eq 0 ] || [ "$rc" -eq 4 ]
   "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/fleet-run-result.schema.json" "$TMP/plan.json"
 }
+
+# --- Trust schemas (v1.15.0) -------------------------------------------------
+
+@test "license-scan-report schema: license-scan.sh emits a valid report" {
+  jq -n '{security: {license_check: {enabled: true}}}' > "$TMP/lic-profile.json"
+  validate_stdout_against license-scan-report.schema.json \
+    bash "${REPO_ROOT}/bin/license-scan.sh" --target "$REPO" --profile "$TMP/lic-profile.json"
+}
+
+@test "rotation-report schema: check-secret-rotation.sh emits a valid report" {
+  jq -n '{security: {rotation_reminder: {enabled: true, files: [".env.example"], max_age_days: 30}}}' > "$TMP/rot-profile.json"
+  validate_stdout_against rotation-report.schema.json \
+    bash "${REPO_ROOT}/bin/check-secret-rotation.sh" --target "$REPO" --profile "$TMP/rot-profile.json"
+}
+
+@test "signing-setup-record schema: setup-signing --apply writes a valid record" {
+  fake_home="$TMP/sign-home"
+  mkdir -p "$fake_home/.ssh"
+  echo "ssh-ed25519 AAAA t@k" > "$fake_home/.ssh/id_ed25519.pub"
+  env HOME="$fake_home" bash "${REPO_ROOT}/bin/setup-signing.sh" \
+    --target "$REPO" --mode ssh --apply >/dev/null 2>&1
+  "${VALIDATE[@]}" --schemafile "${REPO_ROOT}/schemas/signing-setup-record.schema.json" \
+    "$REPO/memory/.nyann/signing-setup.json"
+}

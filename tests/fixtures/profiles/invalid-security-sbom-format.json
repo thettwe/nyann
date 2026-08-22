@@ -1,0 +1,85 @@
+{
+  "$schema": "https://nyann.dev/schemas/profile/v1.json",
+  "name": "valid-security",
+  "description": "v1.15.0 Trust fixture: exercises the full optional security block — SBOM (spdx + release attachment), license allowlist with an exemption, ssh commit-signing mode, rotation reminders with a custom file set — plus the guards.iac_policy_dir override.",
+  "schemaVersion": 1,
+  "archetype": "library",
+  "stack": {
+    "primary_language": "typescript",
+    "framework": "none",
+    "package_manager": "npm"
+  },
+  "branching": {
+    "strategy": "github-flow",
+    "base_branches": [
+      "main"
+    ]
+  },
+  "hooks": {
+    "pre_commit": [
+      "block-main",
+      "gitleaks"
+    ],
+    "commit_msg": [
+      "conventional-commits"
+    ],
+    "pre_push": []
+  },
+  "extras": {
+    "gitignore": true,
+    "claude_md": true
+  },
+  "conventions": {
+    "commit_format": "conventional-commits"
+  },
+  "documentation": {
+    "scaffold_types": [
+      "architecture"
+    ],
+    "storage_strategy": "local",
+    "adr_format": "madr",
+    "claude_md_mode": "router",
+    "claude_md_size_budget_kb": 3
+  },
+  "guards": {
+    "pr": [
+      {
+        "name": "license-allowlist",
+        "severity": "advisory"
+      },
+      {
+        "name": "iac-policy",
+        "severity": "confirm"
+      }
+    ],
+    "iac_policy_dir": "infra/policies"
+  },
+  "security": {
+    "sbom": {
+      "enabled": true,
+      "format": "xml",
+      "attach_to_release": true
+    },
+    "license_check": {
+      "enabled": true,
+      "allowlist": [
+        "MIT",
+        "Apache-2.0"
+      ],
+      "ignore_packages": [
+        "internal-legacy-pkg"
+      ]
+    },
+    "commit_signing": {
+      "mode": "ssh"
+    },
+    "rotation_reminder": {
+      "enabled": true,
+      "files": [
+        ".env.example",
+        "deploy/*.pem"
+      ],
+      "max_age_days": 60
+    }
+  }
+}

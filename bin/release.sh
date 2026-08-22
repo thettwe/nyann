@@ -720,9 +720,14 @@ fi
 gh_release_json=""
 gh_release_outcome=""
 if $gh_release; then
-  gh_args=(--tag "$tag" --gh "$gh_bin")
+  gh_args=(--tag "$tag" --gh "$gh_bin" --target "$target")
   if [[ -n "$changelog_block" ]]; then
     gh_args+=(--changelog-block "$changelog_block")
+  fi
+  # Forward the profile so github-release.sh can honour
+  # security.sbom.attach_to_release (soft-skips without syft).
+  if [[ -n "$profile_path" && -f "$profile_path" ]]; then
+    gh_args+=(--profile "$profile_path")
   fi
   if $is_prerelease; then
     gh_args+=(--is-prerelease)

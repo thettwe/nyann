@@ -181,6 +181,33 @@ id_total=$(jq -r '.summary.total // 0' <<<"$iac_drift_json")
 id_critical=$(jq -r '.summary.by_severity.critical // 0' <<<"$iac_drift_json")
 id_high=$(jq -r '.summary.by_severity.high // 0' <<<"$iac_drift_json")
 
+# --- License allowlist probe (read-only) ------------------------------------
+# Cross-stack dependency-license inventory vs. the profile allowlist
+# (security.license_check). Advisory posture signal: surfaced as a
+# LICENSES section, score-isolated, never escalates the exit code. The
+# scan exits 0 with findings in the JSON, so the `|| echo '{}'` guard
+# only fires on hard errors.
+license_json=$("${_script_dir}/license-scan.sh" \
+  --target "$target" --profile "$tmp_profile" 2>/dev/null || echo '{}')
+if [[ -z "$license_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$license_json" 2>/dev/null || echo "")" != "object" ]]; then
+  license_json='{}'
+fi
+lc_enabled=$(jq -r '.enabled // false' <<<"$license_json")
+lc_violations=$(jq -r '.summary.violations // 0' <<<"$license_json")
+
+# --- Secret-rotation probe (read-only) ---------------------------------------
+# Age of tracked secret-bearing files (security.rotation_reminder) vs. the
+# rotation threshold. A REMINDER, not verification — informational only.
+rotation_json=$("${_script_dir}/check-secret-rotation.sh" \
+  --target "$target" --profile "$tmp_profile" 2>/dev/null || echo '{}')
+if [[ -z "$rotation_json" ]] || \
+   [[ "$(jq -r 'type' <<<"$rotation_json" 2>/dev/null || echo "")" != "object" ]]; then
+  rotation_json='{}'
+fi
+rot_enabled=$(jq -r '.enabled // false' <<<"$rotation_json")
+rot_stale=$(jq -r '.summary.stale // 0' <<<"$rotation_json")
+
 # --- Backgrounded sentinel probe (read-only) --------------------------------
 # Report any running / stale CI-sentinel daemon (v1.13.0 P8) so a
 # backgrounded watcher is never invisible — "doctor reports a running
@@ -221,7 +248,9 @@ if $json_out; then
     --argjson dd "$docs_drift_json" \
     --argjson id "$iac_drift_json" \
     --argjson sd "$sentinel_json" \
-    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd, iac_drift: $id, sentinel_daemons: $sd }'
+    --argjson ls "$license_json" \
+    --argjson rot "$rotation_json" \
+    '. + { health_score: $hs, protection_audit: $pa, stale_branches: $sb, docs_staleness: $ds, docs_drift: $dd, iac_drift: $id, sentinel_daemons: $sd, license_scan: $ls, secret_rotation: $rot }'
 else
   # Single compute-drift call replaces two retrofit.sh calls.
   report=$("${_script_dir}/compute-drift.sh" --target "$target" --profile "$tmp_profile" --scope "$scope") \
@@ -549,6 +578,23 @@ if ! $json_out; then
     elif (( id_high > 0 )) && (( retro_rc < 4 )); then
       retro_rc=4
     fi
+  fi
+  # Licenses — informational posture signal; never changes the exit code
+  # or the health score. Only rendered when the profile enables the check.
+  if [[ "$lc_enabled" == "true" ]] && (( lc_violations > 0 )); then
+    printf '\nLICENSES: %s package(s) outside the allowlist\n' "$lc_violations"
+    jq -r '.violations[] | "  ⚠ " + .package + (if .version then "@\(.version)" else "" end) + " — " + (.license // "?") + " (" + .reason + ")"' \
+      <<<"$license_json" 2>/dev/null | head -5
+    if (( lc_violations > 5 )); then
+      printf '  … and %s more (bin/license-scan.sh for the full report)\n' "$(( lc_violations - 5 ))"
+    fi
+  fi
+  # Secret rotation — a REMINDER (last-modified age), not verification;
+  # informational only, never an exit-code signal.
+  if [[ "$rot_enabled" == "true" ]] && (( rot_stale > 0 )); then
+    printf '\nSECRET ROTATION: %s file(s) last modified beyond the rotation threshold\n' "$rot_stale"
+    jq -r '.findings[] | "  ⚠ " + .file + " — last modified \(.age_days)d ago (threshold \(.max_age_days)d)"' \
+      <<<"$rotation_json" 2>/dev/null | head -5
   fi
   # Backgrounded sentinel — informational; never changes the exit code. A
   # running daemon is surfaced so the operator knows it's there; a stale one
